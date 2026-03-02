@@ -1,8 +1,26 @@
 {
   "name": "@cloudcruise/cli",
   "version": "0.1.0",
-  "description": "CloudCruise CLI for managing workflows and runs",
+  "description": "CLI for managing CloudCruise browser automation workflows and runs",
   "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/CloudCruise/cloudcruise-cli.git"
+  },
+  "homepage": "https://github.com/CloudCruise/cloudcruise-cli",
+  "bugs": {
+    "url": "https://github.com/CloudCruise/cloudcruise-cli/issues"
+  },
+  "keywords": [
+    "cloudcruise",
+    "cli",
+    "browser-automation",
+    "workflow",
+    "coding-agent",
+    "mcp",
+    "ai-agent"
+  ],
   "bin": {
     "cloudcruise": "./dist/bin/cloudcruise.js"
   },
@@ -10,7 +28,8 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
   },
   "files": [
     "dist",
