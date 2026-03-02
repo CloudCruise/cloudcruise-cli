@@ -1,0 +1,29 @@
+{
+  "name": "@cloudcruise/cli",
+  "version": "0.1.0",
+  "description": "CloudCruise CLI for managing workflows and runs",
+  "type": "module",
+  "bin": {
+    "cloudcruise": "./dist/bin/cloudcruise.js"
+  },
+  "main": "./dist/src/index.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "typecheck": "tsc --noEmit"
+  },
+  "files": [
+    "dist",
+    "skills"
+  ],
+  "dependencies": {
+    "commander": "^13.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
