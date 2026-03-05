@@ -60,6 +60,23 @@ cloudcruise run errors <workflow_id> --since 24h             # Error analytics (
 cloudcruise run snapshots <session_id> <node_id>             # Debug snapshots for a specific node
 ```
 
+### Snapshots
+
+Tools for downloading debug snapshots, auto-generating XPath selectors, and validating them against the page DOM. **Use these instead of manually downloading and searching HTML.**
+
+```bash
+cloudcruise snapshot fetch <session_id> <node_id>                  # Download HTML, screenshots, metadata to ./snapshots/
+cloudcruise snapshot fetch <session_id> <node_id> --output-dir dir # Custom output directory
+cloudcruise snapshot fetch <session_id> <node_id> --html           # Download only the HTML snapshot
+cloudcruise snapshot fetch <session_id> <node_id> --image          # Download only the screenshot(s)
+cloudcruise snapshot suggest <session_id> <node_id>                # Auto-suggest unique XPaths for all interactive elements
+cloudcruise snapshot suggest --file page.html                      # Suggest from a local HTML file
+cloudcruise snapshot suggest <sid> <nid> --filter input,button     # Only suggest for specific tags
+cloudcruise snapshot test "<xpath>" <session_id> <node_id>         # Test an XPath against a snapshot (check uniqueness)
+cloudcruise snapshot test "<xpath>" --file page.html               # Test against a local HTML file
+cloudcruise snapshot test "<xpath>" <sid> <nid> --count            # Only return match count
+```
+
 ## Workflow DSL Reference
 
 See `references/workflow-dsl.md` for the complete workflow DSL reference: all node types, parameters, edge structure, variable system, execution types, XPath best practices, data model schema extensions, and error classification.
@@ -100,12 +117,13 @@ cloudcruise workflows get <workflow_id> > workflow.json
 #    Failed runs often lack snapshots; --debug forces every node to capture one
 cloudcruise run start <workflow_id> --input '{}' --wait --debug
 
-# 3. Inspect -- examine BOTH the screenshot AND the HTML snapshot
-#    Always look at both: the screenshot shows what the user sees,
-#    the HTML snapshot shows the actual DOM for XPath debugging.
-cloudcruise run snapshots <new_session_id> <node_id>
-#    - Download the page_snapshot_url HTML and search for the failing selector's attributes
-#    - View the screenshot (error_screenshot: true) to understand the visual page state
+# 3. Inspect -- download artifacts and auto-generate correct selectors
+#    View the screenshot to understand the visual page state
+cloudcruise snapshot fetch <new_session_id> <failed_node_id>
+#    Auto-suggest XPaths for all interactive elements on the page
+cloudcruise snapshot suggest <new_session_id> <failed_node_id>
+#    Validate the new selector matches exactly 1 element before editing the workflow
+cloudcruise snapshot test "<new_xpath>" <new_session_id> <failed_node_id>
 
 # 4. Fix -- edit the workflow file, then push the update
 #    Edit workflow.json using file editing tools (targeted line replacements)
@@ -118,38 +136,56 @@ cloudcruise run start <workflow_id> --input '{}' --wait
 
 ## Working with Debug Snapshots
 
-Use the `node_id` from `run get` errors to target the right node:
+After a `--debug` run, use `snapshot` commands to inspect pages and generate XPaths. Use the `node_id` from `run get` errors or from the `--wait` event stream to target the right node.
 
 ```bash
-# Error tells you which node failed -- use its node_id
-cloudcruise run snapshots <session_id> <node_id>
+# Download HTML snapshot + screenshots + metadata to a local directory
+cloudcruise snapshot fetch <session_id> <node_id>
+cloudcruise snapshot fetch <session_id> <node_id> --output-dir ./my-snapshots
+
+# Auto-generate unique XPath selectors for every interactive element on the page
+cloudcruise snapshot suggest <session_id> <node_id>
+
+# Validate a specific XPath before adding it to the workflow
+cloudcruise snapshot test "//input[@name='email']" <session_id> <node_id>
 ```
 
-The response contains:
+**`snapshot suggest`** returns JSON with each element's tag, suggested XPath, whether it's unique (`match_count === 1`), alternative XPaths, meaningful attributes, and visible text. Use this to pick selectors for STATIC execution nodes. The suggest engine prioritizes `@name`, `@id`, `@data-qa`/`@data-testid`, `@aria-label`, `@placeholder`, and visible text -- and filters out generated IDs and non-semantic classes automatically.
 
-- `page_snapshot_url` -- signed URL to an HTML snapshot of the page DOM at that node. Essential for diagnosing XPath/selector issues -- search for the attributes referenced in the failing selector.
-- `screenshots` -- signed image URLs. Look for `error_screenshot: true` to find the screenshot taken at the moment of failure.
+**`snapshot test`** confirms an XPath matches exactly one element (`unique: true`). Always test selectors before pushing a workflow update to avoid wasted runs.
 
-**Always examine both artifacts.** The screenshot tells you what the page looks like (is the element visible? is there a popup blocking it? is it a different page than expected?). The HTML snapshot tells you the actual DOM structure (does the element exist? do the attributes match the selector?).
+**Also view the screenshot** (saved by `snapshot fetch` to the output directory) to understand the visual page state -- is the element visible? is there a popup blocking it? is it a different page than expected?
 
-If `page_snapshot_url` is null, the run was not executed with `--debug`. Re-run with `--debug` to capture snapshots (see Error-Fix-Verify Loop step 2).
+If `snapshot fetch` reports no HTML snapshot, the run was not executed with `--debug`. Re-run with `--debug` to capture snapshots (see Error-Fix-Verify Loop step 2).
 
-**Fetching and reading the page snapshot:**
+## Building New Workflows
 
-The `page_snapshot_url` is a signed URL -- you must download it to read the content. Page snapshots can be very large (thousands of lines of HTML). Save to a file and search targeted sections rather than reading the entire file.
+Iterative pattern for building a workflow from scratch:
 
 ```bash
-curl -sL "<page_snapshot_url>" > snapshot.html
+# 1. Start with a minimal workflow: START (target URL) → END
+#    Run with --debug to capture a snapshot of the landing page
+cloudcruise run start <workflow_id> --input '{}' --wait --debug
 
-# Search for the failing selector to understand why it didn't match
-# Example: if the error mentions an XPath with placeholder='Username'
-grep -n "Username" snapshot.html
-grep -n "placeholder" snapshot.html
+# 2. Discover interactive elements and their XPaths on the page
+cloudcruise snapshot suggest <session_id> <start_node_id>
 
-# Read specific line ranges around matches to understand the DOM structure
+# 3. Pick selectors from the suggest output and validate them
+cloudcruise snapshot test "//input[@name='email']" <session_id> <start_node_id>
+
+# 4. Add the next node(s) to the workflow using the validated XPaths
+#    Generate UUIDs: cloudcruise utils uuid
+#    Edit workflow.json, push with: cloudcruise workflows update ... --version-note "..."
+
+# 5. Run again with --debug to capture the next page state after the new nodes
+cloudcruise run start <workflow_id> --input '{}' --wait --debug
+
+# 6. Repeat: suggest → test → add nodes → run → suggest ...
+#    Use snapshot suggest on the LAST node's snapshot to discover what's on the new page.
+#    Continue until the workflow completes the full task.
 ```
 
-Focus on searching for the element attributes referenced in the failing action's XPath or selector (aria-label, placeholder, id, type, etc.) to determine if the element exists, has different attributes, or is in a different location than expected.
+Each iteration adds one or a few nodes, then runs to capture the next page state. Use `snapshot suggest` on the last node's snapshot to discover what's available on the new page, then `snapshot test` to validate before committing.
 
 ## Key Details
 

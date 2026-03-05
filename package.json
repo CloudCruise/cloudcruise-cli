@@ -1,6 +1,6 @@
 {
   "name": "@cloudcruise/cli",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "CLI for managing CloudCruise browser automation workflows and runs",
   "type": "module",
   "license": "MIT",
@@ -36,7 +36,9 @@
     "skills"
   ],
   "dependencies": {
-    "commander": "^13.0.0"
+    "commander": "^13.0.0",
+    "fontoxpath": "^3.34.0",
+    "linkedom": "^0.18.12"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
