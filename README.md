@@ -1,7 +1,6 @@
 # CloudCruise CLI
 
-CLI for managing [CloudCruise](https://cloudcruise.com) browser automation workflows and runs. Designed for coding agents to diagnose, fix, and verify workflow failures.
-
+CLI for managing [CloudCruise](https://cloudcruise.com) browser automation workflows and runs. Designed for coding agents to fix and edit CloudCruise workflows.
 ## Install
 
 ```bash
