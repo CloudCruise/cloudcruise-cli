@@ -14,6 +14,16 @@ npm install -g @cloudcruise/cli
 cloudcruise auth login --api-key "sk_..."
 ```
 
+## Coding Agent Integration
+
+Install skill files so your coding agent has the full CLI and workflow DSL reference:
+
+```bash
+cloudcruise install --skills                  # Claude Code + Cursor
+cloudcruise install --skills --target claude   # Claude Code only
+cloudcruise install --skills --target cursor   # Cursor only
+```
+
 ## Quick Start
 
 ```bash
@@ -50,16 +60,6 @@ cloudcruise snapshot test '//button[@id="submit"]' <session_id> <node_id>
 # Work with a local HTML file instead of fetching from the API
 cloudcruise snapshot suggest --file ./snapshots/page.html
 cloudcruise snapshot test '//input[@name="email"]' --file ./snapshots/page.html
-```
-
-## Coding Agent Integration
-
-Install skill files so your coding agent has the full CLI and workflow DSL reference:
-
-```bash
-cloudcruise install --skills                  # Claude Code + Cursor
-cloudcruise install --skills --target claude   # Claude Code only
-cloudcruise install --skills --target cursor   # Cursor only
 ```
 
 ## All Commands
