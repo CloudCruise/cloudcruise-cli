@@ -33,6 +33,25 @@ cloudcruise run get <session_id>
 cloudcruise workflows update <workflow_id> --file workflow.json --version-note "Fixed login selector"
 ```
 
+## Debugging with Snapshots
+
+After a `--debug` run, use snapshot commands to diagnose failures:
+
+```bash
+# Download HTML snapshot, screenshots, and metadata for a node
+cloudcruise snapshot fetch <session_id> <node_id>
+
+# Suggest unique XPath selectors for interactive elements
+cloudcruise snapshot suggest <session_id> <node_id>
+
+# Test an XPath selector against a snapshot
+cloudcruise snapshot test '//button[@id="submit"]' <session_id> <node_id>
+
+# Work with a local HTML file instead of fetching from the API
+cloudcruise snapshot suggest --file ./snapshots/page.html
+cloudcruise snapshot test '//input[@name="email"]' --file ./snapshots/page.html
+```
+
 ## Coding Agent Integration
 
 Install skill files so your coding agent has the full CLI and workflow DSL reference:
@@ -45,21 +64,24 @@ cloudcruise install --skills --target cursor   # Cursor only
 
 ## All Commands
 
-| Command                        | Description                           |
-| ------------------------------ | ------------------------------------- |
-| `auth login`                   | Save API key                          |
-| `auth status`                  | Check authentication                  |
-| `auth logout`                  | Remove credentials                    |
-| `workflows get <id>`           | Get workflow definition               |
-| `workflows update <id>`        | Update workflow (new version)         |
-| `run start <id>`               | Start a run                           |
-| `run get <id>`                 | Get run status and results            |
-| `run list`                     | List runs with filters                |
-| `run interrupt <id>`           | Stop a running session                |
-| `run errors <id>`              | Error analytics                       |
-| `run snapshots <id> <node_id>` | Debug snapshots                       |
-| `utils uuid`                   | Generate UUIDs for node IDs           |
-| `install --skills`             | Install skill files for coding agents |
+| Command                                          | Description                                |
+| ------------------------------------------------ | ------------------------------------------ |
+| `auth login`                                     | Save API key                               |
+| `auth status`                                    | Check authentication                       |
+| `auth logout`                                    | Remove credentials                         |
+| `workflows get <id>`                             | Get workflow definition                    |
+| `workflows update <id>`                          | Update workflow (new version)              |
+| `run start <id>`                                 | Start a run (`--wait`, `--debug`)          |
+| `run get <id>`                                   | Get run status and results                 |
+| `run list`                                       | List runs with filters                     |
+| `run interrupt <id>`                             | Stop a running session                     |
+| `run errors <id>`                                | Error analytics                            |
+| `run snapshots <id> <node_id>`                   | Get debug snapshot metadata                |
+| `snapshot fetch <session_id> <node_id>`          | Download HTML, screenshots, and metadata   |
+| `snapshot suggest [session_id] [node_id]`        | Suggest unique XPath selectors             |
+| `snapshot test <xpath> [session_id] [node_id]`   | Test an XPath selector against a snapshot  |
+| `utils uuid`                                     | Generate UUIDs for node IDs                |
+| `install --skills`                               | Install skill files for coding agents      |
 
 ## License
 
