@@ -1,6 +1,6 @@
 {
   "name": "@cloudcruise/cli",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "CLI for managing CloudCruise browser automation workflows and runs",
   "type": "module",
   "license": "MIT",
