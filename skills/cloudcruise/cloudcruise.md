@@ -118,8 +118,10 @@ cloudcruise workflows get <workflow_id> > workflow.json
 cloudcruise run start <workflow_id> --input '{}' --wait --debug
 
 # 3. Inspect -- download artifacts and auto-generate correct selectors
-#    View the screenshot to understand the visual page state
+#    The failed node's snapshot shows the page state when it started executing
+#    (i.e., the post-action state of the previous node -- this is what you want).
 cloudcruise snapshot fetch <new_session_id> <failed_node_id>
+#    View the screenshot to understand the visual page state
 #    Auto-suggest XPaths for all interactive elements on the page
 cloudcruise snapshot suggest <new_session_id> <failed_node_id>
 #    Validate the new selector matches exactly 1 element before editing the workflow
@@ -158,6 +160,8 @@ cloudcruise snapshot test "//input[@name='email']" <session_id> <node_id>
 
 If `snapshot fetch` reports no HTML snapshot, the run was not executed with `--debug`. Re-run with `--debug` to capture snapshots (see Error-Fix-Verify Loop step 2).
 
+**Snapshot timing:** Debug snapshots capture the page state *when a node starts executing*, which is the post-action state of the *previous* node. To discover elements that appeared after a node's action (e.g., a dropdown that rendered after clicking a menu button), inspect the *next* node's snapshot, not the current node's. On successful runs, the END node's snapshot shows the final page state after all preceding actions. On errored runs, the END node has no snapshot because execution never reached it -- use the *failed* node's snapshot instead (it captures the page state when the failure occurred).
+
 ## Building New Workflows
 
 Iterative pattern for building a workflow from scratch:
@@ -167,11 +171,12 @@ Iterative pattern for building a workflow from scratch:
 #    Run with --debug to capture a snapshot of the landing page
 cloudcruise run start <workflow_id> --input '{}' --wait --debug
 
-# 2. Discover interactive elements and their XPaths on the page
-cloudcruise snapshot suggest <session_id> <start_node_id>
+# 2. Discover interactive elements on the landing page
+#    Use the END node's snapshot -- it captures the page state AFTER all preceding nodes ran.
+cloudcruise snapshot suggest <session_id> <end_node_id>
 
 # 3. Pick selectors from the suggest output and validate them
-cloudcruise snapshot test "//input[@name='email']" <session_id> <start_node_id>
+cloudcruise snapshot test "//input[@name='email']" <session_id> <end_node_id>
 
 # 4. Add the next node(s) to the workflow using the validated XPaths
 #    Generate UUIDs: cloudcruise utils uuid
@@ -181,8 +186,10 @@ cloudcruise snapshot test "//input[@name='email']" <session_id> <start_node_id>
 cloudcruise run start <workflow_id> --input '{}' --wait --debug
 
 # 6. Repeat: suggest → test → add nodes → run → suggest ...
-#    Use snapshot suggest on the LAST node's snapshot to discover what's on the new page.
-#    Continue until the workflow completes the full task.
+#    On success: use the END node's snapshot to discover what's on the new page.
+#    On failure: use the FAILED node's snapshot -- it has the page state when the
+#    failure occurred (post-action state of the previous node). The END node has
+#    no snapshot on errored runs because execution never reached it.
 ```
 
 Each iteration adds one or a few nodes, then runs to capture the next page state. Use `snapshot suggest` on the last node's snapshot to discover what's available on the new page, then `snapshot test` to validate before committing.
