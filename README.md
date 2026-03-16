@@ -13,6 +13,19 @@ npm install -g @cloudcruise/cli
 cloudcruise auth login --api-key "sk_..."
 ```
 
+### Multiple Profiles
+
+Store separate credentials for different environments:
+
+```bash
+cloudcruise auth login --api-key "sk_prod_..." --profile prod-readonly
+cloudcruise auth login --api-key "sk_dev_..."  --profile dev --base-url http://localhost:8000
+
+cloudcruise auth profiles          # list all profiles
+cloudcruise auth switch dev        # change default profile
+cloudcruise workflows list --profile prod-readonly   # one-off override
+```
+
 ## Coding Agent Integration
 
 Install skill files so your coding agent has the full CLI and workflow DSL reference:
@@ -68,9 +81,11 @@ cloudcruise snapshot test '//input[@name="email"]' --file ./snapshots/page.html
 
 | Command                                          | Description                                |
 | ------------------------------------------------ | ------------------------------------------ |
-| `auth login`                                     | Save API key                               |
-| `auth status`                                    | Check authentication                       |
-| `auth logout`                                    | Remove credentials                         |
+| `auth login`                                     | Save API key (`--profile <name>`)          |
+| `auth status`                                    | Check authentication (`--profile <name>`)  |
+| `auth logout`                                    | Remove credentials (`--profile`, `--all`)  |
+| `auth switch <name>`                             | Set the active profile                     |
+| `auth profiles`                                  | List all profiles                          |
 | `workflows list`                                 | List all workflows in your workspace       |
 | `workflows get <id>`                             | Get workflow definition                    |
 | `workflows update <id>`                          | Update workflow (new version)              |
