@@ -38,7 +38,8 @@
   "dependencies": {
     "commander": "^13.0.0",
     "fontoxpath": "^3.34.0",
-    "linkedom": "^0.18.12"
+    "linkedom": "^0.18.12",
+    "update-notifier": "^7.3.1"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
