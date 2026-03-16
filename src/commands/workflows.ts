@@ -8,6 +8,39 @@ export function registerWorkflowCommands(program: Command): void {
   const workflows = program.command("workflows").description("Manage workflows")
 
   workflows
+    .command("list")
+    .description("List all workflows in your workspace")
+    .option("--full", "Show all fields (default shows summary only)")
+    .option("--api-key <key>", "CloudCruise API key")
+    .option("--base-url <url>", "Base URL")
+    .action(
+      async (opts: { full?: boolean; apiKey?: string; baseUrl?: string }) => {
+        try {
+          const auth = resolveAuth(opts)
+          const client = new ApiClient(auth)
+          const data = await client.get<Record<string, unknown>[]>(
+            "/workflows"
+          )
+          if (opts.full) {
+            outputJson(data)
+          } else {
+            const summary = data.map((w) => ({
+              id: w.id,
+              name: w.name,
+              description: w.description,
+              created_at: w.created_at,
+              updated_at: w.updated_at
+            }))
+            outputJson(summary)
+          }
+        } catch (err: unknown) {
+          outputError(err instanceof Error ? err.message : String(err))
+          process.exit(1)
+        }
+      }
+    )
+
+  workflows
     .command("get <id>")
     .description("Get workflow with nodes")
     .option("--api-key <key>", "CloudCruise API key")

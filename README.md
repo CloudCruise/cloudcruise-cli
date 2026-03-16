@@ -26,6 +26,9 @@ cloudcruise install --skills --target cursor   # Cursor only
 ## Quick Start
 
 ```bash
+# List all workflows in your workspace
+cloudcruise workflows list
+
 # Get a workflow
 cloudcruise workflows get <workflow_id> > workflow.json
 
@@ -68,6 +71,7 @@ cloudcruise snapshot test '//input[@name="email"]' --file ./snapshots/page.html
 | `auth login`                                     | Save API key                               |
 | `auth status`                                    | Check authentication                       |
 | `auth logout`                                    | Remove credentials                         |
+| `workflows list`                                 | List all workflows in your workspace       |
 | `workflows get <id>`                             | Get workflow definition                    |
 | `workflows update <id>`                          | Update workflow (new version)              |
 | `run start <id>`                                 | Start a run (`--wait`, `--debug`)          |
