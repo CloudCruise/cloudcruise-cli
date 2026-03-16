@@ -1,4 +1,4 @@
-import { loadConfig } from "./config.js";
+import { loadProfile, resolveProfileName } from "./config.js";
 
 export interface ResolvedAuth {
   apiKey: string;
@@ -10,21 +10,23 @@ const DEFAULT_BASE_URL = "https://api.cloudcruise.com";
 export function resolveAuth(options: {
   apiKey?: string;
   baseUrl?: string;
+  profile?: string;
 }): ResolvedAuth {
-  const config = loadConfig();
+  const profileName = resolveProfileName(options.profile);
+  const profile = loadProfile(profileName);
 
   const apiKey =
-    options.apiKey || process.env.CLOUDCRUISE_API_KEY || config.apiKey;
+    options.apiKey || process.env.CLOUDCRUISE_API_KEY || profile.apiKey;
   if (!apiKey) {
     throw new Error(
-      "No API key found. Set CLOUDCRUISE_API_KEY, use --api-key, or run: cloudcruise auth login --api-key <key>",
+      `No API key found for profile "${profileName}". Set CLOUDCRUISE_API_KEY, use --api-key, or run: cloudcruise auth login --api-key <key> --profile ${profileName}`,
     );
   }
 
   const baseUrl =
     options.baseUrl ||
     process.env.CLOUDCRUISE_BASE_URL ||
-    config.baseUrl ||
+    profile.baseUrl ||
     DEFAULT_BASE_URL;
 
   return { apiKey, baseUrl };
