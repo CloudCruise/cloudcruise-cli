@@ -12,6 +12,7 @@ import { homedir } from "os"
 export interface ProfileConfig {
   apiKey?: string
   baseUrl?: string
+  encryptionKey?: string
 }
 
 export interface CliConfig {

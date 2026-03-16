@@ -22,15 +22,29 @@ export function registerAuthCommands(program: Command): void {
   auth
     .command("login")
     .description("Save API key to a profile")
-    .requiredOption("--api-key <key>", "CloudCruise API key")
+    .option("--api-key <key>", "CloudCruise API key")
     .option("--base-url <url>", "Base URL for CloudCruise API")
+    .option("--encryption-key <key>", "Hex-encoded AES-256 encryption key for vault operations")
     .option("--profile <name>", "Profile name (default: active profile or \"default\")")
     .action(
-      (opts: { apiKey: string; baseUrl?: string; profile?: string }) => {
+      (opts: { apiKey?: string; baseUrl?: string; encryptionKey?: string; profile?: string }) => {
         try {
           const profileName = resolveProfileName(opts.profile);
-          const profile: ProfileConfig = { apiKey: opts.apiKey };
+          const existing = loadProfile(profileName);
+          if (!opts.apiKey && !opts.encryptionKey && !opts.baseUrl) {
+            throw new Error(
+              "Provide at least one of --api-key, --encryption-key, or --base-url"
+            );
+          }
+          if (!opts.apiKey && !existing.apiKey) {
+            throw new Error(
+              "No existing API key for this profile. Provide --api-key on first login."
+            );
+          }
+          const profile: ProfileConfig = { ...existing };
+          if (opts.apiKey) profile.apiKey = opts.apiKey;
           if (opts.baseUrl) profile.baseUrl = opts.baseUrl;
+          if (opts.encryptionKey) profile.encryptionKey = opts.encryptionKey;
           saveProfile(profileName, profile);
           outputJson({
             status: "ok",
@@ -50,7 +64,8 @@ export function registerAuthCommands(program: Command): void {
     .option("--api-key <key>", "CloudCruise API key")
     .option("--base-url <url>", "Base URL")
     .option("--profile <name>", "Profile to check")
-    .action((opts: { apiKey?: string; baseUrl?: string; profile?: string }) => {
+    .option("--encryption-key <key>", "Encryption key override")
+    .action((opts: { apiKey?: string; baseUrl?: string; profile?: string; encryptionKey?: string }) => {
       try {
         const profileName = resolveProfileName(opts.profile);
         const profile = loadProfile(profileName);
@@ -64,12 +79,17 @@ export function registerAuthCommands(program: Command): void {
               ? "config_file"
               : "none";
         const masked = key ? maskKey(key) : null;
+        const encKey =
+          opts.encryptionKey ||
+          process.env.CLOUDCRUISE_ENCRYPTION_KEY ||
+          profile.encryptionKey;
         const allProfiles = listProfiles();
         outputJson({
           authenticated: !!key,
           profile: profileName,
           source,
           api_key: masked,
+          encryption_key: encKey ? maskKey(encKey) : null,
           base_url:
             opts.baseUrl ||
             process.env.CLOUDCRUISE_BASE_URL ||
@@ -131,6 +151,7 @@ export function registerAuthCommands(program: Command): void {
             name,
             active: name === active,
             api_key: p.apiKey ? maskKey(p.apiKey) : null,
+            encryption_key: p.encryptionKey ? maskKey(p.encryptionKey) : null,
             base_url: p.baseUrl ?? null,
           };
         });
