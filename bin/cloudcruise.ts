@@ -11,7 +11,7 @@ import { registerSnapshotCommands } from "../src/commands/snapshot.js"
 program
   .name("cloudcruise")
   .description("CloudCruise CLI for managing workflows and runs")
-  .version("0.1.6")
+  .version("0.1.7")
 
 registerAuthCommands(program)
 registerWorkflowCommands(program)
