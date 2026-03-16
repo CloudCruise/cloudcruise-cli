@@ -26,7 +26,9 @@ cloudcruise install --skills --target cursor   # Cursor only (.cursor/rules/clou
 ### Auth
 
 ```bash
-cloudcruise auth login --api-key "sk_..."   # Save credentials
+cloudcruise auth login --api-key "sk_..." --encryption-key "hex..."  # Save credentials + vault key
+cloudcruise auth login --api-key "sk_..."                            # Save credentials (no vault key)
+cloudcruise auth login --encryption-key "hex..." --profile <name>    # Add vault key to existing profile
 cloudcruise auth status                      # Check auth (masked key, source)
 cloudcruise auth logout                      # Remove saved credentials
 ```
@@ -75,6 +77,23 @@ cloudcruise snapshot suggest <sid> <nid> --filter input,button     # Only sugges
 cloudcruise snapshot test "<xpath>" <session_id> <node_id>         # Test an XPath against a snapshot (check uniqueness)
 cloudcruise snapshot test "<xpath>" --file page.html               # Test against a local HTML file
 cloudcruise snapshot test "<xpath>" <sid> <nid> --count            # Only return match count
+```
+
+### Vault
+
+```bash
+cloudcruise vault list                                              # List all vault entries (summary)
+cloudcruise vault list --full                                       # List with all fields
+cloudcruise vault get --user-id <id> --domain <domain>              # Get entry (encrypted fields)
+cloudcruise vault get --user-id <id> --domain <domain> --decrypt    # Get entry (plaintext)
+cloudcruise vault create --user-id <id> --domain <domain> \
+  --user-name <name> --password <pass>                              # Create with auto-encrypt
+cloudcruise vault update --user-id <id> --domain <domain> \
+  --password <new_pass>                                             # Update specific fields
+cloudcruise vault create --stdin < payload.json                     # Create from pre-encrypted JSON
+cloudcruise vault encrypt "plaintext"                               # Encrypt a value (no API call)
+cloudcruise vault decrypt "ciphertext"                              # Decrypt a value (no API call)
+echo "secret" | cloudcruise vault encrypt --stdin                   # Encrypt from stdin
 ```
 
 ## Workflow DSL Reference
@@ -200,6 +219,110 @@ Each iteration adds one or a few nodes, then runs to capture the next page state
 - `run start --wait` prints NDJSON events to stdout, then the final run result. Exit code 0 = success, 1 = failure.
 - `run errors --since` accepts duration strings: `24h`, `7d`, `30m`
 - `workflows update` requires: nodes, edges, name, input_schema, output_schema, max_retries. Keep all other mutable fields from the GET response (e.g., description, enable_xpath_recovery, proxy_setting).
-- Strip read-only fields before updating: id, version_id, version_number, created_at, created_by, workspace_id, loginStructure. The PUT endpoint rejects these.
-- All commands accept `--api-key` and `--base-url` overrides
+- Strip read-only fields before updating: id, version_id, version_number, created_at, created_by, workspace_id, loginStructure, updated_at, workflow_id. The PUT endpoint rejects these.
+- All commands accept `--api-key`, `--base-url`, and `--encryption-key` overrides
 - Auth resolution: `--api-key` flag > `CLOUDCRUISE_API_KEY` env > `~/.cloudcruise/config.json`
+- Encryption key resolution: `--encryption-key` flag > `CLOUDCRUISE_ENCRYPTION_KEY` env > profile config
+
+## Working with Vault Credentials
+
+The vault stores encrypted credentials for browser automation workflows. Three fields are encrypted client-side: `user_name`, `password`, `tfa_secret`. The CLI handles encryption/decryption automatically.
+
+**Encryption key setup** -- required for vault create, update, get --decrypt, encrypt, and decrypt:
+
+```bash
+cloudcruise auth login --api-key "sk_..." --encryption-key "hex..."
+# Or set CLOUDCRUISE_ENCRYPTION_KEY environment variable
+# Or pass --encryption-key on each command
+```
+
+The encryption key is a 64-character hex string (256-bit AES key) from [workspace settings](https://app.cloudcruise.com/settings/encryption-keys).
+
+**Two paths for create/update:**
+
+- **Flag-driven** (plaintext flags, CLI encrypts automatically):
+  `vault create --user-id X --domain Y --user-name "user" --password "pass"`
+- **JSON payload** (`--file`/`--stdin`, assumed pre-encrypted):
+  Use `vault encrypt` to prepare individual fields, then assemble the JSON.
+
+**Pre-encrypted JSON payload example** (for `--file`/`--stdin`):
+
+```bash
+# Encrypt each field with `vault encrypt` (default mode, SDK-compatible)
+ENC_USER=$(cloudcruise vault encrypt "user@example.com" | jq -r .ciphertext)
+ENC_PASS=$(cloudcruise vault encrypt "s3cret" | jq -r .ciphertext)
+
+# Assemble the JSON and pipe to vault create
+echo '{"permissioned_user_id":"my-user","domain":"https://app.example.com","user_name":"'$ENC_USER'","password":"'$ENC_PASS'"}' \
+  | cloudcruise vault create --stdin
+```
+
+**IMPORTANT:** Always use `vault encrypt` without `--raw` for pre-encrypted payloads. The `--raw` flag skips JSON serialization and produces ciphertext the vault API will reject (401). The default mode wraps values in JSON before encrypting, which is required for SDK compatibility.
+
+**Important details:**
+
+- The API field is `user_name` (not `username`). Use the `--user-name` flag.
+- Vault entries are looked up by `--user-id` + `--domain`, not by UUID.
+- `vault list` returns summary fields only: `id`, `permissioned_user_id`, `domain`, `user_alias`, `created_at`. Use `--full` for all fields.
+- `vault get` returns encrypted fields by default. Add `--decrypt` for plaintext.
+- The `--domain` must be a valid URL. `localhost` domains are rejected -- use `http://127.0.0.1:<port>` instead.
+- The vault_schema `domain` and the vault entry `domain` must match exactly. The domain is for credential matching, not navigation.
+- Session/persistence fields (`cookies`, `local_storage`, `persist_*`, concurrency settings, expiry) have no dedicated flags -- use `--file`/`--stdin` with full JSON.
+- Secret flags (`--password`, `--user-name`, `--tfa-secret`) are visible in `ps` output. Use `--stdin` or `--file` for sensitive values.
+
+## Credential Setup for Workflows
+
+Pattern for creating vault credentials and wiring them into a workflow:
+
+```bash
+# 1. Create a credential
+cloudcruise vault create \
+  --user-id "my-app-user" \
+  --domain "https://app.example.com" \
+  --user-name "user@example.com" \
+  --password "s3cret"
+
+# 2. Wire the credential into the workflow's vault_schema and run_input_variables
+#    vault_schema maps an alias to a domain:
+#      { "USER": { "type": "credential", "domain": "app.example.com" } }
+#    run_input_variables maps the alias to a permissioned_user_id:
+#      { "USER": "my-app-user" }
+
+# 3. Run the workflow with the credential
+cloudcruise run start <workflow_id> --input '{"USER": "my-app-user"}' --wait
+```
+
+**Workflow node template syntax for vault credentials:**
+
+Nodes reference vault credentials via `{{context.inputs.ALIAS.FIELD}}` where `ALIAS` is the vault_schema key and `FIELD` is `USER_NAME`, `PASSWORD`, or `TFA_SECRET` (uppercase).
+
+Example INPUT_TEXT node using vault credentials:
+
+```json
+{
+  "id": "<uuid>",
+  "name": "Enter username",
+  "action": "INPUT_TEXT",
+  "parameters": {
+    "selector": "//input[@name='email']",
+    "text": "{{context.inputs.USER.USER_NAME}}",
+    "execution": "STATIC"
+  }
+}
+```
+
+**IMPORTANT: `encrypted_keys` field.** When a workflow uses vault credentials in `input_variables`, the workflow must declare which input keys contain encrypted vault references in the `encrypted_keys` array. Without this, the runtime won't decrypt the credentials before injecting them into nodes.
+
+```json
+{
+  "input_variables": { "USER": "my-app-user" },
+  "encrypted_keys": ["USER"],
+  "vault_schema": { "USER": { "type": "credential", "domain": "app.example.com" } }
+}
+```
+
+**Switching credentials** is as simple as changing the `--input` value to a different `permissioned_user_id`:
+
+```bash
+cloudcruise run start <workflow_id> --input '{"USER": "other-user-id"}' --wait
+```

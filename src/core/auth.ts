@@ -3,6 +3,7 @@ import { loadProfile, resolveProfileName } from "./config.js";
 export interface ResolvedAuth {
   apiKey: string;
   baseUrl: string;
+  encryptionKey?: string;
 }
 
 const DEFAULT_BASE_URL = "https://api.cloudcruise.com";
@@ -11,6 +12,7 @@ export function resolveAuth(options: {
   apiKey?: string;
   baseUrl?: string;
   profile?: string;
+  encryptionKey?: string;
 }): ResolvedAuth {
   const profileName = resolveProfileName(options.profile);
   const profile = loadProfile(profileName);
@@ -29,5 +31,20 @@ export function resolveAuth(options: {
     profile.baseUrl ||
     DEFAULT_BASE_URL;
 
-  return { apiKey, baseUrl };
+  const encryptionKey =
+    options.encryptionKey ||
+    process.env.CLOUDCRUISE_ENCRYPTION_KEY ||
+    profile.encryptionKey ||
+    undefined;
+
+  return { apiKey, baseUrl, encryptionKey };
+}
+
+export function requireEncryptionKey(auth: ResolvedAuth): string {
+  if (!auth.encryptionKey) {
+    throw new Error(
+      "No encryption key found. Set CLOUDCRUISE_ENCRYPTION_KEY, use --encryption-key, or run: cloudcruise auth login --api-key <key> --encryption-key <hex>",
+    );
+  }
+  return auth.encryptionKey;
 }
