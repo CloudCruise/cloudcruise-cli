@@ -74,6 +74,19 @@ export class ApiClient {
     return res.json() as Promise<T>
   }
 
+  async patch<T = unknown>(path: string, body: unknown): Promise<T> {
+    const res = await fetch(this.url(path), {
+      method: "PATCH",
+      headers: this.headers(),
+      body: JSON.stringify(body)
+    })
+    if (!res.ok) {
+      const text = await res.text()
+      throw new Error(`PATCH ${path} failed (${res.status}): ${text}`)
+    }
+    return res.json() as Promise<T>
+  }
+
   sseUrl(path: string): string {
     return this.url(path)
   }

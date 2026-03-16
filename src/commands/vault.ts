@@ -283,6 +283,33 @@ export function registerVaultCommands(program: Command): void {
     }
   )
 
+  // vault clear-state
+  addAuthOptions(
+    vault
+      .command("clear-state")
+      .description("Clear stored browser state (cookies, localStorage, sessionStorage) for a vault entry")
+      .requiredOption("--user-id <id>", "Permissioned user ID")
+      .requiredOption("--domain <domain>", "Target domain")
+  ).action(
+    async (opts: { userId: string; domain: string } & AuthOptions) => {
+      try {
+        const auth = resolveAuth(opts)
+        const client = new ApiClient(auth)
+        const data = await client.patch<{ success: boolean }>(
+          "/vault/clear-browser-state",
+          {
+            permissioned_user_id: opts.userId,
+            domain: opts.domain,
+          }
+        )
+        outputJson(data)
+      } catch (err: unknown) {
+        outputError(err instanceof Error ? err.message : String(err))
+        process.exit(1)
+      }
+    }
+  )
+
   // vault encrypt
   addAuthOptions(
     vault
