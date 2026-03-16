@@ -91,6 +91,7 @@ cloudcruise vault create --user-id <id> --domain <domain> \
 cloudcruise vault update --user-id <id> --domain <domain> \
   --password <new_pass>                                             # Update specific fields
 cloudcruise vault create --stdin < payload.json                     # Create from pre-encrypted JSON
+cloudcruise vault clear-state --user-id <id> --domain <domain>       # Clear browser state (force fresh login)
 cloudcruise vault encrypt "plaintext"                               # Encrypt a value (no API call)
 cloudcruise vault decrypt "ciphertext"                              # Decrypt a value (no API call)
 echo "secret" | cloudcruise vault encrypt --stdin                   # Encrypt from stdin
