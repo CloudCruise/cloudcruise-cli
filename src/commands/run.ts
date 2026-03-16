@@ -9,7 +9,7 @@ import { addAuthOptions, type AuthOptions } from "../core/auth-options.js"
 const TERMINAL_STATUSES = [
   "execution.success",
   "execution.failed",
-  "execution.interrupted"
+  "execution.stopped"
 ]
 
 function parseSince(since: string): Date {
