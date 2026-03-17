@@ -56,6 +56,18 @@ export function registerWorkflowCommands(program: Command): void {
     }
   })
 
+  const READONLY_FIELDS = [
+    "id",
+    "version_id",
+    "version_number",
+    "created_at",
+    "created_by",
+    "updated_at",
+    "workspace_id",
+    "workflow_id",
+    "loginStructure",
+  ]
+
   addAuthOptions(
     workflows
       .command("update <id>")
@@ -84,6 +96,10 @@ export function registerWorkflowCommands(program: Command): void {
           body = JSON.parse(readFileSync(opts.file, "utf-8"))
         } else {
           throw new Error("Provide --file <path> or --stdin")
+        }
+
+        for (const field of READONLY_FIELDS) {
+          delete body[field]
         }
 
         if (opts.versionNote) {

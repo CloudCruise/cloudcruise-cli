@@ -117,9 +117,8 @@ cloudcruise workflows get <workflow_id> > workflow.json
 #   - Don't rewrite the entire file for a single-field change
 
 # Push the updated workflow
-# Strip read-only fields from the GET response: id, version_id, version_number,
-# created_at, created_by, workspace_id, loginStructure
-# Keep everything else (all mutable fields, both required and optional).
+# Read-only fields (id, version_id, version_number, created_at, created_by,
+# workspace_id, loginStructure, updated_at, workflow_id) are stripped automatically.
 # Always include a version note describing the change.
 cloudcruise workflows update <workflow_id> --file workflow.json --version-note "Description of changes"
 ```
@@ -220,7 +219,7 @@ Each iteration adds one or a few nodes, then runs to capture the next page state
 - `run start --wait` prints NDJSON events to stdout, then the final run result. Exit code 0 = success, 1 = failure.
 - `run errors --since` accepts duration strings: `24h`, `7d`, `30m`
 - `workflows update` requires: nodes, edges, name, input_schema, output_schema, max_retries. Keep all other mutable fields from the GET response (e.g., description, enable_xpath_recovery, proxy_setting).
-- Strip read-only fields before updating: id, version_id, version_number, created_at, created_by, workspace_id, loginStructure, updated_at, workflow_id. The PUT endpoint rejects these.
+- Read-only fields (id, version_id, version_number, created_at, created_by, workspace_id, loginStructure, updated_at, workflow_id) are stripped automatically by the CLI -- no need to remove them manually.
 - All commands accept `--api-key`, `--base-url`, and `--encryption-key` overrides
 - Auth resolution: `--api-key` flag > `CLOUDCRUISE_API_KEY` env > `~/.cloudcruise/config.json`
 - Encryption key resolution: `--encryption-key` flag > `CLOUDCRUISE_ENCRYPTION_KEY` env > profile config

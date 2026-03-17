@@ -19,9 +19,9 @@ A workflow is a directed graph of nodes (actions) connected by edges. The browse
 }
 ```
 
-### Read-Only Fields (strip before `workflows update`)
+### Read-Only Fields (auto-stripped by `workflows update`)
 
-`id`, `version_id`, `version_number`, `created_at`, `created_by`, `workspace_id`, `loginStructure`
+`id`, `version_id`, `version_number`, `created_at`, `created_by`, `updated_at`, `workspace_id`, `workflow_id`, `loginStructure`
 
 ### Mutable Fields (accepted by PUT)
 
