@@ -101,6 +101,61 @@ echo "secret" | cloudcruise vault encrypt --stdin                   # Encrypt fr
 
 See `references/workflow-dsl.md` for the complete workflow DSL reference: all node types, parameters, edge structure, variable system, execution types, XPath best practices, data model schema extensions, and error classification.
 
+### Builder — Create and Edit Workflows with AI
+
+The builder launches a live browser session with an AI agent that can create and modify workflows interactively. Use this for complex changes that need a browser, or to build workflows from scratch. For simple fixes (XPath, URL, parameter tweaks), use `workflows update` directly instead.
+
+**Session is implicit** — `start`/`edit` saves the conversation ID locally. All other builder commands use it automatically. One active session at a time.
+
+```bash
+# ── Start a new workflow from scratch ──
+cloudcruise builder start --start-url "https://app.example.com" --name "Login flow"
+cloudcruise builder start --start-url "https://app.example.com" \
+  --credential "user-123" --auth-url "https://app.example.com/login" \
+  --proxy country --proxy-value US
+
+# ── Edit an existing workflow ──
+cloudcruise builder edit --workflow <workflow_id>
+cloudcruise builder edit --workflow <workflow_id> --target-node <node_id> --input '{"USER":"user-123"}'
+cloudcruise builder edit --workflow <workflow_id> --use-last-browser-state
+
+# ── Interact with the builder agent ──
+cloudcruise builder send "Click the login button and enter credentials from vault"
+cloudcruise builder send "Add error handling for invalid passwords" --timeout 180
+cloudcruise builder send "Navigate to settings page" --stream   # NDJSON events to stdout
+
+# ── Respond to human input requests ──
+# (when the agent asks for user input, e.g. a 2FA code)
+cloudcruise builder respond --message-id "msg-456" --value "123456"
+
+# ── Inspect current browser state ──
+cloudcruise builder screenshot                      # Returns { url, base64 }
+cloudcruise builder screenshot --output page.png    # Save to file
+cloudcruise builder html                            # Returns { url, html }
+cloudcruise builder html --output page.html         # Save to file
+
+# ── Inspect session state ──
+cloudcruise builder status              # Check if session is active, get workflow summary
+cloudcruise builder workflow            # Get current workflow definition (nodes, edges)
+cloudcruise builder messages            # Get conversation history
+cloudcruise builder messages --limit 5  # Last 5 messages only
+
+# ── Session lifecycle ──
+cloudcruise builder save        # Persist workflow to the database
+cloudcruise builder interrupt   # Stop the agent's current processing
+cloudcruise builder end         # End session and clean up
+```
+
+**`builder send` blocks until the agent finishes** (default 120s timeout). It returns the agent's response messages as JSON. Progress updates go to stderr. For long-running operations, increase with `--timeout`.
+
+**Three tiers of workflow editing** — pick the lightest tool that works:
+
+| Tier | Command | Browser | AI | Use case |
+|------|---------|---------|-----|----------|
+| Direct edit | `workflows update` | No | No | Fix XPath, change URL, tweak schema |
+| Builder edit | `builder edit` | Yes | Yes | Changes needing a live browser |
+| Builder create | `builder start` | Yes | Yes | Build from scratch |
+
 ## Working with Workflow JSON
 
 Always save workflow JSON to a file before editing. Workflow definitions can be large (dozens of nodes with XPath selectors, parameters, conditions). Working through files lets you read specific sections and make surgical edits without holding the entire JSON in context.
@@ -182,6 +237,30 @@ If `snapshot fetch` reports no HTML snapshot, the run was not executed with `--d
 **Snapshot timing:** Debug snapshots capture the page state *when a node starts executing*, which is the post-action state of the *previous* node. To discover elements that appeared after a node's action (e.g., a dropdown that rendered after clicking a menu button), inspect the *next* node's snapshot, not the current node's. On successful runs, the END node's snapshot shows the final page state after all preceding actions. On errored runs, the END node has no snapshot because execution never reached it -- use the *failed* node's snapshot instead (it captures the page state when the failure occurred).
 
 ## Building New Workflows
+
+### Using the Builder (recommended for complex workflows)
+
+The builder launches a browser with an AI agent that handles node creation, XPath selection, and edge wiring:
+
+```bash
+# Start a builder session
+cloudcruise builder start --start-url "https://app.example.com" --name "My workflow"
+
+# Describe what you want — the agent builds it
+cloudcruise builder send "Log in with the credentials from vault, then navigate to the dashboard"
+cloudcruise builder send "Extract the account balance from the top-right corner"
+cloudcruise builder send "Add a loop that processes each transaction in the table"
+
+# Check the current state at any point
+cloudcruise builder screenshot --output current.png
+cloudcruise builder workflow > draft.json
+
+# Save when satisfied
+cloudcruise builder save
+cloudcruise builder end
+```
+
+### Using Direct Editing (for simple/mechanical workflows)
 
 Iterative pattern for building a workflow from scratch:
 
