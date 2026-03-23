@@ -23,6 +23,21 @@ function progress(msg: string): void {
   process.stderr.write(`${msg}\n`)
 }
 
+/**
+ * Resolve auth for builder commands. Uses session-stored auth as fallback
+ * so --api-key and --base-url only need to be passed at `builder start`.
+ */
+function resolveBuilderAuth(opts: AuthOptions) {
+  const session = loadSession()
+  const merged = { ...opts }
+  if (session) {
+    if (!merged.apiKey && session.apiKey) merged.apiKey = session.apiKey
+    if (!merged.baseUrl && session.baseUrl) merged.baseUrl = session.baseUrl
+    if (!merged.profile && session.profile) merged.profile = session.profile
+  }
+  return resolveAuth(merged)
+}
+
 export function registerBuilderCommands(program: Command): void {
   const builder = program
     .command("builder")
@@ -86,7 +101,10 @@ export function registerBuilderCommands(program: Command): void {
         saveSession({
           conversationId: result.conversationId,
           name: opts.name,
-          startedAt: new Date().toISOString()
+          startedAt: new Date().toISOString(),
+          apiKey: auth.apiKey,
+          baseUrl: auth.baseUrl,
+          profile: opts.profile
         })
 
         outputJson(result)
@@ -137,7 +155,10 @@ export function registerBuilderCommands(program: Command): void {
         saveSession({
           conversationId: result.conversationId,
           name: `Edit ${opts.workflow}`,
-          startedAt: new Date().toISOString()
+          startedAt: new Date().toISOString(),
+          apiKey: auth.apiKey,
+          baseUrl: auth.baseUrl,
+          profile: opts.profile
         })
 
         outputJson(result)
@@ -164,7 +185,7 @@ export function registerBuilderCommands(program: Command): void {
       } & AuthOptions
     ) => {
       try {
-        const auth = resolveAuth(opts)
+        const auth = resolveBuilderAuth(opts)
         const client = new ApiClient(auth)
         const session = requireSession()
 
@@ -257,6 +278,91 @@ export function registerBuilderCommands(program: Command): void {
     }
   )
 
+  // ── builder poll (helpers) ──────────────────────────────────────
+  interface PollFromMessagesResult {
+    status: "processing" | "done" | "error" | "waiting_for_input"
+    text?: string
+    waitingForInput?: { messageId: string; description: string }
+    tools: { tool: string; status: string; text?: string }[]
+    newMessageCount: number
+    totalMessageCount: number
+  }
+
+  async function checkMessagesForStatus(
+    client: ApiClient,
+    conversationId: string,
+    sinceIndex: number
+  ): Promise<PollFromMessagesResult | null> {
+    const allMessages = await client.get<Record<string, unknown>[]>(
+      `${BASE}/${conversationId}/messages`
+    )
+    if (!Array.isArray(allMessages)) return null
+
+    const newMessages = allMessages.slice(sinceIndex)
+
+    let status: PollFromMessagesResult["status"] = "processing"
+    let text: string | undefined
+    let waitingForInput: PollFromMessagesResult["waitingForInput"]
+
+    for (let i = newMessages.length - 1; i >= 0; i--) {
+      const msg = newMessages[i]
+      const role = msg.role as string
+      const msgStatus = msg.status as string
+      const eventType = msg.event_type as string
+
+      if (msgStatus === "error") {
+        status = "error"
+        text = msg.text as string
+        break
+      }
+
+      if (
+        eventType === "interaction.inputs" ||
+        msgStatus === "waiting_for_input"
+      ) {
+        status = "waiting_for_input"
+        const content = msg.content as Record<string, unknown> | undefined
+        const humanInput = content?.humanInput as
+          | Record<string, unknown>
+          | undefined
+        waitingForInput = {
+          messageId: msg.id as string,
+          description:
+            (humanInput?.description as string) ??
+            (humanInput?.name as string) ??
+            (msg.text as string) ??
+            "Input requested"
+        }
+        break
+      }
+
+      if (role === "assistant" && msgStatus === "success") {
+        status = "done"
+        text = msg.text as string
+        break
+      }
+    }
+
+    const tools = newMessages
+      .filter((m) => m.role === "tool" && m.toolName)
+      .map((m) => ({
+        tool: m.toolName as string,
+        status: m.status as string,
+        text: (m.text as string)?.slice(0, 100)
+      }))
+
+    updateSession({ lastMessageCount: allMessages.length })
+
+    return {
+      status,
+      text,
+      waitingForInput,
+      tools,
+      newMessageCount: newMessages.length,
+      totalMessageCount: allMessages.length
+    }
+  }
+
   // ── builder poll ────────────────────────────────────────────────
   addAuthOptions(
     builder
@@ -275,12 +381,24 @@ export function registerBuilderCommands(program: Command): void {
       } & AuthOptions
     ) => {
       try {
-        const auth = resolveAuth(opts)
+        const auth = resolveBuilderAuth(opts)
         const client = new ApiClient(auth)
         const session = requireSession()
+        const sinceIndex = session.lastMessageCount ?? 0
 
         if (opts.wait) {
-          // Long-poll mode: open SSE stream, wait for terminal status
+          // Step 1: Check messages first — terminal state may already exist
+          const immediate = await checkMessagesForStatus(
+            client,
+            session.conversationId,
+            sinceIndex
+          )
+          if (immediate && immediate.status !== "processing") {
+            outputJson(immediate)
+            return
+          }
+
+          // Step 2: Not done yet — open SSE stream and wait
           const timeoutMs = parseInt(opts.wait) * 1000
           const abortController = new AbortController()
 
@@ -288,7 +406,6 @@ export function registerBuilderCommands(program: Command): void {
             abortController.abort()
           }, timeoutMs)
 
-          // Interrupt agent if CLI is killed while waiting
           const interruptAndExit = async () => {
             abortController.abort()
             try {
@@ -310,8 +427,25 @@ export function registerBuilderCommands(program: Command): void {
               sseUrl,
               abortController.signal
             )
-            const result = await pollBuilderStream(stream, abortController.signal)
-            outputJson(result)
+            const sseResult = await pollBuilderStream(
+              stream,
+              abortController.signal
+            )
+
+            // Step 3: SSE returned — if timeout, do final message check
+            if (sseResult.status === "timeout") {
+              const final = await checkMessagesForStatus(
+                client,
+                session.conversationId,
+                sinceIndex
+              )
+              if (final) {
+                outputJson(final)
+                return
+              }
+            }
+
+            outputJson(sseResult)
           } finally {
             clearTimeout(timeout)
             process.off("SIGINT", interruptAndExit)
@@ -320,88 +454,18 @@ export function registerBuilderCommands(program: Command): void {
           return
         }
 
-        // Instant mode: fetch messages and determine status
-        const allMessages = await client.get<Record<string, unknown>[]>(
-          `${BASE}/${session.conversationId}/messages`
+        // Instant mode: just check messages
+        const result = await checkMessagesForStatus(
+          client,
+          session.conversationId,
+          sinceIndex
         )
-
-        if (!Array.isArray(allMessages)) {
+        if (result) {
+          outputJson(result)
+        } else {
           outputJson({ status: "error", error: "Unexpected response format" })
           process.exit(1)
         }
-
-        const sinceIndex = session.lastMessageCount ?? 0
-        const newMessages = allMessages.slice(sinceIndex)
-
-        let status: "processing" | "done" | "error" | "waiting_for_input" =
-          "processing"
-        let lastAssistantText: string | undefined
-        let waitingForInput:
-          | { messageId: string; description: string }
-          | undefined
-
-        for (let i = newMessages.length - 1; i >= 0; i--) {
-          const msg = newMessages[i]
-          const role = msg.role as string
-          const msgStatus = msg.status as string
-          const eventType = msg.event_type as string
-
-          if (msgStatus === "error") {
-            status = "error"
-            lastAssistantText = msg.text as string
-            break
-          }
-
-          if (
-            eventType === "interaction.inputs" ||
-            msgStatus === "waiting_for_input"
-          ) {
-            status = "waiting_for_input"
-            const content = msg.content as
-              | Record<string, unknown>
-              | undefined
-            const humanInput = content?.humanInput as
-              | Record<string, unknown>
-              | undefined
-            waitingForInput = {
-              messageId: msg.id as string,
-              description:
-                (humanInput?.description as string) ??
-                (humanInput?.name as string) ??
-                (msg.text as string) ??
-                "Input requested"
-            }
-            break
-          }
-
-          if (role === "assistant" && msgStatus === "success") {
-            status = "done"
-            lastAssistantText = msg.text as string
-            break
-          }
-        }
-
-        const toolSummary = newMessages
-          .filter((m) => m.role === "tool" && m.toolName)
-          .map((m) => ({
-            tool: m.toolName as string,
-            status: m.status as string,
-            text: (m.text as string)?.slice(0, 100)
-          }))
-
-        const result: Record<string, unknown> = {
-          status,
-          newMessageCount: newMessages.length,
-          totalMessageCount: allMessages.length
-        }
-
-        if (lastAssistantText) result.text = lastAssistantText
-        if (waitingForInput) result.waitingForInput = waitingForInput
-        if (toolSummary.length > 0) result.tools = toolSummary
-
-        updateSession({ lastMessageCount: allMessages.length })
-
-        outputJson(result)
       } catch (err: unknown) {
         outputError(err instanceof Error ? err.message : String(err))
         process.exit(1)
@@ -424,7 +488,7 @@ export function registerBuilderCommands(program: Command): void {
       } & AuthOptions
     ) => {
       try {
-        const auth = resolveAuth(opts)
+        const auth = resolveBuilderAuth(opts)
         const client = new ApiClient(auth)
         const session = requireSession()
 
@@ -470,7 +534,7 @@ export function registerBuilderCommands(program: Command): void {
       }
 
       // Verify session is still alive by fetching workflow
-      const auth = resolveAuth(opts)
+      const auth = resolveBuilderAuth(opts)
       const client = new ApiClient(auth)
       try {
         const workflow = await client.get(
@@ -507,7 +571,7 @@ export function registerBuilderCommands(program: Command): void {
       } & AuthOptions
     ) => {
       try {
-        const auth = resolveAuth(opts)
+        const auth = resolveBuilderAuth(opts)
         const client = new ApiClient(auth)
         const session = requireSession()
 
@@ -543,7 +607,7 @@ export function registerBuilderCommands(program: Command): void {
       } & AuthOptions
     ) => {
       try {
-        const auth = resolveAuth(opts)
+        const auth = resolveBuilderAuth(opts)
         const client = new ApiClient(auth)
         const session = requireSession()
 
@@ -572,7 +636,7 @@ export function registerBuilderCommands(program: Command): void {
       .description("Get the current workflow definition")
   ).action(async (opts: AuthOptions) => {
     try {
-      const auth = resolveAuth(opts)
+      const auth = resolveBuilderAuth(opts)
       const client = new ApiClient(auth)
       const session = requireSession()
 
@@ -599,7 +663,7 @@ export function registerBuilderCommands(program: Command): void {
       } & AuthOptions
     ) => {
       try {
-        const auth = resolveAuth(opts)
+        const auth = resolveBuilderAuth(opts)
         const client = new ApiClient(auth)
         const session = requireSession()
 
@@ -620,7 +684,7 @@ export function registerBuilderCommands(program: Command): void {
     builder.command("save").description("Save the workflow to the database")
   ).action(async (opts: AuthOptions) => {
     try {
-      const auth = resolveAuth(opts)
+      const auth = resolveBuilderAuth(opts)
       const client = new ApiClient(auth)
       const session = requireSession()
 
@@ -641,7 +705,7 @@ export function registerBuilderCommands(program: Command): void {
       .description("Interrupt the builder agent's current processing")
   ).action(async (opts: AuthOptions) => {
     try {
-      const auth = resolveAuth(opts)
+      const auth = resolveBuilderAuth(opts)
       const client = new ApiClient(auth)
       const session = requireSession()
 
@@ -662,7 +726,7 @@ export function registerBuilderCommands(program: Command): void {
       .description("End the builder session and clean up")
   ).action(async (opts: AuthOptions) => {
     try {
-      const auth = resolveAuth(opts)
+      const auth = resolveBuilderAuth(opts)
       const client = new ApiClient(auth)
       const session = requireSession()
 

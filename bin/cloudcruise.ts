@@ -15,7 +15,9 @@ import { registerBuilderCommands } from "../src/commands/builder.js"
 const require = createRequire(import.meta.url)
 const pkg = require("../../package.json") as { name: string; version: string }
 
-updateNotifier({ pkg }).notify()
+if (process.stderr.isTTY) {
+  updateNotifier({ pkg }).notify()
+}
 
 program
   .name("cloudcruise")

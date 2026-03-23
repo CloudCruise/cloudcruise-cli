@@ -184,6 +184,122 @@ Without `--no-wait`, `builder send` blocks until the agent finishes (default 300
 | Builder edit | `builder edit` | Yes | Yes | Changes needing a live browser |
 | Builder create | `builder start` | Yes | Yes | Build from scratch |
 
+## Builder Usage Pattern for Coding Agents
+
+Follow this pattern exactly when using the builder. Auth flags (`--api-key`, `--base-url`) only need to be passed on `builder start` — they're saved to the session automatically.
+
+**Important guidelines:**
+- Always use `--no-wait` with `builder send` — blocking sends will freeze your execution
+- Break complex tasks into small steps (e.g. "log in", then "navigate to X", then "search for Y") — one big instruction often results in partial completion per agent turn
+- Poll in a loop with `--wait 30` — the agent may need multiple turns to finish one step
+- The builder agent sometimes fails on the `snapshot` tool for certain sites — if you see a snapshot error, tell the agent to skip snapshots and use screenshots instead
+
+### Step 1: Start a session
+
+```bash
+cloudcruise builder start --start-url "https://example.com" --name "My workflow" \
+  --api-key "sk_..." --base-url "https://api.cloudcruise.com"
+# Auth is saved — no need to pass --api-key or --base-url again
+```
+
+With credentials:
+```bash
+cloudcruise builder start --start-url "https://example.com" --name "My workflow" \
+  --credential "user-id-from-vault" --auth-url "https://example.com/login"
+```
+
+### Step 2: Send instructions and poll (repeat for each task chunk)
+
+```bash
+# Send instruction (returns instantly)
+cloudcruise builder send "Log in using the vault credentials" --no-wait
+
+# Poll until the agent finishes this step
+cloudcruise builder poll --wait 30
+# Possible statuses:
+#   "done"              → Agent finished. Read "text" for its response. Proceed to next step.
+#   "waiting_for_input" → Agent needs a value. Use builder respond, then poll again.
+#   "error"             → Something failed. Read "text" for details. Send a follow-up to retry.
+#   "timeout"           → Agent is still working. Poll again.
+#   "processing"        → Agent is still working (instant poll). Poll again with --wait.
+```
+
+**If status is "timeout" or "processing"** — the agent is still working. Poll again:
+```bash
+cloudcruise builder poll --wait 30
+# repeat until status is "done", "error", or "waiting_for_input"
+```
+
+**If status is "waiting_for_input"** — the agent is asking for a value:
+```bash
+# The response includes: waitingForInput.messageId and waitingForInput.description
+cloudcruise builder respond --message-id "<messageId>" --value "<answer>"
+# Then poll for the agent to continue:
+cloudcruise builder poll --wait 30
+```
+
+**If status is "done"** — read the `text` field and decide the next step:
+```bash
+# Send the next instruction
+cloudcruise builder send "Now click on Settings and extract the account info" --no-wait
+cloudcruise builder poll --wait 30
+# ...repeat the poll loop
+```
+
+**If status is "error"** — read `text` for details and send a corrective instruction:
+```bash
+cloudcruise builder send "The snapshot tool failed. Skip snapshots and use screenshots instead. Continue with the previous task." --no-wait
+cloudcruise builder poll --wait 30
+```
+
+### Step 3: Save and end
+
+```bash
+cloudcruise builder save
+cloudcruise builder end
+```
+
+### Step 4: Run the saved workflow
+
+```bash
+cloudcruise run start <workflow_id> --input '{"key":"value"}' --wait
+```
+
+### Full example: Login → Navigate → Search
+
+```bash
+# Start
+cloudcruise builder start --start-url "https://app.example.com" --name "Search workflow" \
+  --credential "vault-user-id" --auth-url "https://app.example.com"
+
+# Step 1: Login
+cloudcruise builder send "Log in using the vault credentials (USER)" --no-wait
+cloudcruise builder poll --wait 30   # repeat until "done"
+
+# Step 2: Navigate
+cloudcruise builder send "Click on Reports in the nav bar, then select Monthly Summary" --no-wait
+cloudcruise builder poll --wait 30   # repeat until "done"
+
+# Step 3: Search and extract
+cloudcruise builder send "Search for order 12345 and extract the status" --no-wait
+cloudcruise builder poll --wait 30   # repeat until "done"
+
+# Save and clean up
+cloudcruise builder save
+cloudcruise builder end
+```
+
+### Inspecting browser state
+
+At any point between steps, you can inspect what the browser is showing:
+
+```bash
+cloudcruise builder screenshot --output page.png   # save screenshot to file
+cloudcruise builder html --output page.html         # save page HTML to file
+cloudcruise builder workflow                        # get current workflow definition
+cloudcruise builder messages --limit 5              # get recent conversation messages
+```
+
 ## Working with Workflow JSON
 
 Always save workflow JSON to a file before editing. Workflow definitions can be large (dozens of nodes with XPath selectors, parameters, conditions). Working through files lets you read specific sections and make surgical edits without holding the entire JSON in context.

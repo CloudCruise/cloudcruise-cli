@@ -7,6 +7,9 @@ export interface BuilderSession {
   name: string
   startedAt: string
   lastMessageCount?: number
+  apiKey?: string
+  baseUrl?: string
+  profile?: string
 }
 
 const CONFIG_DIR = join(homedir(), ".cloudcruise")
