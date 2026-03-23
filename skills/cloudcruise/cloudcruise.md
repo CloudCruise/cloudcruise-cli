@@ -190,9 +190,11 @@ Follow this pattern exactly when using the builder. Auth flags (`--api-key`, `--
 
 **Important guidelines:**
 - Always use `--no-wait` with `builder send` — blocking sends will freeze your execution
+- **Wait for `done`/`error` before sending the next message** — sending while the agent is still processing interrupts the current turn and causes confusing partial results. Always poll until you see a terminal status before sending the next instruction.
 - Break complex tasks into small steps (e.g. "log in", then "navigate to X", then "search for Y") — one big instruction often results in partial completion per agent turn
-- Poll in a loop with `--wait 30` — the agent may need multiple turns to finish one step
+- Poll in a loop with `--wait 30` — the agent may need multiple turns to finish one step. If `poll` returns `done` but the agent only partially completed the task, send a follow-up instruction for the remaining work.
 - The builder agent sometimes fails on the `snapshot` tool for certain sites — if you see a snapshot error, tell the agent to skip snapshots and use screenshots instead
+- To explicitly stop the agent mid-task, use `cloudcruise builder interrupt` before sending a new instruction
 
 ### Step 1: Start a session
 
