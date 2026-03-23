@@ -3,7 +3,7 @@ import { writeFileSync } from "fs"
 import { resolveAuth } from "../core/auth.js"
 import { ApiClient } from "../core/api-client.js"
 import { streamSSE } from "../core/sse-client.js"
-import { outputJson, outputError, outputEvent } from "../core/output.js"
+import { outputJson, outputError } from "../core/output.js"
 import { addAuthOptions, type AuthOptions } from "../core/auth-options.js"
 import {
   saveSession,
@@ -11,13 +11,9 @@ import {
   requireSession,
   loadSession
 } from "../core/session.js"
+import { processBuilderStream } from "../core/builder-stream.js"
 
 const BASE = "/workflow-builder/agent"
-
-const WAITING_STATUSES = [
-  "waiting_for_input",
-  "waiting_for_chat"
-]
 
 function progress(msg: string): void {
   process.stderr.write(`${msg}\n`)
@@ -153,14 +149,12 @@ export function registerBuilderCommands(program: Command): void {
     builder
       .command("send <message>")
       .description("Send a message to the builder agent")
-      .option("--timeout <seconds>", "Timeout in seconds", "120")
-      .option("--stream", "Stream events as NDJSON to stdout")
+      .option("--timeout <seconds>", "Timeout in seconds", "300")
   ).action(
     async (
       message: string,
       opts: {
         timeout: string
-        stream?: boolean
       } & AuthOptions
     ) => {
       try {
@@ -169,9 +163,11 @@ export function registerBuilderCommands(program: Command): void {
         const session = requireSession()
         const timeoutMs = parseInt(opts.timeout) * 1000
 
-        // Interrupt the builder agent if the CLI is killed
+        const abortController = new AbortController()
+
         const interruptAndExit = async () => {
           progress("Interrupted — sending interrupt to builder agent...")
+          abortController.abort()
           try {
             await client.post(
               `${BASE}/${session.conversationId}/interrupt`
@@ -184,58 +180,32 @@ export function registerBuilderCommands(program: Command): void {
         process.on("SIGINT", interruptAndExit)
         process.on("SIGTERM", interruptAndExit)
 
+        const timeout = setTimeout(() => {
+          abortController.abort()
+          progress("Timeout waiting for builder agent")
+          process.exit(1)
+        }, timeoutMs)
+
         try {
-          if (opts.stream) {
-            // Stream mode: POST message then stream SSE events
-            const sendPromise = client.post(
-              `${BASE}/${session.conversationId}/message`,
-              { text: message }
-            )
+          const sseUrl = `${BASE}/${session.conversationId}/stream`
+          const stream = streamSSE(client, sseUrl, abortController.signal)
 
-            const sseUrl = `${BASE}/${session.conversationId}/stream`
-            const timeout = setTimeout(() => {
-              outputError("Timeout waiting for builder agent")
-              process.exit(1)
-            }, timeoutMs)
-
-            for await (const event of streamSSE(client, sseUrl)) {
-              if (event.event === "ping") continue
-              try {
-                const parsed = JSON.parse(event.data)
-                outputEvent(parsed.event_type ?? "builder.event", parsed)
-              } catch {
-                outputEvent("builder.event", { raw: event.data })
-              }
-            }
-
-            clearTimeout(timeout)
-            await sendPromise
-          } else {
-            // Blocking mode: POST and wait for response
-            progress("Sending message to builder agent...")
-
-            const interval = setInterval(() => {
-              progress("Waiting for builder agent...")
-            }, 15000)
-
-            const timeout = setTimeout(() => {
-              clearInterval(interval)
-              outputError("Timeout waiting for builder agent")
-              process.exit(1)
-            }, timeoutMs)
-
-            try {
-              const result = await client.post(
-                `${BASE}/${session.conversationId}/message`,
-                { text: message }
+          client
+            .post(`${BASE}/${session.conversationId}/message`, {
+              text: message
+            })
+            .catch((err: unknown) => {
+              progress(
+                `Error sending message: ${err instanceof Error ? err.message : String(err)}`
               )
-              outputJson(result)
-            } finally {
-              clearInterval(interval)
-              clearTimeout(timeout)
-            }
-          }
+              abortController.abort()
+            })
+
+          await processBuilderStream(stream, {
+            onDone: () => abortController.abort()
+          })
         } finally {
+          clearTimeout(timeout)
           process.off("SIGINT", interruptAndExit)
           process.off("SIGTERM", interruptAndExit)
         }
