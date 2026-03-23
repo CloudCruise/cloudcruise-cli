@@ -6,6 +6,7 @@ export interface BuilderSession {
   conversationId: string
   name: string
   startedAt: string
+  lastMessageCount?: number
 }
 
 const CONFIG_DIR = join(homedir(), ".cloudcruise")
@@ -24,6 +25,12 @@ export function saveSession(session: BuilderSession): void {
   mkdirSync(CONFIG_DIR, { recursive: true, mode: 0o700 })
   writeFileSync(SESSION_FILE, JSON.stringify(session, null, 2) + "\n")
   chmodSync(SESSION_FILE, 0o600)
+}
+
+export function updateSession(updates: Partial<BuilderSession>): void {
+  const session = loadSession()
+  if (!session) return
+  saveSession({ ...session, ...updates })
 }
 
 export function deleteSession(): void {

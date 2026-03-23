@@ -119,10 +119,14 @@ cloudcruise builder edit --workflow <workflow_id>
 cloudcruise builder edit --workflow <workflow_id> --target-node <node_id> --input '{"USER":"user-123"}'
 cloudcruise builder edit --workflow <workflow_id> --use-last-browser-state
 
-# ── Interact with the builder agent ──
+# ── Interact with the builder agent (async — recommended for coding agents) ──
+cloudcruise builder send "Click the login button" --no-wait   # Returns immediately
+cloudcruise builder poll                                       # Check status + new messages
+# poll returns: { status: "processing"|"done"|"error"|"waiting_for_input", text, tools, ... }
+
+# ── Interact with the builder agent (blocking — for humans or simple scripts) ──
 cloudcruise builder send "Click the login button and enter credentials from vault"
 cloudcruise builder send "Add error handling for invalid passwords" --timeout 180
-cloudcruise builder send "Navigate to settings page" --stream   # NDJSON events to stdout
 
 # ── Respond to human input requests ──
 # (when the agent asks for user input, e.g. a 2FA code)
@@ -146,7 +150,31 @@ cloudcruise builder interrupt   # Stop the agent's current processing
 cloudcruise builder end         # End session and clean up
 ```
 
-**`builder send` blocks until the agent finishes** (default 120s timeout). It returns the agent's response messages as JSON. Progress updates go to stderr. For long-running operations, increase with `--timeout`.
+**Async send + poll (recommended for coding agents):**
+`builder send --no-wait` sends the instruction and returns immediately. Then use `builder poll --wait <seconds>` to block until the agent finishes, errors, or needs input. This gives the coding agent control between steps without long-blocking sends.
+
+```bash
+cloudcruise builder send "Build a login flow" --no-wait
+# → {"status":"sent","messageCountBefore":2}
+
+# Block until agent reaches a terminal state (up to 60s)
+cloudcruise builder poll --wait 60
+# → {"status":"done","text":"I built the login flow...","tools":[...]}
+
+# Or if agent needs input:
+cloudcruise builder poll --wait 60
+# → {"status":"waiting_for_input","waitingForInput":{"messageId":"m1","description":"What's the 2FA code?"}}
+cloudcruise builder respond --message-id m1 --value "123456"
+cloudcruise builder poll --wait 60
+# → {"status":"done","text":"Login complete."}
+
+# Without --wait, poll returns instantly with current status (no blocking):
+cloudcruise builder poll
+# → {"status":"processing","newMessageCount":3,"tools":[{"tool":"fetchScreenshot","status":"success"},...]}
+```
+
+**Blocking send (for humans or simple scripts):**
+Without `--no-wait`, `builder send` blocks until the agent finishes (default 300s timeout). Progress goes to stderr. For long-running operations, increase with `--timeout`.
 
 **Three tiers of workflow editing** — pick the lightest tool that works:
 

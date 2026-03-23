@@ -9,9 +9,13 @@ import {
   saveSession,
   deleteSession,
   requireSession,
-  loadSession
+  loadSession,
+  updateSession
 } from "../core/session.js"
-import { processBuilderStream } from "../core/builder-stream.js"
+import {
+  processBuilderStream,
+  pollBuilderStream
+} from "../core/builder-stream.js"
 
 const BASE = "/workflow-builder/agent"
 
@@ -149,11 +153,13 @@ export function registerBuilderCommands(program: Command): void {
     builder
       .command("send <message>")
       .description("Send a message to the builder agent")
-      .option("--timeout <seconds>", "Timeout in seconds", "300")
+      .option("--no-wait", "Return immediately without waiting for completion")
+      .option("--timeout <seconds>", "Timeout in seconds (ignored with --no-wait)", "300")
   ).action(
     async (
       message: string,
       opts: {
+        wait: boolean  // commander inverts --no-wait to opts.wait = false
         timeout: string
       } & AuthOptions
     ) => {
@@ -161,8 +167,38 @@ export function registerBuilderCommands(program: Command): void {
         const auth = resolveAuth(opts)
         const client = new ApiClient(auth)
         const session = requireSession()
-        const timeoutMs = parseInt(opts.timeout) * 1000
 
+        if (opts.wait === false) {
+          // Async mode: fire request with a 5s abort — enough for the
+          // server to accept and start processing, but don't wait for
+          // the full response (which blocks until the agent turn ends).
+          const ac = new AbortController()
+          const timer = setTimeout(() => ac.abort(), 5000)
+          try {
+            await fetch(
+              `${auth.baseUrl}${BASE}/${session.conversationId}/message`,
+              {
+                method: "POST",
+                headers: {
+                  "cc-key": auth.apiKey,
+                  "Content-Type": "application/json"
+                },
+                body: JSON.stringify({ text: message }),
+                signal: ac.signal
+              }
+            )
+          } catch {
+            // AbortError is expected — server accepted but we're not
+            // waiting for the response. Network errors also caught here.
+          } finally {
+            clearTimeout(timer)
+          }
+          outputJson({ status: "sent" })
+          process.exit(0)
+        }
+
+        // Blocking mode: POST + stream SSE until done
+        const timeoutMs = parseInt(opts.timeout) * 1000
         const abortController = new AbortController()
 
         const interruptAndExit = async () => {
@@ -190,25 +226,182 @@ export function registerBuilderCommands(program: Command): void {
           const sseUrl = `${BASE}/${session.conversationId}/stream`
           const stream = streamSSE(client, sseUrl, abortController.signal)
 
+          let postError: string | undefined
           client
             .post(`${BASE}/${session.conversationId}/message`, {
               text: message
             })
             .catch((err: unknown) => {
-              progress(
-                `Error sending message: ${err instanceof Error ? err.message : String(err)}`
-              )
+              postError =
+                err instanceof Error ? err.message : String(err)
               abortController.abort()
             })
 
-          await processBuilderStream(stream, {
+          const result = await processBuilderStream(stream, {
             onDone: () => abortController.abort()
           })
+
+          if (postError && !result.finalText) {
+            outputError(postError)
+            process.exit(1)
+          }
         } finally {
           clearTimeout(timeout)
           process.off("SIGINT", interruptAndExit)
           process.off("SIGTERM", interruptAndExit)
         }
+      } catch (err: unknown) {
+        outputError(err instanceof Error ? err.message : String(err))
+        process.exit(1)
+      }
+    }
+  )
+
+  // ── builder poll ────────────────────────────────────────────────
+  addAuthOptions(
+    builder
+      .command("poll")
+      .description(
+        "Check builder agent status. With --wait, blocks until status changes."
+      )
+      .option(
+        "--wait <seconds>",
+        "Block until agent finishes, errors, or needs input (max seconds)"
+      )
+  ).action(
+    async (
+      opts: {
+        wait?: string
+      } & AuthOptions
+    ) => {
+      try {
+        const auth = resolveAuth(opts)
+        const client = new ApiClient(auth)
+        const session = requireSession()
+
+        if (opts.wait) {
+          // Long-poll mode: open SSE stream, wait for terminal status
+          const timeoutMs = parseInt(opts.wait) * 1000
+          const abortController = new AbortController()
+
+          const timeout = setTimeout(() => {
+            abortController.abort()
+          }, timeoutMs)
+
+          // Interrupt agent if CLI is killed while waiting
+          const interruptAndExit = async () => {
+            abortController.abort()
+            try {
+              await client.post(
+                `${BASE}/${session.conversationId}/interrupt`
+              )
+            } catch {
+              // Best effort
+            }
+            process.exit(130)
+          }
+          process.on("SIGINT", interruptAndExit)
+          process.on("SIGTERM", interruptAndExit)
+
+          try {
+            const sseUrl = `${BASE}/${session.conversationId}/stream`
+            const stream = streamSSE(
+              client,
+              sseUrl,
+              abortController.signal
+            )
+            const result = await pollBuilderStream(stream, abortController.signal)
+            outputJson(result)
+          } finally {
+            clearTimeout(timeout)
+            process.off("SIGINT", interruptAndExit)
+            process.off("SIGTERM", interruptAndExit)
+          }
+          return
+        }
+
+        // Instant mode: fetch messages and determine status
+        const allMessages = await client.get<Record<string, unknown>[]>(
+          `${BASE}/${session.conversationId}/messages`
+        )
+
+        if (!Array.isArray(allMessages)) {
+          outputJson({ status: "error", error: "Unexpected response format" })
+          process.exit(1)
+        }
+
+        const sinceIndex = session.lastMessageCount ?? 0
+        const newMessages = allMessages.slice(sinceIndex)
+
+        let status: "processing" | "done" | "error" | "waiting_for_input" =
+          "processing"
+        let lastAssistantText: string | undefined
+        let waitingForInput:
+          | { messageId: string; description: string }
+          | undefined
+
+        for (let i = newMessages.length - 1; i >= 0; i--) {
+          const msg = newMessages[i]
+          const role = msg.role as string
+          const msgStatus = msg.status as string
+          const eventType = msg.event_type as string
+
+          if (msgStatus === "error") {
+            status = "error"
+            lastAssistantText = msg.text as string
+            break
+          }
+
+          if (
+            eventType === "interaction.inputs" ||
+            msgStatus === "waiting_for_input"
+          ) {
+            status = "waiting_for_input"
+            const content = msg.content as
+              | Record<string, unknown>
+              | undefined
+            const humanInput = content?.humanInput as
+              | Record<string, unknown>
+              | undefined
+            waitingForInput = {
+              messageId: msg.id as string,
+              description:
+                (humanInput?.description as string) ??
+                (humanInput?.name as string) ??
+                (msg.text as string) ??
+                "Input requested"
+            }
+            break
+          }
+
+          if (role === "assistant" && msgStatus === "success") {
+            status = "done"
+            lastAssistantText = msg.text as string
+            break
+          }
+        }
+
+        const toolSummary = newMessages
+          .filter((m) => m.role === "tool" && m.toolName)
+          .map((m) => ({
+            tool: m.toolName as string,
+            status: m.status as string,
+            text: (m.text as string)?.slice(0, 100)
+          }))
+
+        const result: Record<string, unknown> = {
+          status,
+          newMessageCount: newMessages.length,
+          totalMessageCount: allMessages.length
+        }
+
+        if (lastAssistantText) result.text = lastAssistantText
+        if (waitingForInput) result.waitingForInput = waitingForInput
+        if (toolSummary.length > 0) result.tools = toolSummary
+
+        updateSession({ lastMessageCount: allMessages.length })
+
+        outputJson(result)
       } catch (err: unknown) {
         outputError(err instanceof Error ? err.message : String(err))
         process.exit(1)
