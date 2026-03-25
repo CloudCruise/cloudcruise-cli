@@ -13,7 +13,11 @@ export function registerWorkflowCommands(program: Command): void {
       .command("list")
       .description("List all workflows in your workspace")
       .option("--full", "Show all fields (default shows summary only)")
-  ).action(
+  ).addHelpText("after", `
+Examples:
+  $ cloudcruise workflows list
+  $ cloudcruise workflows list --full
+`).action(
     async (opts: { full?: boolean } & AuthOptions) => {
       try {
         const auth = resolveAuth(opts)
@@ -44,7 +48,11 @@ export function registerWorkflowCommands(program: Command): void {
     workflows
       .command("get <id>")
       .description("Get workflow with nodes")
-  ).action(async (id: string, opts: AuthOptions) => {
+  ).addHelpText("after", `
+Examples:
+  $ cloudcruise workflows get wf_abc123
+  $ cloudcruise workflows get wf_abc123 > workflow.json
+`).action(async (id: string, opts: AuthOptions) => {
     try {
       const auth = resolveAuth(opts)
       const client = new ApiClient(auth)
@@ -76,7 +84,11 @@ export function registerWorkflowCommands(program: Command): void {
       .option("--file <path>", "Path to workflow JSON file")
       .option("--stdin", "Read workflow JSON from stdin")
       .option("--version-note <note>", "Description of changes for this version")
-  ).action(
+  ).addHelpText("after", `
+Examples:
+  $ cloudcruise workflows update wf_abc123 --file workflow.json --version-note "Fixed login XPath"
+  $ cat workflow.json | cloudcruise workflows update wf_abc123 --stdin --version-note "Updated selectors"
+`).action(
     async (
       id: string,
       opts: {

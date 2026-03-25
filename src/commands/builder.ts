@@ -72,7 +72,12 @@ export function registerBuilderCommands(program: Command): void {
       .option("--input <json>", "Example input values as JSON")
       .option("--network", "Enable network traffic capture")
       .option("--no-open", "Don't open the live browser URL in the default browser")
-  ).action(
+  ).addHelpText("after", `
+Examples:
+  $ cloudcruise builder start --start-url "https://app.example.com" --name "Login flow"
+  $ cloudcruise builder start --start-url "https://app.example.com" --credential "f47ac10b-..." --auth-url "https://app.example.com/login"
+  $ cloudcruise builder start --start-url "https://app.example.com" --proxy country --proxy-value US
+`).action(
     async (
       opts: {
         startUrl: string
@@ -148,7 +153,12 @@ export function registerBuilderCommands(program: Command): void {
         "Continue from previous browser state"
       )
       .option("--no-open", "Don't open the live browser URL in the default browser")
-  ).action(
+  ).addHelpText("after", `
+Examples:
+  $ cloudcruise builder edit --workflow wf_abc123
+  $ cloudcruise builder edit --workflow wf_abc123 --target-node node_abc123
+  $ cloudcruise builder edit --workflow wf_abc123 --use-last-browser-state
+`).action(
     async (
       opts: {
         workflow: string
@@ -204,7 +214,11 @@ export function registerBuilderCommands(program: Command): void {
     builder
       .command("send <message>")
       .description("Send a message to the builder agent (returns immediately; use poll to check status)")
-  ).action(
+  ).addHelpText("after", `
+Examples:
+  $ cloudcruise builder send "Click the login button"
+  $ cloudcruise builder send "Search for order 12345 and extract the status"
+`).action(
     async (
       message: string,
       opts: AuthOptions
@@ -342,7 +356,11 @@ export function registerBuilderCommands(program: Command): void {
         "--wait <seconds>",
         "Block until agent finishes, errors, or needs input (max seconds)"
       )
-  ).action(
+  ).addHelpText("after", `
+Examples:
+  $ cloudcruise builder poll
+  $ cloudcruise builder poll --wait 60
+`).action(
     async (
       opts: {
         wait?: string
@@ -448,7 +466,10 @@ export function registerBuilderCommands(program: Command): void {
       .description("Respond to a human input request from the builder agent")
       .requiredOption("--message-id <id>", "ID of the input request message")
       .requiredOption("--value <value>", "Response value")
-  ).action(
+  ).addHelpText("after", `
+Examples:
+  $ cloudcruise builder respond --message-id msg_abc123 --value "123456"
+`).action(
     async (
       opts: {
         messageId: string
@@ -493,7 +514,10 @@ export function registerBuilderCommands(program: Command): void {
   // ── builder status ─────────────────────────────────────────────
   addAuthOptions(
     builder.command("status").description("Show current builder session status")
-  ).action(async (opts: AuthOptions) => {
+  ).addHelpText("after", `
+Examples:
+  $ cloudcruise builder status
+`).action(async (opts: AuthOptions) => {
     try {
       const session = loadSession()
       if (!session) {
@@ -532,7 +556,11 @@ export function registerBuilderCommands(program: Command): void {
       .command("screenshot")
       .description("Get a screenshot of the current browser state")
       .option("--output <path>", "Write screenshot image to file")
-  ).action(
+  ).addHelpText("after", `
+Examples:
+  $ cloudcruise builder screenshot
+  $ cloudcruise builder screenshot --output page.png
+`).action(
     async (
       opts: {
         output?: string
@@ -568,7 +596,11 @@ export function registerBuilderCommands(program: Command): void {
       .command("html")
       .description("Get the HTML of the current page")
       .option("--output <path>", "Write HTML to file")
-  ).action(
+  ).addHelpText("after", `
+Examples:
+  $ cloudcruise builder html
+  $ cloudcruise builder html --output page.html
+`).action(
     async (
       opts: {
         output?: string
@@ -602,7 +634,10 @@ export function registerBuilderCommands(program: Command): void {
     builder
       .command("workflow")
       .description("Get the current workflow definition")
-  ).action(async (opts: AuthOptions) => {
+  ).addHelpText("after", `
+Examples:
+  $ cloudcruise builder workflow
+`).action(async (opts: AuthOptions) => {
     try {
       const auth = resolveBuilderAuth(opts)
       const client = new ApiClient(auth)
@@ -624,7 +659,11 @@ export function registerBuilderCommands(program: Command): void {
       .command("messages")
       .description("Get conversation messages")
       .option("--limit <n>", "Max messages to return")
-  ).action(
+  ).addHelpText("after", `
+Examples:
+  $ cloudcruise builder messages
+  $ cloudcruise builder messages --limit 5
+`).action(
     async (
       opts: {
         limit?: string
@@ -650,7 +689,10 @@ export function registerBuilderCommands(program: Command): void {
   // ── builder save ───────────────────────────────────────────────
   addAuthOptions(
     builder.command("save").description("Save the workflow to the database")
-  ).action(async (opts: AuthOptions) => {
+  ).addHelpText("after", `
+Examples:
+  $ cloudcruise builder save
+`).action(async (opts: AuthOptions) => {
     try {
       const auth = resolveBuilderAuth(opts)
       const client = new ApiClient(auth)
@@ -671,7 +713,10 @@ export function registerBuilderCommands(program: Command): void {
     builder
       .command("interrupt")
       .description("Interrupt the builder agent's current processing")
-  ).action(async (opts: AuthOptions) => {
+  ).addHelpText("after", `
+Examples:
+  $ cloudcruise builder interrupt
+`).action(async (opts: AuthOptions) => {
     try {
       const auth = resolveBuilderAuth(opts)
       const client = new ApiClient(auth)
@@ -692,7 +737,10 @@ export function registerBuilderCommands(program: Command): void {
     builder
       .command("end")
       .description("End the builder session and clean up")
-  ).action(async (opts: AuthOptions) => {
+  ).addHelpText("after", `
+Examples:
+  $ cloudcruise builder end
+`).action(async (opts: AuthOptions) => {
     try {
       const auth = resolveBuilderAuth(opts)
       const client = new ApiClient(auth)

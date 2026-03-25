@@ -8,6 +8,11 @@ export function registerUtilsCommands(program: Command): void {
     .command("uuid")
     .description("Generate random UUIDs for workflow node IDs")
     .option("--count <n>", "Number of UUIDs to generate", "1")
+    .addHelpText("after", `
+Examples:
+  $ cloudcruise utils uuid
+  $ cloudcruise utils uuid --count 5
+`)
     .action((opts: { count: string }) => {
       const count = Math.max(1, parseInt(opts.count, 10) || 1)
       for (let i = 0; i < count; i++) {

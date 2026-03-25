@@ -88,7 +88,11 @@ export function registerVaultCommands(program: Command): void {
       .command("list")
       .description("List all vault entries in your workspace")
       .option("--full", "Show all fields (default shows summary only)")
-  ).action(async (opts: { full?: boolean } & AuthOptions) => {
+  ).addHelpText("after", `
+Examples:
+  $ cloudcruise vault list
+  $ cloudcruise vault list --full
+`).action(async (opts: { full?: boolean } & AuthOptions) => {
     try {
       const auth = resolveAuth(opts)
       const client = new ApiClient(auth)
@@ -119,7 +123,11 @@ export function registerVaultCommands(program: Command): void {
       .requiredOption("--user-id <id>", "Permissioned user ID")
       .requiredOption("--domain <domain>", "Target domain")
       .option("--decrypt", "Decrypt credential fields client-side")
-  ).action(
+  ).addHelpText("after", `
+Examples:
+  $ cloudcruise vault get --user-id f47ac10b-58cc-4372-a567-0e02b2c3d479 --domain "https://app.example.com"
+  $ cloudcruise vault get --user-id f47ac10b-58cc-4372-a567-0e02b2c3d479 --domain "https://app.example.com" --decrypt
+`).action(
     async (
       opts: {
         userId: string
@@ -165,7 +173,12 @@ export function registerVaultCommands(program: Command): void {
       .option("--proxy-ip <ip>", "Target IP for proxy assignment")
       .option("--file <path>", "Path to JSON payload (assumed pre-encrypted)")
       .option("--stdin", "Read JSON payload from stdin (assumed pre-encrypted)")
-  ).action(
+  ).addHelpText("after", `
+Examples:
+  $ cloudcruise vault create --user-id f47ac10b-... --domain "https://app.example.com" --user-name "user@example.com" --password "s3cret"
+  $ cloudcruise vault create --file payload.json
+  $ cat payload.json | cloudcruise vault create --stdin
+`).action(
     async (
       opts: {
         userId?: string
@@ -232,7 +245,12 @@ export function registerVaultCommands(program: Command): void {
       .option("--proxy-ip <ip>", "Target IP for proxy assignment")
       .option("--file <path>", "Path to JSON payload (assumed pre-encrypted)")
       .option("--stdin", "Read JSON payload from stdin (assumed pre-encrypted)")
-  ).action(
+  ).addHelpText("after", `
+Examples:
+  $ cloudcruise vault update --user-id f47ac10b-... --domain "https://app.example.com" --password "new_pass"
+  $ cloudcruise vault update --file payload.json
+  $ cat payload.json | cloudcruise vault update --stdin
+`).action(
     async (
       opts: {
         userId?: string
@@ -290,7 +308,10 @@ export function registerVaultCommands(program: Command): void {
       .description("Clear stored browser state (cookies, localStorage, sessionStorage) for a vault entry")
       .requiredOption("--user-id <id>", "Permissioned user ID")
       .requiredOption("--domain <domain>", "Target domain")
-  ).action(
+  ).addHelpText("after", `
+Examples:
+  $ cloudcruise vault clear-state --user-id f47ac10b-... --domain "https://app.example.com"
+`).action(
     async (opts: { userId: string; domain: string } & AuthOptions) => {
       try {
         const auth = resolveAuth(opts)
@@ -317,7 +338,11 @@ export function registerVaultCommands(program: Command): void {
       .description("Encrypt a string with the workspace encryption key (no API call)")
       .option("--stdin", "Read plaintext from stdin")
       .option("--raw", "Skip JSON serialization (encrypt raw bytes)")
-  ).action(
+  ).addHelpText("after", `
+Examples:
+  $ cloudcruise vault encrypt "my secret value"
+  $ echo "secret" | cloudcruise vault encrypt --stdin
+`).action(
     async (
       plaintext: string | undefined,
       opts: { stdin?: boolean; raw?: boolean } & AuthOptions
@@ -352,7 +377,11 @@ export function registerVaultCommands(program: Command): void {
       .description("Decrypt a ciphertext with the workspace encryption key (no API call)")
       .option("--stdin", "Read ciphertext from stdin")
       .option("--raw", "Skip JSON deserialization (return raw decrypted bytes)")
-  ).action(
+  ).addHelpText("after", `
+Examples:
+  $ cloudcruise vault decrypt "abc123encrypted..."
+  $ echo "abc123encrypted..." | cloudcruise vault decrypt --stdin
+`).action(
     async (
       ciphertext: string | undefined,
       opts: { stdin?: boolean; raw?: boolean } & AuthOptions

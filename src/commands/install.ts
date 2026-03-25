@@ -80,6 +80,12 @@ export function registerInstallCommands(program: Command): void {
       "Target agent: claude, cursor, all (default: all)",
       "all"
     )
+    .addHelpText("after", `
+Examples:
+  $ cloudcruise install --skills
+  $ cloudcruise install --skills --target cursor
+  $ cloudcruise install --skills --target claude
+`)
     .action((opts: { skills?: boolean; target: string }) => {
       if (!opts.skills) {
         outputError(
