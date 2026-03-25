@@ -1,5 +1,6 @@
 import { Command } from "commander"
 import { writeFileSync } from "fs"
+import { exec } from "child_process"
 import { resolveAuth } from "../core/auth.js"
 import { ApiClient } from "../core/api-client.js"
 import { streamSSE } from "../core/sse-client.js"
@@ -12,10 +13,19 @@ import {
   loadSession,
   updateSession
 } from "../core/session.js"
-import {
-  processBuilderStream,
-  pollBuilderStream
-} from "../core/builder-stream.js"
+import { pollBuilderStream } from "../core/builder-stream.js"
+
+function openInBrowser(url: string): void {
+  const cmd =
+    process.platform === "darwin"
+      ? "open"
+      : process.platform === "win32"
+        ? "start"
+        : "xdg-open"
+  exec(`${cmd} ${JSON.stringify(url)}`, () => {
+    // Best effort — ignore errors (e.g. no display server on headless Linux)
+  })
+}
 
 const BASE = "/workflow-builder/agent"
 
@@ -61,6 +71,7 @@ export function registerBuilderCommands(program: Command): void {
       .option("--input-schema <json>", "Input schema as JSON")
       .option("--input <json>", "Example input values as JSON")
       .option("--network", "Enable network traffic capture")
+      .option("--no-open", "Don't open the live browser URL in the default browser")
   ).action(
     async (
       opts: {
@@ -74,6 +85,7 @@ export function registerBuilderCommands(program: Command): void {
         inputSchema?: string
         input?: string
         network?: boolean
+        open: boolean
       } & AuthOptions
     ) => {
       try {
@@ -108,6 +120,14 @@ export function registerBuilderCommands(program: Command): void {
         })
 
         outputJson(result)
+
+        const sessionUrl = (
+          result as { builderSession?: { url?: string } }
+        ).builderSession?.url
+        if (opts.open && sessionUrl) {
+          openInBrowser(sessionUrl)
+          progress("Opened live browser session in default browser")
+        }
       } catch (err: unknown) {
         outputError(err instanceof Error ? err.message : String(err))
         process.exit(1)
@@ -127,6 +147,7 @@ export function registerBuilderCommands(program: Command): void {
         "--use-last-browser-state",
         "Continue from previous browser state"
       )
+      .option("--no-open", "Don't open the live browser URL in the default browser")
   ).action(
     async (
       opts: {
@@ -134,6 +155,7 @@ export function registerBuilderCommands(program: Command): void {
         targetNode?: string
         input?: string
         useLastBrowserState?: boolean
+        open: boolean
       } & AuthOptions
     ) => {
       try {
@@ -162,6 +184,14 @@ export function registerBuilderCommands(program: Command): void {
         })
 
         outputJson(result)
+
+        const sessionUrl = (
+          result as { builderSession?: { url?: string } }
+        ).builderSession?.url
+        if (opts.open && sessionUrl) {
+          openInBrowser(sessionUrl)
+          progress("Opened live browser session in default browser")
+        }
       } catch (err: unknown) {
         outputError(err instanceof Error ? err.message : String(err))
         process.exit(1)
@@ -173,104 +203,42 @@ export function registerBuilderCommands(program: Command): void {
   addAuthOptions(
     builder
       .command("send <message>")
-      .description("Send a message to the builder agent")
-      .option("--no-wait", "Return immediately without waiting for completion")
-      .option("--timeout <seconds>", "Timeout in seconds (ignored with --no-wait)", "300")
+      .description("Send a message to the builder agent (returns immediately; use poll to check status)")
   ).action(
     async (
       message: string,
-      opts: {
-        wait: boolean  // commander inverts --no-wait to opts.wait = false
-        timeout: string
-      } & AuthOptions
+      opts: AuthOptions
     ) => {
       try {
         const auth = resolveBuilderAuth(opts)
-        const client = new ApiClient(auth)
         const session = requireSession()
 
-        if (opts.wait === false) {
-          // Async mode: fire request with a 5s abort — enough for the
-          // server to accept and start processing, but don't wait for
-          // the full response (which blocks until the agent turn ends).
-          const ac = new AbortController()
-          const timer = setTimeout(() => ac.abort(), 5000)
-          try {
-            await fetch(
-              `${auth.baseUrl}${BASE}/${session.conversationId}/message`,
-              {
-                method: "POST",
-                headers: {
-                  "cc-key": auth.apiKey,
-                  "Content-Type": "application/json"
-                },
-                body: JSON.stringify({ text: message }),
-                signal: ac.signal
-              }
-            )
-          } catch {
-            // AbortError is expected — server accepted but we're not
-            // waiting for the response. Network errors also caught here.
-          } finally {
-            clearTimeout(timer)
-          }
-          outputJson({ status: "sent" })
-          process.exit(0)
-        }
-
-        // Blocking mode: POST + stream SSE until done
-        const timeoutMs = parseInt(opts.timeout) * 1000
-        const abortController = new AbortController()
-
-        const interruptAndExit = async () => {
-          progress("Interrupted — sending interrupt to builder agent...")
-          abortController.abort()
-          try {
-            await client.post(
-              `${BASE}/${session.conversationId}/interrupt`
-            )
-          } catch {
-            // Best effort — server may already be done
-          }
-          process.exit(130)
-        }
-        process.on("SIGINT", interruptAndExit)
-        process.on("SIGTERM", interruptAndExit)
-
-        const timeout = setTimeout(() => {
-          abortController.abort()
-          progress("Timeout waiting for builder agent")
-          process.exit(1)
-        }, timeoutMs)
-
+        // Fire request with a 5s abort — enough for the server to accept
+        // and start processing, but don't wait for the full response
+        // (which blocks until the agent turn ends).
+        const ac = new AbortController()
+        const timer = setTimeout(() => ac.abort(), 5000)
         try {
-          const sseUrl = `${BASE}/${session.conversationId}/stream`
-          const stream = streamSSE(client, sseUrl, abortController.signal)
-
-          let postError: string | undefined
-          client
-            .post(`${BASE}/${session.conversationId}/message`, {
-              text: message
-            })
-            .catch((err: unknown) => {
-              postError =
-                err instanceof Error ? err.message : String(err)
-              abortController.abort()
-            })
-
-          const result = await processBuilderStream(stream, {
-            onDone: () => abortController.abort()
-          })
-
-          if (postError && !result.finalText) {
-            outputError(postError)
-            process.exit(1)
-          }
+          await fetch(
+            `${auth.baseUrl}${BASE}/${session.conversationId}/message`,
+            {
+              method: "POST",
+              headers: {
+                "cc-key": auth.apiKey,
+                "Content-Type": "application/json"
+              },
+              body: JSON.stringify({ text: message }),
+              signal: ac.signal
+            }
+          )
+        } catch {
+          // AbortError is expected — server accepted but we're not
+          // waiting for the response. Network errors also caught here.
         } finally {
-          clearTimeout(timeout)
-          process.off("SIGINT", interruptAndExit)
-          process.off("SIGTERM", interruptAndExit)
+          clearTimeout(timer)
         }
+        outputJson({ status: "sent" })
+        process.exit(0)
       } catch (err: unknown) {
         outputError(err instanceof Error ? err.message : String(err))
         process.exit(1)
