@@ -66,6 +66,7 @@ export function registerWorkflowCommands(program: Command): void {
     "workspace_id",
     "workflow_id",
     "loginStructure",
+    "encrypted_keys",
   ]
 
   addAuthOptions(
