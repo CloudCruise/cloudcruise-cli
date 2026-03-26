@@ -30,6 +30,8 @@ cloudcruise auth login --api-key "sk_..." --encryption-key "hex..."  # Save cred
 cloudcruise auth login --api-key "sk_..."                            # Save credentials (no vault key)
 cloudcruise auth login --encryption-key "hex..." --profile <name>    # Add vault key to existing profile
 cloudcruise auth status                      # Check auth (masked key, source)
+cloudcruise auth switch <profile>            # Set the active auth profile
+cloudcruise auth profiles                    # List all auth profiles
 cloudcruise auth logout                      # Remove saved credentials
 ```
 
