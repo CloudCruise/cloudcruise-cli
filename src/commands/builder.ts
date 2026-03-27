@@ -4,7 +4,7 @@ import { exec } from "child_process"
 import { resolveAuth } from "../core/auth.js"
 import { ApiClient } from "../core/api-client.js"
 import { streamSSE } from "../core/sse-client.js"
-import { outputJson, outputError } from "../core/output.js"
+import { outputJson, outputError, stripBase64 } from "../core/output.js"
 import { addAuthOptions, type AuthOptions } from "../core/auth-options.js"
 import {
   saveSession,
@@ -678,7 +678,7 @@ Examples:
         const result = await client.get(
           `${BASE}/${session.conversationId}/messages${query}`
         )
-        outputJson(result)
+        outputJson(stripBase64(result))
       } catch (err: unknown) {
         outputError(err instanceof Error ? err.message : String(err))
         process.exit(1)
