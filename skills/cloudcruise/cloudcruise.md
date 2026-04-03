@@ -115,6 +115,7 @@ cloudcruise builder poll                                       # Check status + 
 
 # ── Respond to human input requests ──
 cloudcruise builder respond --message-id "msg-456" --value "123456"
+cloudcruise builder respond --message-id "msg-456" --responses '{"email":"user@example.com","password":"s3cret"}'
 
 # ── Inspect session state ──
 cloudcruise builder status              # Check if session is active, get workflow summary
@@ -192,7 +193,7 @@ When the user asks you to use the CloudCruise CLI, or to build a "workflow" / "c
 - `builder send` returns immediately — use `builder poll` to check for completion
 - Break complex tasks into small steps (e.g. "log in", then "navigate to X", then "search for Y")
 - Poll in a loop — if poll returns `processing`, wait a few seconds and poll again
-- **`waiting_for_input` is how the builder asks for information it needs** (e.g. email, password, 2FA code). When you see it, relay the question to the user, then pass their answer back with `builder respond`. Never pre-emptively browse the site or ask the user for form values — let the builder discover what it needs.
+- **`waiting_for_input` is how the builder asks for information it needs** (e.g. email, password, 2FA code). When you see it, relay the question to the user, then pass their answer back with `builder respond`. The agent may request multiple inputs at once — check `waitingForInputs.inputs` for the full list and use `--responses` with a JSON object keyed by input name. Never pre-emptively browse the site or ask the user for form values — let the builder discover what it needs.
 - Only fall back to direct DSL editing after the builder reaches a true terminal state such as `done` or `error`.
 - **Wait for `done`/`error` before sending the next message** — sending while the agent is processing interrupts the current turn
 
@@ -209,9 +210,14 @@ cloudcruise builder poll
 cloudcruise builder poll
 # → {"status":"done","text":"I built the login flow...","tools":[...]}
 
-# If agent needs input:
+# If agent needs input (single value):
 # → {"status":"waiting_for_input","waitingForInput":{"messageId":"m1","description":"What's the 2FA code?"}}
 cloudcruise builder respond --message-id m1 --value "123456"
+cloudcruise builder poll
+
+# If agent needs multiple inputs at once:
+# → {"status":"waiting_for_input","waitingForInputs":{"messageId":"m1","inputs":[{"name":"npi",...},{"name":"last_name",...}]}}
+cloudcruise builder respond --message-id m1 --responses '{"npi":"1234567890","last_name":"Ziegler"}'
 cloudcruise builder poll
 ```
 

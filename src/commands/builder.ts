@@ -204,10 +204,19 @@ Examples:
   )
 
   // ── builder poll (helpers) ──────────────────────────────────────
+  interface HumanInputField {
+    name: string
+    type: string
+    description: string
+    default?: string
+    options?: string[]
+  }
+
   interface PollFromMessagesResult {
     status: "processing" | "done" | "error" | "waiting_for_input" | "idle"
     text?: string
     waitingForInput?: { messageId: string; description: string }
+    waitingForInputs?: { messageId: string; inputs: HumanInputField[] }
     tools: { tool: string; status: string; text?: string }[]
     newMessageCount: number
     totalMessageCount: number
@@ -266,23 +275,43 @@ Examples:
         msgStatus === "waiting_for_input"
       ) {
         const content = msg.content as Record<string, unknown> | undefined
-        const humanInput = content?.humanInput as
-          | Record<string, unknown>
-          | undefined
-        return {
+        const humanInputs = (content?.humanInputs as Record<string, unknown>[]) ?? []
+        const humanInput =
+          (content?.humanInput as Record<string, unknown> | undefined) ??
+          humanInputs[0]
+
+        const messageId = msg.id as string
+        const description =
+          (humanInput?.description as string) ??
+          (humanInput?.name as string) ??
+          (msg.text as string) ??
+          "Input requested"
+
+        const result: PollFromMessagesResult = {
           status: "waiting_for_input" as const,
-          waitingForInput: {
-            messageId: msg.id as string,
-            description:
-              (humanInput?.description as string) ??
-              (humanInput?.name as string) ??
-              (msg.text as string) ??
-              "Input requested"
-          },
+          waitingForInput: { messageId, description },
           tools,
           newMessageCount: newMessages.length,
           totalMessageCount: allMessages.length
         }
+
+        if (humanInputs.length > 0) {
+          result.waitingForInputs = {
+            messageId,
+            inputs: humanInputs.map((hi) => {
+              const field: HumanInputField = {
+                name: hi.name as string,
+                type: hi.type as string,
+                description: hi.description as string
+              }
+              if (hi.default !== undefined) field.default = hi.default as string
+              if (hi.options) field.options = hi.options as string[]
+              return field
+            })
+          }
+        }
+
+        return result
       }
     }
 
@@ -374,18 +403,30 @@ Examples:
       .command("respond")
       .description("Respond to a human input request from the builder agent")
       .requiredOption("--message-id <id>", "ID of the input request message")
-      .requiredOption("--value <value>", "Response value")
+      .option("--value <value>", "Response value (single input)")
+      .option("--responses <json>", "JSON object of name-to-value responses (multiple inputs)")
   ).addHelpText("after", `
 Examples:
   $ cloudcruise builder respond --message-id msg_abc123 --value "123456"
+  $ cloudcruise builder respond --message-id msg_abc123 --responses '{"email":"user@example.com","password":"s3cret"}'
 `).action(
     async (
       opts: {
         messageId: string
-        value: string
+        value?: string
+        responses?: string
       } & AuthOptions
     ) => {
       try {
+        if (!opts.value && !opts.responses) {
+          outputError("Either --value or --responses is required")
+          process.exit(1)
+        }
+        if (opts.value && opts.responses) {
+          outputError("Use either --value or --responses, not both")
+          process.exit(1)
+        }
+
         const auth = resolveBuilderAuth(opts)
         const client = new ApiClient(auth)
         const session = requireSession()
@@ -402,27 +443,35 @@ Examples:
           // Best effort
         }
 
-        // Try to parse as JSON for typed values (number, boolean, null)
-        let value: string | number | boolean | null = opts.value
-        try {
-          const parsed = JSON.parse(opts.value)
-          if (
-            typeof parsed === "number" ||
-            typeof parsed === "boolean" ||
-            parsed === null
-          ) {
-            value = parsed
+        const body: Record<string, unknown> = { messageId: opts.messageId }
+
+        if (opts.responses) {
+          try {
+            body.responses = JSON.parse(opts.responses)
+          } catch {
+            outputError("--responses must be valid JSON")
+            process.exit(1)
           }
-        } catch {
-          // Keep as string
+        } else if (opts.value !== undefined) {
+          let value: string | number | boolean | null = opts.value
+          try {
+            const parsed = JSON.parse(opts.value)
+            if (
+              typeof parsed === "number" ||
+              typeof parsed === "boolean" ||
+              parsed === null
+            ) {
+              value = parsed
+            }
+          } catch {
+            // Keep as string
+          }
+          body.value = value
         }
 
         const result = await client.post(
           `${BASE}/${session.conversationId}/respond`,
-          {
-            messageId: opts.messageId,
-            value
-          }
+          body
         )
         outputJson(result)
       } catch (err: unknown) {

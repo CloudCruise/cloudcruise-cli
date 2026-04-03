@@ -117,9 +117,22 @@ export async function processBuilderStream(
       const messageId = parsed.messageId as string | undefined ?? id
       waitingForInput = { messageId }
       writeText("\n")
-      writeProgress(
-        `Agent is waiting for input. Use \`cloudcruise builder respond --message-id ${messageId} --value <val>\` to continue.`
-      )
+
+      const content = parsed.content as Record<string, unknown> | undefined
+      const humanInputs = (content?.humanInputs as Record<string, unknown>[]) ?? []
+
+      if (humanInputs.length > 1) {
+        const names = humanInputs.map((hi) => hi.name as string).join(", ")
+        writeProgress(`Agent is waiting for input (${names}).`)
+        writeProgress(
+          `Use \`cloudcruise builder respond --message-id ${messageId} --responses '{...}'\` to continue.`
+        )
+      } else {
+        writeProgress(
+          `Agent is waiting for input. Use \`cloudcruise builder respond --message-id ${messageId} --value <val>\` to continue.`
+        )
+      }
+
       finalText = text ?? prev?.text ?? ""
       opts.onDone()
       break
