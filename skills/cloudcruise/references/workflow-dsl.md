@@ -68,11 +68,11 @@ JSONata is especially useful in BoolCondition `comparison_value_1` for complex c
 | Type           | Description                                                                 | Used By                                                        |
 | -------------- | --------------------------------------------------------------------------- | -------------------------------------------------------------- |
 | `STATIC`       | Explicit XPath selectors. Fast and reliable. **Prefer this when possible.** | Click, InputText, InputSelect, BoolCondition, ExtractDatamodel |
-| `LLM_VISION`   | AI decision from screenshot. Retries up to 6x with scrolling.               | Click, InputText, BoolCondition, ExtractDatamodel              |
+| `LLM_VISION`   | AI decision or extraction from screenshot                                   | ExtractDatamodel, BoolCondition                                |
 | `LLM_DOM`      | AI extraction from HTML DOM structure.                                      | ExtractDatamodel                                               |
 | `PROMPT`       | AI reasoning on context data (no screenshot).                               | ExtractDatamodel, BoolCondition                                |
 | `COORDINATES`  | Click/type at specific x,y screen coordinates.                              | Click, InputText                                               |
-| `COMPUTER_USE` | AI agent with computer-use capabilities.                                    | Click, InputText, TFA                                          |
+| `COMPUTER_USE` | AI action from screenshot. Handles scrolling and waits autonomously.        | Click, InputText, TFA                                          |
 
 ## Writing Good XPath Selectors
 
@@ -234,9 +234,9 @@ Click on page elements.
 
 | Parameter                | Type    | Required | Description                                               |
 | ------------------------ | ------- | -------- | --------------------------------------------------------- |
-| `execution`              | string  | Yes      | `STATIC`, `LLM_VISION`, `COORDINATES`, or `COMPUTER_USE`  |
+| `execution`              | string  | Yes      | `STATIC`, `COORDINATES`, or `COMPUTER_USE`                |
 | `selector`               | string  | No       | XPath (STATIC) or JSON `{"x":N,"y":N}` (COORDINATES)      |
-| `prompt`                 | string  | No       | Natural language target description (LLM_VISION)          |
+| `prompt`                 | string  | No       | Natural language target description (COMPUTER_USE)        |
 | `click_type`             | string  | No       | `click` (default), `double_click`, `right_click`, `hover` |
 | `wait_time`              | number  | No       | Max ms to wait for element. Default: 15000                |
 | `selector_error_message` | string  | No       | Custom error message if element not found                 |
@@ -263,9 +263,9 @@ Type text into form fields.
 | Parameter            | Type    | Required | Description                                              |
 | -------------------- | ------- | -------- | -------------------------------------------------------- |
 | `text`               | string  | Yes      | Text to type (supports variables and JSONata)            |
-| `execution`          | string  | Yes      | `STATIC`, `LLM_VISION`, `COORDINATES`, or `COMPUTER_USE` |
+| `execution`          | string  | Yes      | `STATIC`, `COORDINATES`, or `COMPUTER_USE`               |
 | `selector`           | string  | No       | XPath (STATIC) or coordinates (COORDINATES)              |
-| `prompt`             | string  | No       | Natural language field description (LLM_VISION)          |
+| `prompt`             | string  | No       | Natural language field description (COMPUTER_USE)        |
 | `do_not_clear`       | boolean | No       | Append without clearing existing content                 |
 | `submit_after_input` | boolean | No       | Press Enter after typing                                 |
 | `aggressive_clear`   | boolean | No       | Aggressively clear field before typing                   |
@@ -753,7 +753,7 @@ When a run fails, the maintenance agent classifies errors:
 ## Best Practices
 
 1. **Use descriptive node names.** The maintenance agent uses them during recovery.
-2. **Prefer STATIC execution** for speed and reliability. Fall back to LLM_VISION when selectors are fragile.
+2. **Prefer STATIC execution** for speed and reliability. For Click and InputText, use `COMPUTER_USE` when a selector-driven interaction is not viable.
 3. **Use `wait_time` on action nodes** instead of separate Delay nodes.
 4. **Use variables** (`{{context.inputs.*}}`) instead of hardcoded values.
 5. **XPath selectors should be semantic** — use @id, @name, @aria-label, @placeholder, not generated class names.
