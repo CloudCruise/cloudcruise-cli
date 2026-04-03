@@ -29,6 +29,10 @@ A workflow is a directed graph of nodes (actions) connected by edges. The browse
 
 **Optional:** `description`, `version_note`, `use_native_actions`, `video_record_session`, `extract_network_urls`, `popup_xpaths`, `vault_schema`, `enable_popup_handling`, `enable_action_timing_recovery`, `enable_xpath_recovery`, `enable_error_code_generation`, `enable_service_unavailable_recovery`, `proxy_setting`, `proxy_value`, `enable_network_listener`
 
+### `popup_xpaths`
+
+An array of XPath selectors that identify dismissible popups (cookie banners, survey modals, chat widgets, etc.). When `enable_popup_handling` is `true`, the runtime checks for elements matching these XPaths before each node executes and clicks them to dismiss. Set at the workflow level to apply globally.
+
 ## Variables
 
 Variables use double curly braces: `{{expression}}`.
@@ -171,8 +175,6 @@ Every node has:
 ```
 
 **IMPORTANT:** The `id` field must be a valid UUID (e.g., `"f47ac10b-58cc-4372-a567-0e02b2c3d479"`). Do not use natural language IDs like `"click-submit-button"`. Generate UUIDs with `cloudcruise utils uuid`.
-
-Optional base fields: `description`, `use_native_actions`, `popup_xpaths`, `take_snapshot`
 
 ## Node Types
 
