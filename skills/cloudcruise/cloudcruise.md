@@ -186,11 +186,13 @@ Use the builder only when creating a new workflow from scratch.
 
 For existing workflows, do not use the builder. Fetch the workflow JSON with `workflows get`, make targeted edits, validate with `run`/`snapshot`, and push with `workflows update`.
 
+When the user asks you to use the CloudCruise CLI, or to build a "workflow" / "cloudcruise workflow" / "cc workflow", **all web interaction goes through the builder** — do not browse the target site yourself with other tools. The builder agent handles all browsing; send it instructions and poll for results.
+
 **Important guidelines:**
 - `builder send` returns immediately — use `builder poll` to check for completion
 - Break complex tasks into small steps (e.g. "log in", then "navigate to X", then "search for Y")
 - Poll in a loop — if poll returns `processing`, wait a few seconds and poll again
-- If `builder poll` returns `waiting_for_input`, either respond to the builder with the requested value or ask the user for it.
+- **`waiting_for_input` is how the builder asks for information it needs** (e.g. email, password, 2FA code). When you see it, relay the question to the user, then pass their answer back with `builder respond`. Never pre-emptively browse the site or ask the user for form values — let the builder discover what it needs.
 - Only fall back to direct DSL editing after the builder reaches a true terminal state such as `done` or `error`.
 - **Wait for `done`/`error` before sending the next message** — sending while the agent is processing interrupts the current turn
 
