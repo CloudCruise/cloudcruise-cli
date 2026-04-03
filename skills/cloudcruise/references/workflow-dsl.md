@@ -61,7 +61,7 @@ Common patterns:
 {{$number(context.inputs.string_amount)}}
 ```
 
-JSONata is especially useful in BoolCondition `comparison_value_1` for complex conditions that go beyond simple `EQUAL`/`CONTAINS` operators (see BoolCondition section below).
+JSONata is especially useful in BoolCondition `comparison_value_1` for complex conditions that go beyond simple `EQUAL`/`IS_NULL` operators (see BoolCondition section below).
 
 ## Execution Types
 
@@ -187,8 +187,7 @@ Entry point. Every workflow has exactly one.
   "action": "START",
   "parameters": {
     "url": "https://app.example.com/login",
-    "input_variables": {},
-    "popup_xpaths": ["//div[@class='modal-overlay']"]
+    "input_variables": {}
   }
 }
 ```
@@ -200,7 +199,6 @@ Entry point. Every workflow has exactly one.
 | `video_record_session`   | boolean  | No       | Record video of the run                 |
 | `store_downloaded_files` | boolean  | No       | Store downloaded files                  |
 | `extract_network_urls`   | string[] | No       | URL patterns to capture network traffic |
-| `popup_xpaths`           | string[] | No       | XPath patterns for popup auto-dismissal |
 
 ### END
 
@@ -413,23 +411,31 @@ Conditional branching. Uses `true`/`false` edges.
   "action": "BOOL_CONDITION",
   "parameters": {
     "execution": "STATIC",
-    "comparison_operator": "NOT_CONTAINS",
-    "comparison_value_1": "{{context.current_url}}",
-    "comparison_value_2": "/login"
+    "comparison_operator": "IS_NULL",
+    "comparison_value_1": "<<xpath://input[@id='username']>>"
   }
 }
 ```
 
-| Parameter                | Type    | Required | Description                                                |
-| ------------------------ | ------- | -------- | ---------------------------------------------------------- |
-| `execution`              | string  | Yes      | `STATIC`, `LLM_VISION`, or `PROMPT`                        |
+| Parameter                | Type    | Required | Description                                                                          |
+| ------------------------ | ------- | -------- | ------------------------------------------------------------------------------------ |
+| `execution`              | string  | Yes      | `STATIC`, `LLM_VISION`, or `PROMPT`                                                  |
 | `comparison_operator`    | string  | No       | For STATIC: `EQUAL`, `NOT_EQUAL`, `IS_NULL`, `IS_NOT_NULL` |
-| `comparison_value_1`     | string  | No       | First value (STATIC). Supports variables and JSONata       |
-| `comparison_value_2`     | string  | No       | Second value (STATIC). Not needed for IS_NULL/IS_NOT_NULL  |
-| `prompt`                 | string  | No       | Natural language condition (LLM_VISION/PROMPT)             |
-| `clear_cookies_on_false` | boolean | No       | Clear cookies when false (useful for login flows)          |
-| `wait_time`              | number  | No       | Max ms to wait before evaluation                           |
-| `error_on_false_message` | string  | No       | Custom error code to throw when false                      |
+| `comparison_value_1`     | string  | No       | First value (STATIC). Supports variables, JSONata, and `<<xpath:...>>` (see below)   |
+| `comparison_value_2`     | string  | No       | Second value (STATIC). Not needed for IS_NULL/IS_NOT_NULL                            |
+| `prompt`                 | string  | No       | Natural language condition (LLM_VISION/PROMPT)                                       |
+| `clear_cookies_on_false` | boolean | No       | Clear cookies when false (useful for login flows)                                    |
+| `wait_time`              | number  | No       | Max ms to wait before evaluation                                                     |
+| `error_on_false_message` | string  | No       | Custom error code to throw when false                                                |
+
+#### XPath evaluation with `<<xpath:...>>`
+
+To evaluate a condition against a live DOM element, wrap the XPath in `<<xpath:...>>`. The browser agent locates the element and extracts its text content as the comparison value. If the element is not found, the value resolves to null (useful with `IS_NULL`/`IS_NOT_NULL` to check element existence). Variables work inside the XPath: `<<xpath://tr[normalize-space()='{{context.inputs.name}}']>>`.
+
+```json
+{"comparison_operator": "IS_NOT_NULL", "comparison_value_1": "<<xpath://div[@id='error-banner']>>"}
+{"comparison_operator": "EQUAL", "comparison_value_1": "<<xpath://span[@data-testid='status']>>", "comparison_value_2": "Approved"}
+```
 
 **Use JSONata for complex conditions.** When you need logic beyond simple `EQUAL`/`IS_NULL` (e.g., numeric comparisons, array membership, string operations, compound conditions), evaluate the expression in `comparison_value_1` and compare against `"true"`:
 
@@ -625,8 +631,7 @@ Capture a file download triggered by a previous Click node.
 
 | Parameter                     | Type    | Required | Description                                          |
 | ----------------------------- | ------- | -------- | ---------------------------------------------------- |
-| `metadata`                    | object  | Yes      | Metadata attached to the download for identification |
-| `selector`                    | string  | Yes      | XPath (required by DTO validation)                   |
+| `metadata`                    | object  | No       | Metadata attached to the download for identification |
 | `trigger_print`               | boolean | No       | Trigger print dialog for PDF generation              |
 | `continue_on_failed_download` | boolean | No       | Continue if download times out                       |
 | `timeout_seconds`             | number  | No       | Max seconds to wait. Default: 60 (range 5-300)       |
@@ -644,9 +649,10 @@ Upload a file to a file input. The OS file dialog must already be open (trigger 
 }
 ```
 
-| Parameter         | Type   | Required | Description                       |
-| ----------------- | ------ | -------- | --------------------------------- |
-| `signed_file_url` | string | Yes      | Pre-authenticated URL to the file |
+| Parameter         | Type   | Required | Description                                              |
+| ----------------- | ------ | -------- | -------------------------------------------------------- |
+| `signed_file_url` | string | Yes      | Pre-authenticated URL to the file                        |
+| `file_name`       | string | No       | Custom file name (with extension) to use when uploading  |
 
 ### USER_INTERACTION
 
@@ -710,31 +716,7 @@ Intercept XHR/Fetch requests and extract data from responses.
 
 Path syntax: `$` (root), `$.field` (direct), `$.parent.child` (nested), `$[0]` (array index).
 
-### APP_ACTION
-
-Execute a pre-built app-specific action from the CloudCruise catalog.
-
-```json
-{
-  "id": "b0c1d2e3-4567-4f89-c012-678901234567",
-  "name": "LinkedIn search",
-  "action": "APP_ACTION",
-  "parameters": {
-    "app": "linkedin.com",
-    "action": "search_people",
-    "context": { "query": "{{context.inputs.search_term}}" }
-  }
-}
-```
-
-| Parameter              | Type     | Required | Description                         |
-| ---------------------- | -------- | -------- | ----------------------------------- |
-| `app`                  | string   | Yes      | App domain (e.g., `linkedin.com`)   |
-| `action`               | string   | Yes      | Action name from the catalog        |
-| `context`              | object   | No       | Parameters for the action           |
-| `extract_network_urls` | string[] | No       | Network traffic patterns to capture |
-
-## Error Classification
+# Error Classification
 
 When a run fails, the maintenance agent classifies errors:
 
@@ -761,4 +743,4 @@ When a run fails, the maintenance agent classifies errors:
 7. **Arrays append by default** in ExtractDatamodel. Use `overwriteArrayKeys` to replace.
 8. **Loop bodies must edge back** to the loop node for iteration.
 9. **For login flows**, use `clear_cookies_on_false` on the login-check BoolCondition to reset stale state.
-10. **File downloads need a preceding Click** to trigger the download. The FileDownload node only captures.
+10. **File downloads need a preceding Click** to trigger the download. The FileDownload node only captures. This does not apply when the trigger_print flag is set.
