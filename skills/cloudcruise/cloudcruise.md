@@ -187,9 +187,9 @@ Use the builder only when creating a new workflow from scratch.
 For existing workflows, do not use the builder. Fetch the workflow JSON with `workflows get`, make targeted edits, validate with `run`/`snapshot`, and push with `workflows update`.
 
 **Important guidelines:**
-- `builder send` returns immediately by default — use `builder poll` to check for completion
+- `builder send` returns immediately — use `builder poll` to check for completion
 - Break complex tasks into small steps (e.g. "log in", then "navigate to X", then "search for Y")
-- Poll in a loop with `--wait 30` — if poll returns `done` but the task is only partially complete, send a follow-up
+- Poll in a loop — if poll returns `processing`, wait a few seconds and poll again
 - If `builder poll` returns `waiting_for_input`, either respond to the builder with the requested value or ask the user for it.
 - Only fall back to direct DSL editing after the builder reaches a true terminal state such as `done` or `error`.
 - **Wait for `done`/`error` before sending the next message** — sending while the agent is processing interrupts the current turn
@@ -200,17 +200,20 @@ For existing workflows, do not use the builder. Fetch the workflow JSON with `wo
 cloudcruise builder send "Log me in"
 # → {"status":"sent","messageCountBefore":2}
 
-# Block until agent reaches a terminal state (up to 60s)
-cloudcruise builder poll --wait 60
+# Poll until agent reaches a terminal state
+cloudcruise builder poll
+# → {"status":"processing","tools":[...],"newMessageCount":3,"totalMessageCount":8}
+
+cloudcruise builder poll
 # → {"status":"done","text":"I built the login flow...","tools":[...]}
 
 # If agent needs input:
 # → {"status":"waiting_for_input","waitingForInput":{"messageId":"m1","description":"What's the 2FA code?"}}
 cloudcruise builder respond --message-id m1 --value "123456"
-cloudcruise builder poll --wait 60
+cloudcruise builder poll
 ```
 
-**Poll statuses:** `done` → proceed to next step. `waiting_for_input` → respond then poll. `error` → read text, send corrective instruction. `timeout`/`processing` → poll again.
+**Poll statuses:** `done` → proceed to next step. `waiting_for_input` → respond then poll. `error` → read text, send corrective instruction. `processing` → wait and poll again. `idle` → no pending work.
 
 **Full example: Login → Navigate → Search**
 
@@ -221,15 +224,15 @@ cloudcruise builder start --start-url "https://app.example.com" --name "Search w
 
 # Step 1: Login
 cloudcruise builder send "Log in using the vault credentials"
-cloudcruise builder poll --wait 30   # repeat until "done"
+cloudcruise builder poll   # repeat until "done"
 
 # Step 2: Navigate
 cloudcruise builder send "Click on Reports in the nav bar, then select Monthly Summary"
-cloudcruise builder poll --wait 30   # repeat until "done"
+cloudcruise builder poll   # repeat until "done"
 
 # Step 3: Search and extract
 cloudcruise builder send "Search for order 12345 and extract the status"
-cloudcruise builder poll --wait 30   # repeat until "done"
+cloudcruise builder poll   # repeat until "done"
 
 # Save and clean up
 cloudcruise builder save

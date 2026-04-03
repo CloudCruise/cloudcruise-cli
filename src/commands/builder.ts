@@ -2,7 +2,6 @@ import { Command } from "commander"
 import { exec } from "child_process"
 import { resolveAuth } from "../core/auth.js"
 import { ApiClient } from "../core/api-client.js"
-import { streamSSE } from "../core/sse-client.js"
 import { outputJson, outputError, stripBase64 } from "../core/output.js"
 import { addAuthOptions, type AuthOptions } from "../core/auth-options.js"
 import {
@@ -12,7 +11,6 @@ import {
   loadSession,
   updateSession
 } from "../core/session.js"
-import { pollBuilderStream } from "../core/builder-stream.js"
 
 function openInBrowser(url: string): void {
   const cmd =
@@ -340,98 +338,18 @@ Examples:
   addAuthOptions(
     builder
       .command("poll")
-      .description(
-        "Check builder agent status. With --wait, blocks until status changes."
-      )
-      .option(
-        "--wait <seconds>",
-        "Block until agent finishes, errors, or needs input (max seconds)"
-      )
+      .description("Check builder agent status")
   ).addHelpText("after", `
 Examples:
   $ cloudcruise builder poll
-  $ cloudcruise builder poll --wait 60
 `).action(
-    async (
-      opts: {
-        wait?: string
-      } & AuthOptions
-    ) => {
+    async (opts: AuthOptions) => {
       try {
         const auth = resolveBuilderAuth(opts)
         const client = new ApiClient(auth)
         const session = requireSession()
         const sinceIndex = session.lastMessageCount ?? 0
 
-        if (opts.wait) {
-          // Step 1: Check messages first — terminal state may already exist
-          const immediate = await checkMessagesForStatus(
-            client,
-            session.conversationId,
-            sinceIndex
-          )
-          if (immediate && immediate.status !== "processing") {
-            outputJson(immediate)
-            return
-          }
-
-          // Step 2: Not done yet — open SSE stream and wait
-          const timeoutMs = parseInt(opts.wait) * 1000
-          const abortController = new AbortController()
-
-          const timeout = setTimeout(() => {
-            abortController.abort()
-          }, timeoutMs)
-
-          const interruptAndExit = async () => {
-            abortController.abort()
-            try {
-              await client.post(
-                `${BASE}/${session.conversationId}/interrupt`
-              )
-            } catch {
-              // Best effort
-            }
-            process.exit(130)
-          }
-          process.on("SIGINT", interruptAndExit)
-          process.on("SIGTERM", interruptAndExit)
-
-          try {
-            const sseUrl = `${BASE}/${session.conversationId}/stream`
-            const stream = streamSSE(
-              client,
-              sseUrl,
-              abortController.signal
-            )
-            const sseResult = await pollBuilderStream(
-              stream,
-              abortController.signal
-            )
-
-            // Step 3: SSE returned — if timeout, do final message check
-            if (sseResult.status === "timeout") {
-              const final = await checkMessagesForStatus(
-                client,
-                session.conversationId,
-                sinceIndex
-              )
-              if (final) {
-                outputJson(final)
-                return
-              }
-            }
-
-            outputJson(sseResult)
-          } finally {
-            clearTimeout(timeout)
-            process.off("SIGINT", interruptAndExit)
-            process.off("SIGTERM", interruptAndExit)
-          }
-          return
-        }
-
-        // Instant mode: just check messages
         const result = await checkMessagesForStatus(
           client,
           session.conversationId,
