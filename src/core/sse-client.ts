@@ -8,7 +8,8 @@ export interface SSEEvent {
 
 export async function* streamSSE(
   client: ApiClient,
-  path: string
+  path: string,
+  signal?: AbortSignal
 ): AsyncGenerator<SSEEvent> {
   const url = client.sseUrl(path)
   const res = await fetch(url, {
@@ -16,7 +17,8 @@ export async function* streamSSE(
     headers: {
       "cc-key": client.apiKey,
       Accept: "text/event-stream"
-    }
+    },
+    signal
   })
 
   if (!res.ok) {
@@ -59,6 +61,9 @@ export async function* streamSSE(
         }
       }
     }
+  } catch (err: unknown) {
+    if (err instanceof DOMException && err.name === "AbortError") return
+    throw err
   } finally {
     reader.releaseLock()
   }

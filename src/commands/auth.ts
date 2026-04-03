@@ -26,6 +26,12 @@ export function registerAuthCommands(program: Command): void {
     .option("--base-url <url>", "Base URL for CloudCruise API")
     .option("--encryption-key <key>", "Hex-encoded AES-256 encryption key for vault operations")
     .option("--profile <name>", "Profile name (default: active profile or \"default\")")
+    .addHelpText("after", `
+Examples:
+  $ cloudcruise auth login --api-key "sk_..."
+  $ cloudcruise auth login --api-key "sk_..." --encryption-key "hex..."
+  $ cloudcruise auth login --encryption-key "hex..." --profile production
+`)
     .action(
       (opts: { apiKey?: string; baseUrl?: string; encryptionKey?: string; profile?: string }) => {
         try {
@@ -65,6 +71,11 @@ export function registerAuthCommands(program: Command): void {
     .option("--base-url <url>", "Base URL")
     .option("--profile <name>", "Profile to check")
     .option("--encryption-key <key>", "Encryption key override")
+    .addHelpText("after", `
+Examples:
+  $ cloudcruise auth status
+  $ cloudcruise auth status --profile production
+`)
     .action((opts: { apiKey?: string; baseUrl?: string; profile?: string; encryptionKey?: string }) => {
       try {
         const profileName = resolveProfileName(opts.profile);
@@ -110,6 +121,12 @@ export function registerAuthCommands(program: Command): void {
     .description("Remove saved credentials")
     .option("--profile <name>", "Profile to remove (default: active profile)")
     .option("--all", "Remove all profiles and config")
+    .addHelpText("after", `
+Examples:
+  $ cloudcruise auth logout
+  $ cloudcruise auth logout --profile production
+  $ cloudcruise auth logout --all
+`)
     .action((opts: { profile?: string; all?: boolean }) => {
       try {
         if (opts.all) {
@@ -129,6 +146,11 @@ export function registerAuthCommands(program: Command): void {
   auth
     .command("switch <name>")
     .description("Set the active auth profile")
+    .addHelpText("after", `
+Examples:
+  $ cloudcruise auth switch production
+  $ cloudcruise auth switch staging
+`)
     .action((name: string) => {
       try {
         setActiveProfile(name);
@@ -142,6 +164,10 @@ export function registerAuthCommands(program: Command): void {
   auth
     .command("profiles")
     .description("List all auth profiles")
+    .addHelpText("after", `
+Examples:
+  $ cloudcruise auth profiles
+`)
     .action(() => {
       try {
         const { active, profiles } = listProfiles();

@@ -1,7 +1,7 @@
 {
   "name": "@cloudcruise/cli",
-  "version": "0.3.2",
-  "description": "CLI for managing CloudCruise browser automation workflows and runs",
+  "version": "1.0.0",
+  "description": "CLI for managing CloudCruise browser automation workflows",
   "type": "module",
   "license": "MIT",
   "repository": {
@@ -18,7 +18,6 @@
     "browser-automation",
     "workflow",
     "coding-agent",
-    "mcp",
     "ai-agent"
   ],
   "bin": {
