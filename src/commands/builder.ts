@@ -1,5 +1,4 @@
 import { Command } from "commander"
-import { writeFileSync } from "fs"
 import { exec } from "child_process"
 import { resolveAuth } from "../core/auth.js"
 import { ApiClient } from "../core/api-client.js"
@@ -51,7 +50,7 @@ function resolveBuilderAuth(opts: AuthOptions) {
 export function registerBuilderCommands(program: Command): void {
   const builder = program
     .command("builder")
-    .description("Build and edit workflows with the AI builder agent")
+    .description("Build new workflows with the CloudCruise builder agent")
 
   // ── builder start ──────────────────────────────────────────────
   addAuthOptions(
@@ -140,75 +139,6 @@ Examples:
     }
   )
 
-  // ── builder edit ───────────────────────────────────────────────
-  addAuthOptions(
-    builder
-      .command("edit")
-      .description("Edit an existing workflow in the builder")
-      .requiredOption("--workflow <id>", "Workflow ID to edit")
-      .option("--target-node <id>", "Start from a specific node")
-      .option("--input <json>", "Input variables as JSON")
-      .option(
-        "--use-last-browser-state",
-        "Continue from previous browser state"
-      )
-      .option("--no-open", "Don't open the live browser URL in the default browser")
-  ).addHelpText("after", `
-Examples:
-  $ cloudcruise builder edit --workflow wf_abc123
-  $ cloudcruise builder edit --workflow wf_abc123 --target-node node_abc123
-  $ cloudcruise builder edit --workflow wf_abc123 --use-last-browser-state
-`).action(
-    async (
-      opts: {
-        workflow: string
-        targetNode?: string
-        input?: string
-        useLastBrowserState?: boolean
-        open: boolean
-      } & AuthOptions
-    ) => {
-      try {
-        const auth = resolveAuth(opts)
-        const client = new ApiClient(auth)
-
-        const body: Record<string, unknown> = {
-          workflowId: opts.workflow
-        }
-        if (opts.targetNode) body.targetNodeId = opts.targetNode
-        if (opts.input) body.inputVariables = JSON.parse(opts.input)
-        if (opts.useLastBrowserState) body.useLastBrowserState = true
-
-        const result = await client.post<{
-          conversationId: string
-          [k: string]: unknown
-        }>(`${BASE}/session/from-workflow`, body)
-
-        saveSession({
-          conversationId: result.conversationId,
-          name: `Edit ${opts.workflow}`,
-          startedAt: new Date().toISOString(),
-          apiKey: auth.apiKey,
-          baseUrl: auth.baseUrl,
-          profile: opts.profile
-        })
-
-        outputJson(result)
-
-        const sessionUrl = (
-          result as { builderSession?: { url?: string } }
-        ).builderSession?.url
-        if (opts.open && sessionUrl) {
-          openInBrowser(sessionUrl)
-          progress("Opened live browser session in default browser")
-        }
-      } catch (err: unknown) {
-        outputError(err instanceof Error ? err.message : String(err))
-        process.exit(1)
-      }
-    }
-  )
-
   // ── builder send ───────────────────────────────────────────────
   addAuthOptions(
     builder
@@ -225,7 +155,22 @@ Examples:
     ) => {
       try {
         const auth = resolveBuilderAuth(opts)
+        const client = new ApiClient(auth)
         const session = requireSession()
+
+        // Snapshot message count before sending so poll knows
+        // where this turn starts.
+        let messageCountBefore: number | undefined
+        try {
+          const { messages } = await fetchMessages(
+            client,
+            session.conversationId
+          )
+          messageCountBefore = messages.length
+          updateSession({ lastMessageCount: messages.length })
+        } catch {
+          // Best effort — poll will still work with stale sinceIndex
+        }
 
         // Fire request with a 5s abort — enough for the server to accept
         // and start processing, but don't wait for the full response
@@ -251,7 +196,7 @@ Examples:
         } finally {
           clearTimeout(timer)
         }
-        outputJson({ status: "sent" })
+        outputJson({ status: "sent", messageCountBefore })
         process.exit(0)
       } catch (err: unknown) {
         outputError(err instanceof Error ? err.message : String(err))
@@ -262,7 +207,7 @@ Examples:
 
   // ── builder poll (helpers) ──────────────────────────────────────
   interface PollFromMessagesResult {
-    status: "processing" | "done" | "error" | "waiting_for_input"
+    status: "processing" | "done" | "error" | "waiting_for_input" | "idle"
     text?: string
     waitingForInput?: { messageId: string; description: string }
     tools: { tool: string; status: string; text?: string }[]
@@ -270,51 +215,108 @@ Examples:
     totalMessageCount: number
   }
 
+  interface MessagesResponse {
+    messages: Record<string, unknown>[]
+    isProcessing: boolean
+  }
+
+  async function fetchMessages(
+    client: ApiClient,
+    conversationId: string
+  ): Promise<MessagesResponse> {
+    const raw = await client.get<
+      MessagesResponse | Record<string, unknown>[]
+    >(`${BASE}/${conversationId}/messages`)
+
+    if (Array.isArray(raw)) {
+      return { messages: raw, isProcessing: false }
+    }
+    return {
+      messages: Array.isArray(raw.messages) ? raw.messages : [],
+      isProcessing: !!raw.isProcessing
+    }
+  }
+
   async function checkMessagesForStatus(
     client: ApiClient,
     conversationId: string,
     sinceIndex: number
   ): Promise<PollFromMessagesResult | null> {
-    const allMessages = await client.get<Record<string, unknown>[]>(
-      `${BASE}/${conversationId}/messages`
+    const { messages: allMessages, isProcessing } = await fetchMessages(
+      client,
+      conversationId
     )
-    if (!Array.isArray(allMessages)) return null
 
     const newMessages = allMessages.slice(sinceIndex)
 
-    let status: PollFromMessagesResult["status"] = "processing"
-    let text: string | undefined
-    let waitingForInput: PollFromMessagesResult["waitingForInput"]
+    const tools = newMessages
+      .filter((m) => m.role === "tool" && m.toolName)
+      .map((m) => ({
+        tool: m.toolName as string,
+        status: m.status as string,
+        text: (m.text as string)?.slice(0, 100)
+      }))
 
+    // Check for waiting_for_input first — it's actionable regardless of isProcessing
     for (let i = newMessages.length - 1; i >= 0; i--) {
       const msg = newMessages[i]
-      const role = msg.role as string
       const msgStatus = msg.status as string
       const eventType = msg.event_type as string
-
-      if (msgStatus === "error") {
-        status = "error"
-        text = msg.text as string
-        break
-      }
 
       if (
         eventType === "interaction.inputs" ||
         msgStatus === "waiting_for_input"
       ) {
-        status = "waiting_for_input"
         const content = msg.content as Record<string, unknown> | undefined
         const humanInput = content?.humanInput as
           | Record<string, unknown>
           | undefined
-        waitingForInput = {
-          messageId: msg.id as string,
-          description:
-            (humanInput?.description as string) ??
-            (humanInput?.name as string) ??
-            (msg.text as string) ??
-            "Input requested"
+        return {
+          status: "waiting_for_input" as const,
+          waitingForInput: {
+            messageId: msg.id as string,
+            description:
+              (humanInput?.description as string) ??
+              (humanInput?.name as string) ??
+              (msg.text as string) ??
+              "Input requested"
+          },
+          tools,
+          newMessageCount: newMessages.length,
+          totalMessageCount: allMessages.length
         }
+      }
+    }
+
+    if (isProcessing) {
+      return {
+        status: "processing",
+        tools,
+        newMessageCount: newMessages.length,
+        totalMessageCount: allMessages.length
+      }
+    }
+
+    if (newMessages.length === 0) {
+      return {
+        status: "idle",
+        tools: [],
+        newMessageCount: 0,
+        totalMessageCount: allMessages.length
+      }
+    }
+
+    let status: PollFromMessagesResult["status"] = "idle"
+    let text: string | undefined
+
+    for (let i = newMessages.length - 1; i >= 0; i--) {
+      const msg = newMessages[i]
+      const role = msg.role as string
+      const msgStatus = msg.status as string
+
+      if (msgStatus === "error") {
+        status = "error"
+        text = msg.text as string
         break
       }
 
@@ -325,20 +327,9 @@ Examples:
       }
     }
 
-    const tools = newMessages
-      .filter((m) => m.role === "tool" && m.toolName)
-      .map((m) => ({
-        tool: m.toolName as string,
-        status: m.status as string,
-        text: (m.text as string)?.slice(0, 100)
-      }))
-
-    updateSession({ lastMessageCount: allMessages.length })
-
     return {
       status,
       text,
-      waitingForInput,
       tools,
       newMessageCount: newMessages.length,
       totalMessageCount: allMessages.length
@@ -481,6 +472,18 @@ Examples:
         const client = new ApiClient(auth)
         const session = requireSession()
 
+        // Snapshot message count before responding so poll knows
+        // where the new turn starts.
+        try {
+          const { messages } = await fetchMessages(
+            client,
+            session.conversationId
+          )
+          updateSession({ lastMessageCount: messages.length })
+        } catch {
+          // Best effort
+        }
+
         // Try to parse as JSON for typed values (number, boolean, null)
         let value: string | number | boolean | null = opts.value
         try {
@@ -549,85 +552,6 @@ Examples:
       process.exit(1)
     }
   })
-
-  // ── builder screenshot ─────────────────────────────────────────
-  addAuthOptions(
-    builder
-      .command("screenshot")
-      .description("Get a screenshot of the current browser state")
-      .option("--output <path>", "Write screenshot image to file")
-  ).addHelpText("after", `
-Examples:
-  $ cloudcruise builder screenshot
-  $ cloudcruise builder screenshot --output page.png
-`).action(
-    async (
-      opts: {
-        output?: string
-      } & AuthOptions
-    ) => {
-      try {
-        const auth = resolveBuilderAuth(opts)
-        const client = new ApiClient(auth)
-        const session = requireSession()
-
-        const result = await client.get<{
-          url: string | null
-          base64: string | null
-        }>(`${BASE}/${session.conversationId}/screenshot`)
-
-        if (opts.output && result.base64) {
-          const raw = result.base64.replace(/^data:image\/[^;]+;base64,/, "")
-          writeFileSync(opts.output, Buffer.from(raw, "base64"))
-          outputJson({ url: result.url, file: opts.output })
-        } else {
-          outputJson(result)
-        }
-      } catch (err: unknown) {
-        outputError(err instanceof Error ? err.message : String(err))
-        process.exit(1)
-      }
-    }
-  )
-
-  // ── builder html ───────────────────────────────────────────────
-  addAuthOptions(
-    builder
-      .command("html")
-      .description("Get the HTML of the current page")
-      .option("--output <path>", "Write HTML to file")
-  ).addHelpText("after", `
-Examples:
-  $ cloudcruise builder html
-  $ cloudcruise builder html --output page.html
-`).action(
-    async (
-      opts: {
-        output?: string
-      } & AuthOptions
-    ) => {
-      try {
-        const auth = resolveBuilderAuth(opts)
-        const client = new ApiClient(auth)
-        const session = requireSession()
-
-        const result = await client.get<{
-          url: string | null
-          html: string | null
-        }>(`${BASE}/${session.conversationId}/html`)
-
-        if (opts.output && result.html) {
-          writeFileSync(opts.output, result.html)
-          outputJson({ url: result.url, file: opts.output })
-        } else {
-          outputJson(result)
-        }
-      } catch (err: unknown) {
-        outputError(err instanceof Error ? err.message : String(err))
-        process.exit(1)
-      }
-    }
-  )
 
   // ── builder workflow ───────────────────────────────────────────
   addAuthOptions(

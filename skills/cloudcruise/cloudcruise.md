@@ -108,11 +108,6 @@ cloudcruise builder start --start-url "https://app.example.com" \
   --credential "f47ac10b-58cc-4372-a567-0e02b2c3d479" --auth-url "https://app.example.com/login" \
   --proxy country --proxy-value US
 
-# ── Edit an existing workflow ──
-cloudcruise builder edit --workflow <workflow_id>
-cloudcruise builder edit --workflow <workflow_id> --target-node <node_id> --input '{"USER":"f47ac10b-58cc-4372-a567-0e02b2c3d479"}'
-cloudcruise builder edit --workflow <workflow_id> --use-last-browser-state
-
 # ── Interact with the builder agent ──
 cloudcruise builder send "Click the login button"              # Returns immediately
 cloudcruise builder poll                                       # Check status + new messages
@@ -120,12 +115,6 @@ cloudcruise builder poll                                       # Check status + 
 
 # ── Respond to human input requests ──
 cloudcruise builder respond --message-id "msg-456" --value "123456"
-
-# ── Inspect current browser state ──
-cloudcruise builder screenshot                      # Returns { url, base64 }
-cloudcruise builder screenshot --output page.png    # Save to file
-cloudcruise builder html                            # Returns { url, html }
-cloudcruise builder html --output page.html         # Save to file
 
 # ── Inspect session state ──
 cloudcruise builder status              # Check if session is active, get workflow summary
@@ -139,7 +128,7 @@ cloudcruise builder interrupt   # Stop the agent's current processing
 cloudcruise builder end         # End session and clean up
 ```
 
-**Session is implicit** — `start`/`edit` saves the conversation ID locally. All other builder commands use it automatically. One active session at a time.
+**Session is implicit** — `start` saves the conversation ID locally. All other builder commands use it automatically. One active session at a time.
 
 ## Workflow DSL Reference
 
@@ -149,11 +138,10 @@ See `references/workflow-dsl.md` for the complete workflow DSL reference: all no
 
 Choose the lightest tool that fits:
 
-| Tier | Command | Browser | AI | Use case |
-|------|---------|---------|-----|----------|
-| Direct edit | `workflows update` | No | No | Fix XPath, change URL, tweak schema, add/remove nodes |
-| Builder edit | `builder edit` | Yes | Yes | Changes needing a live browser |
-| Builder create | `builder start` | Yes | Yes | Build from scratch |
+| Tier | Command | Use case |
+|------|---------|----------|
+| Direct edit | `workflows update` | Edit existing workflows: fix XPath, change URL, tweak schema, add/remove nodes, change logic |
+| Builder create | `builder start` | Build a brand-new workflow from scratch |
 
 ### Direct Editing (`workflows update`)
 
@@ -192,17 +180,19 @@ cloudcruise run start <workflow_id> --input '{}' --wait --debug
 # On failure: inspect the failed node's snapshot (see Debug Snapshots).
 ```
 
-### Builder (for complex changes or new workflows)
+### Builder (new workflows only)
 
-Use the builder when you need a live browser — building from scratch, navigating complex UIs, or when you're unsure what's on the page.
+Use the builder only when creating a new workflow from scratch.
+
+For existing workflows, do not use the builder. Fetch the workflow JSON with `workflows get`, make targeted edits, validate with `run`/`snapshot`, and push with `workflows update`.
 
 **Important guidelines:**
 - `builder send` returns immediately by default — use `builder poll` to check for completion
 - Break complex tasks into small steps (e.g. "log in", then "navigate to X", then "search for Y")
 - Poll in a loop with `--wait 30` — if poll returns `done` but the task is only partially complete, send a follow-up
+- If `builder poll` returns `waiting_for_input`, either respond to the builder with the requested value or ask the user for it.
+- Only fall back to direct DSL editing after the builder reaches a true terminal state such as `done` or `error`.
 - **Wait for `done`/`error` before sending the next message** — sending while the agent is processing interrupts the current turn
-- If the agent fails on the `snapshot` tool, tell it to skip snapshots and use screenshots instead
-- Auth flags (`--api-key`, `--base-url`) only need to be passed on `builder start`
 
 **Send + poll pattern:**
 

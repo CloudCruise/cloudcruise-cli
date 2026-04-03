@@ -46,7 +46,7 @@ export function requireSession(): BuilderSession {
   const session = loadSession()
   if (!session) {
     throw new Error(
-      "No active builder session. Run 'cloudcruise builder start' or 'cloudcruise builder edit' first."
+      "No active builder session. Run 'cloudcruise builder start' first."
     )
   }
   return session
