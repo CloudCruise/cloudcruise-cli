@@ -121,26 +121,10 @@ For STATIC execution on Click, Input Text, and Input Select: **the XPath must ma
 - Scrambled/generated IDs (e.g., `app-title-5ubdNjG9AIzOgXfv0b1J2`)
 - Deep positional paths like `div[3]/span[2]/a[1]` -- these break on minor DOM changes
 - Unnecessary positional indices `[1]` unless unavoidable (and then wrap: `(//div[@class='result'])[1]`)
-- Selecting `<option>` directly -- always target the parent `<select>` element (use InputSelect node instead)
-
-### Common Patterns
-
-```
-//button[@type='submit']
-//input[@placeholder='Search...']
-//a[@aria-label='Close']
-//select[@name='country']
-//input[@id='email']
-//div[@role='dialog']//button[normalize-space()='Confirm']
-//table[@id='results']//tbody/tr
-//label[normalize-space()='Email']/following::input[1]
-(//button[normalize-space()='Save'])[1]
-```
 
 ### Technical Notes
 
 - Always use `normalize-space()` instead of `text()` for visible text matching
-- If the existing XPath in a workflow is already correct, do not rewrite it
 - When a selector is too fragile or complex to maintain, switch the node to `LLM_VISION` execution instead
 
 ## Edges
