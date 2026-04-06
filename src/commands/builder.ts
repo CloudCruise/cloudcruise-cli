@@ -409,6 +409,9 @@ Examples:
 Examples:
   $ cloudcruise builder respond --message-id msg_abc123 --value "123456"
   $ cloudcruise builder respond --message-id msg_abc123 --responses '{"email":"user@example.com","password":"s3cret"}'
+
+  # Auth-type inputs require { permissioned_user_id, domain }:
+  $ cloudcruise builder respond --message-id msg_abc123 --responses '{"Portal Credentials":{"permissioned_user_id":"d2b9d80e-...","domain":"https://example.com"}}'
 `).action(
     async (
       opts: {
@@ -431,13 +434,14 @@ Examples:
         const client = new ApiClient(auth)
         const session = requireSession()
 
-        // Snapshot message count before responding so poll knows
-        // where the new turn starts.
+        // Snapshot message count and fetch input metadata for validation.
+        let inputMessages: Record<string, unknown>[] = []
         try {
           const { messages } = await fetchMessages(
             client,
             session.conversationId
           )
+          inputMessages = messages
           updateSession({ lastMessageCount: messages.length })
         } catch {
           // Best effort
@@ -467,6 +471,41 @@ Examples:
             // Keep as string
           }
           body.value = value
+        }
+
+        // Validate auth-type inputs have the required { permissioned_user_id, domain } shape.
+        const targetMsg = inputMessages.find(
+          (m) => (m.id as string) === opts.messageId
+        )
+        if (targetMsg) {
+          const content = targetMsg.content as Record<string, unknown> | undefined
+          const humanInputs = (content?.humanInputs as Record<string, unknown>[]) ?? []
+          const authInputs = humanInputs.filter((hi) => hi.type === "auth")
+
+          if (authInputs.length > 0) {
+            const responses = body.responses as Record<string, unknown> | undefined
+            for (const input of authInputs) {
+              const name = input.name as string
+              const val = responses?.[name] ?? (humanInputs.length === 1 ? body.value : undefined)
+              if (val === undefined) continue
+
+              const isValid =
+                typeof val === "object" &&
+                val !== null &&
+                typeof (val as Record<string, unknown>).permissioned_user_id === "string" &&
+                typeof (val as Record<string, unknown>).domain === "string"
+
+              if (!isValid) {
+                outputError(
+                  `Auth input "${name}" requires an object with "permissioned_user_id" and "domain" strings. ` +
+                  `Got: ${JSON.stringify(val)}. ` +
+                  `Use: --responses '{"${name}":{"permissioned_user_id":"<user_id>","domain":"<domain>"}}'` +
+                  ` (look up the domain from "cloudcruise vault list")`
+                )
+                process.exit(1)
+              }
+            }
+          }
         }
 
         const result = await client.post(
