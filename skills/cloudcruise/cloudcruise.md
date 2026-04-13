@@ -88,7 +88,7 @@ cloudcruise run start <workflow_id> --wait                   # Start and stream 
 cloudcruise run start <workflow_id> --wait --debug           # Start with debug snapshots on every node
 cloudcruise run start <workflow_id> --input '{"key":"val"}'  # Start with input variables
 cloudcruise run get <session_id>                             # Get run status, errors, screenshots, output
-cloudcruise run list --workflow <id> --status <s> --limit 50 # List runs with filters
+cloudcruise run list --workflow <id> --status <s> --since 7d --limit 50 # List runs with filters
 cloudcruise run interrupt <session_id>                       # Stop a running session
 cloudcruise run errors <workflow_id> --since 24h             # Error analytics (24h, 7d, 30m)
 cloudcruise run snapshots <session_id> <node_id>             # Debug snapshots for a specific node
@@ -289,6 +289,7 @@ If `snapshot fetch` reports no HTML, the run was not `--debug`. Re-run with `--d
 
 - `run get` returns: status, output_data, workflow_errors (with node_id, llm_error_category, llm_error_description), screenshot_urls (with node_id)
 - `run start --wait` prints NDJSON events to stdout, then the final run result. Exit code 0 = success, 1 = failure.
+- `run list --since` accepts duration strings: `24h`, `7d`, `30m`; without `--since`, the API defaults to the last 24 hours
 - `run errors --since` accepts duration strings: `24h`, `7d`, `30m`
 - `workflows update` requires: nodes, edges, name, input_schema, output_schema, max_retries. Keep all other mutable fields from the GET response (e.g., description, enable_xpath_recovery, proxy_setting).
 - All commands accept `--api-key`, `--base-url`, and `--encryption-key` overrides
