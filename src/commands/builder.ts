@@ -436,13 +436,14 @@ Examples:
 
         // Snapshot message count and fetch input metadata for validation.
         let inputMessages: Record<string, unknown>[] = []
+        let fetchedMessageCount: number | undefined
         try {
           const { messages } = await fetchMessages(
             client,
             session.conversationId
           )
           inputMessages = messages
-          updateSession({ lastMessageCount: messages.length })
+          fetchedMessageCount = messages.length
         } catch {
           // Best effort
         }
@@ -512,6 +513,9 @@ Examples:
           `${BASE}/${session.conversationId}/respond`,
           body
         )
+        if (fetchedMessageCount !== undefined) {
+          updateSession({ lastMessageCount: fetchedMessageCount })
+        }
         outputJson(result)
       } catch (err: unknown) {
         outputError(err instanceof Error ? err.message : String(err))
