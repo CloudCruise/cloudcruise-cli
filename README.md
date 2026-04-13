@@ -137,7 +137,7 @@ cloudcruise builder end          # End session and clean up
 | `workflows update <id>` | Update workflow (`--file`, `--stdin`, `--version-note`) |
 | `run start <id>` | Start a run (`--wait`, `--debug`, `--input`) |
 | `run get <id>` | Get run status and results |
-| `run list` | List runs (`--workflow`, `--status`, `--limit`) |
+| `run list` | List runs (`--workflow`, `--status`, `--limit`, `--since`) |
 | `run interrupt <id>` | Stop a running session |
 | `run errors <id>` | Error analytics (`--since`, `--limit`) |
 | `run snapshots <id> <node_id>` | Get debug snapshot metadata |
@@ -162,6 +162,8 @@ cloudcruise builder end          # End session and clean up
 | `builder end` | End session and clean up |
 | `utils uuid` | Generate UUIDs for node IDs (`--count`) |
 | `install --skills` | Install skill files for coding agents (`--target`) |
+
+`run list` defaults to the last 24 hours when `--since` is omitted. Use values like `24h`, `7d`, or `30m` to adjust the time window.
 
 ## License
 
