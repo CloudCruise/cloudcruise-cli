@@ -57,6 +57,10 @@ cloudcruise workflows get <workflow_id> > workflow.json
 cloudcruise workflows update <workflow_id> --file workflow.json --version-note "Description of changes"
 ```
 
+**Login workflow edit pattern:** For existing login workflows, make the first three nodes `START (logged-in destination URL)` → `IF (already logged in?)` → false branch login recovery. On the false branch, set `clear_cookies_on_false: true`, then add a `NAVIGATE` node to the login page before the credential-entry steps.
+
+**Download capture pattern:** In manual workflow edits, add a `FILE_DOWNLOAD` node immediately after any `CLICK` that triggers a download. The builder adds this automatically; direct workflow edits do not.
+
 **Iterative build pattern** (for creating workflows node-by-node without the builder):
 
 ```bash
