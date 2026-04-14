@@ -405,7 +405,7 @@ Conditional branching. Uses `true`/`false` edges.
 | `comparison_value_2`     | string  | No                       | Second value (STATIC). Not needed for IS_NULL/IS_NOT_NULL                  |
 | `prompt`                 | string  | Yes (LLM_VISION, PROMPT) | Natural language condition                                                 |
 | `clear_cookies_on_false` | boolean | No                       | Clear cookies when false (useful for login flows, default false)           |
-| `wait_time`              | number  | No                       | Max ms to wait before evaluation (default 150000)                          |
+| `wait_time`              | number  | No                       | Max ms to wait before evaluation (default 15000)                          |
 | `error_on_false_message` | string  | No                       | Custom error code to throw when false                                      |
 
 #### XPath evaluation with `<<xpath:...>>`
