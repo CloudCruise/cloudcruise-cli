@@ -170,6 +170,7 @@ cloudcruise builder end         # End session and clean up
 **Session is implicit** — `start` saves the conversation ID locally. All other builder commands use it automatically. One active session at a time.
 
 **Important guidelines:**
+
 - `builder send` returns immediately — use `builder poll` to check for completion
 - Break complex tasks into small steps (e.g. "log in", then "navigate to X", then "search for Y")
 - Poll in a loop — if poll returns `processing`, wait a few seconds and poll again
@@ -287,7 +288,9 @@ cloudcruise snapshot test "//input[@name='email']" <session_id> <node_id>
 
 If `snapshot fetch` reports no HTML, the run was not `--debug`. Re-run with `--debug`.
 
-**Snapshot timing:** Snapshots capture page state *when a node starts executing* (i.e., post-action state of the *previous* node). To see what appeared after a node's action, inspect the *next* node's snapshot. On success, the END node shows final state. On failure, the END node has no snapshot — use the *failed* node's snapshot instead.
+**Snapshot timing:** Snapshots capture page state _when a node starts executing_ (i.e., post-action state of the _previous_ node). To see what appeared after a node's action, inspect the _next_ node's snapshot. On success, the END node shows final state. On failure, the END node has no snapshot — use the _failed_ node's snapshot instead.
+
+**Snapshot format:** Snapshots are compact-sanitized HTML — comments, scripts, styles, SVGs, and generic empty containers are stripped, and `data:` URI payloads are stubbed. Selector-relevant attributes (`@id`, `@name`, `@aria-*`, `@data-*`, `@role`, `@type`, `@value`, `@placeholder`) are preserved. Iframe content appears near `</body>` inside `<!-- IFRAME CONTENT: ${frameId} -->` blocks; open shadow DOM content appears inside `<!-- SHADOW DOM CONTENT: ${tag}-${index} -->` blocks. Search the entire file when validating an XPath — `snapshot suggest` and `snapshot test` already handle these blocks correctly.
 
 ## Key Details
 
