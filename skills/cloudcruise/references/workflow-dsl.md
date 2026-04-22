@@ -170,19 +170,14 @@ Entry point. Every workflow has exactly one.
   "name": "Open site",
   "action": "START",
   "parameters": {
-    "url": "https://app.example.com/login",
-    "input_variables": {}
+    "url": "https://app.example.com/login"
   }
 }
 ```
 
-| Parameter                | Type     | Required | Description                             |
-| ------------------------ | -------- | -------- | --------------------------------------- |
-| `url`                    | string   | Yes      | Starting URL                            |
-| `input_variables`        | object   | No       | Default input values                    |
-| `video_record_session`   | boolean  | No       | Record video of the run                 |
-| `store_downloaded_files` | boolean  | No       | Store downloaded files                  |
-| `extract_network_urls`   | string[] | No       | URL patterns to capture network traffic |
+| Parameter | Type   | Required | Description  |
+| --------- | ------ | -------- | ------------ |
+| `url`     | string | Yes      | Starting URL |
 
 ### END
 
