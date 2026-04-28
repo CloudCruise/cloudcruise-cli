@@ -31,6 +31,25 @@ function progress(msg: string): void {
 }
 
 /**
+ * Normalize a user-supplied URL: trim, auto-prefix `https://` when a scheme
+ * is missing, validate with `URL`, and return the encoded form. Mirrors the
+ * validation used by the builder web UI on the `start_url` input.
+ */
+function normalizeUrl(value: string, flagName: string): string {
+  const trimmed = value.trim()
+  const withScheme = /^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//.test(trimmed)
+    ? trimmed
+    : `https://${trimmed}`
+  try {
+    new URL(withScheme)
+    return encodeURI(withScheme)
+  } catch {
+    outputError(`${flagName}: Invalid URL (${JSON.stringify(value)})`)
+    process.exit(1)
+  }
+}
+
+/**
  * Resolve auth for builder commands. Uses session-stored auth as fallback
  * so --api-key and --base-url only need to be passed at `builder start`.
  */
@@ -58,8 +77,22 @@ export function registerBuilderCommands(program: Command): void {
       .requiredOption("--start-url <url>", "URL to open in the browser")
       .option("--name <name>", "Session name", "Untitled")
       .option("--description <text>", "Session description")
-      .option("--credential <id>", "Vault permissioned_user_id for auth")
-      .option("--auth-url <url>", "Auth URL (used with --credential)")
+      .option(
+        "--vault-user-id <id>",
+        "Vault entry's permissioned_user_id to log in with (requires --vault-domain; see `vault list`)"
+      )
+      .option(
+        "--vault-domain <domain>",
+        "Vault entry's domain (required with --vault-user-id; must match the domain from `vault list`)"
+      )
+      .option(
+        "--credential <id>",
+        "[Deprecated] Alias for --vault-user-id"
+      )
+      .option(
+        "--auth-url <url>",
+        "[Deprecated] Alias for --vault-domain"
+      )
       .option(
         "--proxy <setting>",
         "Proxy setting: country, static, random, off"
@@ -72,7 +105,7 @@ export function registerBuilderCommands(program: Command): void {
   ).addHelpText("after", `
 Examples:
   $ cloudcruise builder start --start-url "https://app.example.com" --name "Login flow"
-  $ cloudcruise builder start --start-url "https://app.example.com" --credential "f47ac10b-..." --auth-url "https://app.example.com/login"
+  $ cloudcruise builder start --start-url "https://app.example.com" --vault-user-id "f47ac10b-..." --vault-domain "https://app.example.com"
   $ cloudcruise builder start --start-url "https://app.example.com" --proxy country --proxy-value US
 `).action(
     async (
@@ -80,6 +113,8 @@ Examples:
         startUrl: string
         name: string
         description?: string
+        vaultUserId?: string
+        vaultDomain?: string
         credential?: string
         authUrl?: string
         proxy?: string
@@ -91,16 +126,52 @@ Examples:
       } & AuthOptions
     ) => {
       try {
+        if (opts.vaultUserId && opts.credential) {
+          outputError(
+            "--vault-user-id and --credential are aliases; pass only one (prefer --vault-user-id)."
+          )
+          process.exit(1)
+        }
+        if (opts.vaultDomain && opts.authUrl) {
+          outputError(
+            "--vault-domain and --auth-url are aliases; pass only one (prefer --vault-domain)."
+          )
+          process.exit(1)
+        }
+        if (opts.credential) {
+          progress(
+            "[deprecated] --credential is deprecated; use --vault-user-id instead."
+          )
+        }
+        if (opts.authUrl) {
+          progress(
+            "[deprecated] --auth-url is deprecated; use --vault-domain instead."
+          )
+        }
+
+        const vaultUserId = opts.vaultUserId ?? opts.credential
+        const vaultDomain = opts.vaultDomain ?? opts.authUrl
+
+        if (!!vaultUserId !== !!vaultDomain) {
+          outputError(
+            "--vault-user-id and --vault-domain must be used together. " +
+              "Pass both to pre-configure login, or omit both to let the builder prompt for credentials when it hits a login page."
+          )
+          process.exit(1)
+        }
+
+        const startUrl = normalizeUrl(opts.startUrl, "--start-url")
+
         const auth = resolveAuth(opts)
         const client = new ApiClient(auth)
 
         const body: Record<string, unknown> = {
           name: opts.name,
-          startUrl: opts.startUrl
+          startUrl
         }
         if (opts.description) body.description = opts.description
-        if (opts.credential) body.permissionedUserId = opts.credential
-        if (opts.authUrl) body.authUrl = opts.authUrl
+        if (vaultUserId) body.permissionedUserId = vaultUserId
+        if (vaultDomain) body.authUrl = vaultDomain
         if (opts.proxy) body.proxySetting = opts.proxy
         if (opts.proxyValue) body.proxyValue = opts.proxyValue
         if (opts.inputSchema) body.inputSchema = JSON.parse(opts.inputSchema)

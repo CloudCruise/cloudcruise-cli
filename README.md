@@ -102,7 +102,7 @@ Build new workflows interactively through a conversational agent:
 # Start a new workflow
 cloudcruise builder start --start-url "https://app.example.com" --name "Login flow"
 cloudcruise builder start --start-url "https://app.example.com" \
-  --credential <user_id> --auth-url "https://app.example.com/login"
+  --vault-user-id <user_id> --vault-domain "https://app.example.com"
 
 # Send instructions and poll for completion
 cloudcruise builder send "Click the login button"
@@ -150,7 +150,7 @@ cloudcruise builder end          # End session and clean up
 | `vault update` | Update vault entry fields |
 | `vault clear-state` | Clear browser state for a credential |
 | `vault encrypt` / `decrypt` | Encrypt or decrypt values locally |
-| `builder start` | Start builder session (`--start-url`, `--name`, `--credential`) |
+| `builder start` | Start builder session (`--start-url`, `--name`, `--vault-user-id`) |
 | `builder send <message>` | Send instruction to builder agent |
 | `builder poll` | Check agent status and new messages |
 | `builder respond` | Reply to agent input requests (`--message-id`, `--value`) |
