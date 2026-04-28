@@ -143,7 +143,7 @@ When the user asks to build a "workflow" / "cloudcruise workflow" / "cc workflow
 # ── Start a new workflow from scratch ──
 cloudcruise builder start --start-url "https://app.example.com" --name "Login flow"
 cloudcruise builder start --start-url "https://app.example.com" \
-  --credential "f47ac10b-58cc-4372-a567-0e02b2c3d479" --auth-url "https://app.example.com/login" \
+  --vault-user-id "f47ac10b-58cc-4372-a567-0e02b2c3d479" --vault-domain "https://app.example.com" \
   --proxy country --proxy-value US
 
 # ── Interact with the builder agent ──
@@ -222,7 +222,7 @@ cloudcruise builder poll
 ```bash
 # Start
 cloudcruise builder start --start-url "https://app.example.com" --name "Search workflow" \
-  --credential "f47ac10b-58cc-4372-a567-0e02b2c3d479" --auth-url "https://app.example.com"
+  --vault-user-id "f47ac10b-58cc-4372-a567-0e02b2c3d479" --vault-domain "https://app.example.com"
 
 # Step 1: Login
 cloudcruise builder send "Log in using the vault credentials"
