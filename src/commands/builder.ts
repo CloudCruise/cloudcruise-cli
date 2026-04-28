@@ -32,8 +32,11 @@ function progress(msg: string): void {
 
 /**
  * Normalize a user-supplied URL: trim, auto-prefix `https://` when a scheme
- * is missing, validate with `URL`, and return the encoded form. Mirrors the
- * validation used by the builder web UI on the `start_url` input.
+ * is missing, then return the canonical form produced by the WHATWG URL
+ * parser. Using `url.href` (rather than `encodeURI` on the raw string)
+ * ensures correct handling of IDN hosts (punycode), dot-segment resolution,
+ * default-port stripping, host case-folding, and the trailing-slash for
+ * bare hosts.
  */
 function normalizeUrl(value: string, flagName: string): string {
   const trimmed = value.trim()
@@ -41,8 +44,7 @@ function normalizeUrl(value: string, flagName: string): string {
     ? trimmed
     : `https://${trimmed}`
   try {
-    new URL(withScheme)
-    return encodeURI(withScheme)
+    return new URL(withScheme).href
   } catch {
     outputError(`${flagName}: Invalid URL (${JSON.stringify(value)})`)
     process.exit(1)
