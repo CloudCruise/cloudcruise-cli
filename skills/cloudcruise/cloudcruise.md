@@ -60,22 +60,12 @@ cloudcruise workflows get <workflow_id> > workflow.json
 cloudcruise workflows update <workflow_id> --file workflow.json --version-note "Description of changes"
 ```
 
-**Inspecting and rolling back versions:** `workflows versions` returns `[{ version_id, version_number, version_note, created_by, created_at }, ...]` newest first. Use it to find a known-good version, then fetch its full JSON and either diff against the current version or push it back as a rollback:
+**Rolling back versions:** `workflows versions` lists history newest first. Fetch a prior version's full JSON via `--version <N>` (same shape as latest), then push it back to roll back — history is preserved as a new version on top:
 
 ```bash
-# Diff two versions
-cloudcruise workflows get <workflow_id> --version 17 > v17.json
-cloudcruise workflows get <workflow_id> --version 18 > v18.json
-diff <(jq -S . v17.json) <(jq -S . v18.json)
-
-# Roll back to a known-good version (creates a new version on top, preserving history)
 cloudcruise workflows get <workflow_id> --version 17 > rollback.json
-# Read-only fields are stripped automatically by `workflows update`.
-cloudcruise workflows update <workflow_id> --file rollback.json \
-  --version-note "Rollback to v17 (broken selector introduced in v18)"
+cloudcruise workflows update <workflow_id> --file rollback.json --version-note "Rollback to v17"
 ```
-
-The version-fetch response shape is identical to `workflows get` (latest), so the same fetch → edit → push loop works unchanged.
 
 **Login workflow edit pattern:** For existing login workflows, make the first three nodes `START (logged-in destination URL)` → `IF (already logged in?)` → false branch login recovery. On the false branch, set `clear_cookies_on_false: true`, then add a `NAVIGATE` node to the login page before the credential-entry steps.
 
