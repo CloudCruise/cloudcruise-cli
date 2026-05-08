@@ -284,10 +284,6 @@ cloudcruise snapshot suggest <new_session_id> <failed_node_id>
 cloudcruise snapshot test "<new_xpath>" <new_session_id> <failed_node_id>
 
 # 4. Fix and push
-#    If a recent update introduced the regression, prefer rollback over a new fix:
-#      cloudcruise workflows versions <workflow_id>                           # find the last good version_number N
-#      cloudcruise workflows get <workflow_id> --version <N> > rollback.json
-#      cloudcruise workflows update <workflow_id> --file rollback.json --version-note "Rollback to vN"
 cloudcruise workflows update <workflow_id> --file workflow.json --version-note "Fixed XPath for submit button"
 
 # 5. Verify
