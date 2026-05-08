@@ -41,7 +41,7 @@ Use `workflows` commands to edit existing workflows. For new workflows, use the 
 
 ```bash
 cloudcruise workflows get <workflow_id>                                          # Get latest workflow definition with nodes
-cloudcruise workflows get <workflow_id> --version 18                             # Get a specific historical version
+cloudcruise workflows get <workflow_id> --version-number 18                      # Get a specific historical version
 cloudcruise workflows versions <workflow_id>                                     # List version history (newest first)
 cloudcruise workflows versions <workflow_id> --limit 10                          # Cap the list
 cloudcruise workflows update <workflow_id> --file w.json --version-note "..."   # Update workflow (creates new version)
@@ -60,10 +60,10 @@ cloudcruise workflows get <workflow_id> > workflow.json
 cloudcruise workflows update <workflow_id> --file workflow.json --version-note "Description of changes"
 ```
 
-**Rolling back versions:** `workflows versions` lists history newest first. Fetch a prior version's full JSON via `--version <N>` (same shape as latest), then push it back to roll back — history is preserved as a new version on top:
+**Rolling back versions:** `workflows versions` lists history newest first. Fetch a prior version's full JSON via `--version-number <N>` (same shape as latest), then push it back to roll back — history is preserved as a new version on top:
 
 ```bash
-cloudcruise workflows get <workflow_id> --version 17 > rollback.json
+cloudcruise workflows get <workflow_id> --version-number 17 > rollback.json
 cloudcruise workflows update <workflow_id> --file rollback.json --version-note "Rollback to v17"
 ```
 

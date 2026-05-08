@@ -1,4 +1,4 @@
-import { Command } from "commander";
+import { Command, InvalidArgumentError } from "commander";
 import { readFileSync } from "fs";
 import { resolveAuth } from "../core/auth.js";
 import { ApiClient } from "../core/api-client.js";
@@ -47,13 +47,15 @@ Examples:
       }
     });
 
-  const parseVersionNumber = (value: string): number => {
+  const parsePositiveInt = (value: string): number => {
     if (!/^\d+$/.test(value)) {
-      throw new Error(`--version must be a positive integer, got: ${value}`);
+      throw new InvalidArgumentError(
+        `Must be a positive integer (got: ${value}).`,
+      );
     }
     const n = Number(value);
     if (n < 1) {
-      throw new Error(`--version must be >= 1, got: ${value}`);
+      throw new InvalidArgumentError(`Must be >= 1 (got: ${value}).`);
     }
     return n;
   };
@@ -63,9 +65,9 @@ Examples:
       .command("get <id>")
       .description("Get workflow with nodes (latest version by default)")
       .option(
-        "--version <n>",
+        "--version-number <n>",
         "Fetch a specific historical version by version_number (use `workflows versions <id>` to list)",
-        parseVersionNumber,
+        parsePositiveInt,
       ),
   )
     .addHelpText(
@@ -74,24 +76,26 @@ Examples:
 Examples:
   $ cloudcruise workflows get wf_abc123
   $ cloudcruise workflows get wf_abc123 > workflow.json
-  $ cloudcruise workflows get wf_abc123 --version 18
+  $ cloudcruise workflows get wf_abc123 --version-number 18
 `,
     )
-    .action(async (id: string, opts: { version?: number } & AuthOptions) => {
-      try {
-        const auth = resolveAuth(opts);
-        const client = new ApiClient(auth);
-        const path =
-          opts.version !== undefined
-            ? `/workflows/${id}/versions/${opts.version}`
-            : `/workflows/${id}`;
-        const data = await client.get(path);
-        outputJson(data);
-      } catch (err: unknown) {
-        outputError(err instanceof Error ? err.message : String(err));
-        process.exit(1);
-      }
-    });
+    .action(
+      async (id: string, opts: { versionNumber?: number } & AuthOptions) => {
+        try {
+          const auth = resolveAuth(opts);
+          const client = new ApiClient(auth);
+          const path =
+            opts.versionNumber !== undefined
+              ? `/workflows/${id}/versions/${opts.versionNumber}`
+              : `/workflows/${id}`;
+          const data = await client.get(path);
+          outputJson(data);
+        } catch (err: unknown) {
+          outputError(err instanceof Error ? err.message : String(err));
+          process.exit(1);
+        }
+      },
+    );
 
   addAuthOptions(
     workflows
@@ -100,7 +104,7 @@ Examples:
       .option(
         "--limit <n>",
         "Cap the number of versions returned (client-side slice)",
-        parseVersionNumber,
+        parsePositiveInt,
       ),
   )
     .addHelpText(
