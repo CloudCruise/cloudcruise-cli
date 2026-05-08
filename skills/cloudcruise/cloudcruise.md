@@ -40,7 +40,10 @@ cloudcruise auth logout                      # Remove saved credentials
 Use `workflows` commands to edit existing workflows. For new workflows, use the builder instead.
 
 ```bash
-cloudcruise workflows get <workflow_id>                                          # Get workflow definition with nodes
+cloudcruise workflows get <workflow_id>                                          # Get latest workflow definition with nodes
+cloudcruise workflows get <workflow_id> --version-number 18                      # Get a specific historical version
+cloudcruise workflows versions <workflow_id>                                     # List version history (newest first)
+cloudcruise workflows versions <workflow_id> --limit 10                          # Cap the list
 cloudcruise workflows update <workflow_id> --file w.json --version-note "..."   # Update workflow (creates new version)
 cloudcruise workflows update <workflow_id> --stdin --version-note "..."          # Update from piped JSON
 ```
@@ -55,6 +58,13 @@ cloudcruise workflows get <workflow_id> > workflow.json
 # Read-only fields (id, version_id, version_number, created_at, created_by,
 # workspace_id, loginStructure, updated_at, workflow_id, encrypted_keys) are stripped automatically.
 cloudcruise workflows update <workflow_id> --file workflow.json --version-note "Description of changes"
+```
+
+**Rolling back versions:** `workflows versions` lists history newest first. Fetch a prior version's full JSON via `--version-number <N>` (same shape as latest), then push it back to roll back — history is preserved as a new version on top:
+
+```bash
+cloudcruise workflows get <workflow_id> --version-number 17 > rollback.json
+cloudcruise workflows update <workflow_id> --file rollback.json --version-note "Rollback to v17"
 ```
 
 **Login workflow edit pattern:** For existing login workflows, make the first three nodes `START (logged-in destination URL)` → `IF (already logged in?)` → false branch login recovery. On the false branch, set `clear_cookies_on_false: true`, then add a `NAVIGATE` node to the login page before the credential-entry steps.
@@ -170,6 +180,7 @@ cloudcruise builder end         # End session and clean up
 **Session is implicit** — `start` saves the conversation ID locally. All other builder commands use it automatically. One active session at a time.
 
 **Important guidelines:**
+
 - `builder send` returns immediately — use `builder poll` to check for completion
 - Break complex tasks into small steps (e.g. "log in", then "navigate to X", then "search for Y")
 - Poll in a loop — if poll returns `processing`, wait a few seconds and poll again
@@ -287,7 +298,7 @@ cloudcruise snapshot test "//input[@name='email']" <session_id> <node_id>
 
 If `snapshot fetch` reports no HTML, the run was not `--debug`. Re-run with `--debug`.
 
-**Snapshot timing:** Snapshots capture page state *when a node starts executing* (i.e., post-action state of the *previous* node). To see what appeared after a node's action, inspect the *next* node's snapshot. On success, the END node shows final state. On failure, the END node has no snapshot — use the *failed* node's snapshot instead.
+**Snapshot timing:** Snapshots capture page state _when a node starts executing_ (i.e., post-action state of the _previous_ node). To see what appeared after a node's action, inspect the _next_ node's snapshot. On success, the END node shows final state. On failure, the END node has no snapshot — use the _failed_ node's snapshot instead.
 
 ## Key Details
 
