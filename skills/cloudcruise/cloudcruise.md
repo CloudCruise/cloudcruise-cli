@@ -87,6 +87,32 @@ cloudcruise run start <workflow_id> --input '{}' --wait --debug
 # On failure: inspect the failed node's snapshot (see Debug Snapshots).
 ```
 
+### Workflow Components
+
+Components are reusable sub-workflows. A component can be pasted into many workflows; an `update` to the component propagates to every workflow that uses it (`--no-propagate` to skip). Component-data shape mirrors a workflow body (nodes/edges).
+
+```bash
+cloudcruise components list                                                    # List components in your workspace
+cloudcruise components get <component_id>                                      # Get latest version with componentData
+cloudcruise components get <component_id> --version-number 3                   # Specific historical version
+cloudcruise components versions <component_id>                                 # Version history (newest first)
+cloudcruise components usage <component_id>                                    # Workflows that use this component
+cloudcruise components create --name "Login flow" --file c.json                # Create from JSON
+cat data.json | cloudcruise components create --name "Login flow" --stdin      # Create from stdin
+cloudcruise components rename <component_id> --name "New name"                 # Rename only
+cloudcruise components update <component_id> --file c.json --version-note "…"  # New version + propagate to instances
+cloudcruise components update <component_id> --stdin --no-propagate            # Update without propagating
+cloudcruise components delete <component_id>                                   # Delete the component
+```
+
+**Edit pattern:** same fetch → edit → push as workflows. Read-only fields (`id`, `component_id`, `version_id`, `version_number`, `version_note`, `created_at`, `created_by`, `updated_at`, `workspace_id`) are stripped from the update body. The CLI accepts either the full get-response (auto-unwraps `componentData`/`component_data`) or just the `componentData` payload.
+
+```bash
+cloudcruise components get <component_id> > component.json
+# Edit component.json
+cloudcruise components update <component_id> --file component.json --version-note "Fixed login XPath"
+```
+
 ### Utils
 
 ```bash

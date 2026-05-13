@@ -135,6 +135,14 @@ cloudcruise builder end          # End session and clean up
 | `workflows list` | List workflows (`--full` for details) |
 | `workflows get <id>` | Get workflow definition |
 | `workflows update <id>` | Update workflow (`--file`, `--stdin`, `--version-note`) |
+| `components list` | List workflow components (`--full`) |
+| `components get <id>` | Get component (`--version-number`) |
+| `components versions <id>` | List component versions (`--limit`) |
+| `components usage <id>` | List workflows using this component |
+| `components create` | Create component (`--name`, `--file`, `--stdin`) |
+| `components rename <id>` | Rename a component (`--name`) |
+| `components update <id>` | Update component (`--file`, `--stdin`, `--version-note`, `--no-propagate`, `--source-workflow-id`) |
+| `components delete <id>` | Delete a component |
 | `run start <id>` | Start a run (`--wait`, `--debug`, `--input`) |
 | `run get <id>` | Get run status and results |
 | `run list` | List runs (`--workflow`, `--status`, `--limit`, `--since`) |
