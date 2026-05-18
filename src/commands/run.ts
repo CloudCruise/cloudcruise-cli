@@ -42,7 +42,13 @@ export function registerRunCommands(program: Command): void {
       .option("--input <json>", "Input variables as JSON string", "{}")
       .option("--wait", "Wait for completion and print result")
       .option("--debug", "Enable debug snapshots on every node")
-  ).action(
+  ).addHelpText("after", `
+Examples:
+  $ cloudcruise run start wf_abc123
+  $ cloudcruise run start wf_abc123 --wait
+  $ cloudcruise run start wf_abc123 --wait --debug
+  $ cloudcruise run start wf_abc123 --input '{"USER":"f47ac10b-58cc-4372-a567-0e02b2c3d479"}' --wait
+`).action(
     async (
       workflowId: string,
       opts: {
@@ -118,7 +124,10 @@ export function registerRunCommands(program: Command): void {
     run
       .command("get <session_id>")
       .description("Get run details")
-  ).action(
+  ).addHelpText("after", `
+Examples:
+  $ cloudcruise run get sess_abc123
+`).action(
     async (
       sessionId: string,
       opts: AuthOptions
@@ -144,7 +153,12 @@ export function registerRunCommands(program: Command): void {
       .option("--limit <n>", "Max results", "100")
       .option("--start-time <iso>", "Start time (ISO 8601)")
       .option("--end-time <iso>", "End time (ISO 8601)")
-  ).action(
+  ).addHelpText("after", `
+Examples:
+  $ cloudcruise run list
+  $ cloudcruise run list --workflow wf_abc123 --status completed --limit 10
+  $ cloudcruise run list --workflow wf_abc123 --start-time 2025-01-01T00:00:00Z
+`).action(
     async (opts: {
       workflow?: string
       status?: string
@@ -185,7 +199,10 @@ export function registerRunCommands(program: Command): void {
     run
       .command("interrupt <session_id>")
       .description("Interrupt a running session")
-  ).action(
+  ).addHelpText("after", `
+Examples:
+  $ cloudcruise run interrupt sess_abc123
+`).action(
     async (
       sessionId: string,
       opts: AuthOptions
@@ -208,7 +225,12 @@ export function registerRunCommands(program: Command): void {
       .description("Get error analytics for a workflow")
       .option("--since <duration>", "Time range (e.g. 24h, 7d, 30m)", "24h")
       .option("--limit <n>", "Max results", "1000")
-  ).action(
+  ).addHelpText("after", `
+Examples:
+  $ cloudcruise run errors wf_abc123
+  $ cloudcruise run errors wf_abc123 --since 7d
+  $ cloudcruise run errors wf_abc123 --since 30m --limit 50
+`).action(
     async (
       workflowId: string,
       opts: {
@@ -244,7 +266,10 @@ export function registerRunCommands(program: Command): void {
     run
       .command("snapshots <session_id> <node_id>")
       .description("Get debug snapshots for a node")
-  ).action(
+  ).addHelpText("after", `
+Examples:
+  $ cloudcruise run snapshots sess_abc123 node_abc123
+`).action(
     async (
       sessionId: string,
       nodeId: string,

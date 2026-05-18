@@ -96,7 +96,13 @@ export function registerSnapshotCommands(program: Command): void {
       .option("--output-dir <dir>", "Directory to save files", "./snapshots")
       .option("--html", "Download only the HTML snapshot")
       .option("--image", "Download only the screenshot(s)")
-  ).action(
+  ).addHelpText("after", `
+Examples:
+  $ cloudcruise snapshot fetch sess_abc123 node_abc123
+  $ cloudcruise snapshot fetch sess_abc123 node_abc123 --output-dir ./debug
+  $ cloudcruise snapshot fetch sess_abc123 node_abc123 --html
+  $ cloudcruise snapshot fetch sess_abc123 node_abc123 --image
+`).action(
     async (
       sessionId: string,
       nodeId: string,
@@ -193,7 +199,12 @@ export function registerSnapshotCommands(program: Command): void {
         "input,button,select,textarea,a"
       )
       .option("--file <path>", "Use a local HTML file instead of fetching from API")
-  ).action(
+  ).addHelpText("after", `
+Examples:
+  $ cloudcruise snapshot suggest sess_abc123 node_abc123
+  $ cloudcruise snapshot suggest sess_abc123 node_abc123 --filter input,button
+  $ cloudcruise snapshot suggest --file page.html
+`).action(
     async (
       sessionId: string | undefined,
       nodeId: string | undefined,
@@ -249,7 +260,12 @@ export function registerSnapshotCommands(program: Command): void {
       )
       .option("--file <path>", "Use a local HTML file instead of fetching from API")
       .option("--count", "Only return match count, skip element details")
-  ).action(
+  ).addHelpText("after", `
+Examples:
+  $ cloudcruise snapshot test "//input[@name='email']" sess_abc123 node_abc123
+  $ cloudcruise snapshot test "//button[@type='submit']" --file page.html
+  $ cloudcruise snapshot test "//input[@name='email']" sess_abc123 node_abc123 --count
+`).action(
     async (
       xpath: string,
       sessionId: string | undefined,

@@ -3,7 +3,7 @@ import { writeFileSync } from "fs"
 import { resolveAuth } from "../core/auth.js"
 import { ApiClient } from "../core/api-client.js"
 import { streamSSE } from "../core/sse-client.js"
-import { outputJson, outputError } from "../core/output.js"
+import { outputJson, outputError, stripBase64 } from "../core/output.js"
 import { addAuthOptions, type AuthOptions } from "../core/auth-options.js"
 import {
   saveSession,
@@ -213,6 +213,18 @@ export function registerBuilderCommands(program: Command): void {
         const session = requireSession()
 
         if (opts.wait === false) {
+          let messageCountBefore: number | undefined
+          try {
+            const { messages } = await fetchMessages(
+              client,
+              session.conversationId
+            )
+            messageCountBefore = messages.length
+            updateSession({ lastMessageCount: messages.length })
+          } catch {
+            // Best effort — poll still works with the previous index.
+          }
+
           // Async mode: fire request with a 5s abort — enough for the
           // server to accept and start processing, but don't wait for
           // the full response (which blocks until the agent turn ends).
@@ -223,12 +235,9 @@ export function registerBuilderCommands(program: Command): void {
               `${auth.baseUrl}${BASE}/${session.conversationId}/message`,
               {
                 method: "POST",
-                headers: {
-                  ...(auth.authScheme === "bearer"
-                    ? { Authorization: `Bearer ${auth.token}` }
-                    : { "cc-key": auth.token }),
+                headers: client.authHeaders({
                   "Content-Type": "application/json"
-                },
+                }),
                 body: JSON.stringify({ text: message }),
                 signal: ac.signal
               }
@@ -239,7 +248,7 @@ export function registerBuilderCommands(program: Command): void {
           } finally {
             clearTimeout(timer)
           }
-          outputJson({ status: "sent" })
+          outputJson({ status: "sent", messageCountBefore })
           process.exit(0)
         }
 
@@ -305,12 +314,43 @@ export function registerBuilderCommands(program: Command): void {
 
   // ── builder poll (helpers) ──────────────────────────────────────
   interface PollFromMessagesResult {
-    status: "processing" | "done" | "error" | "waiting_for_input"
+    status: "processing" | "done" | "error" | "waiting_for_input" | "idle"
     text?: string
     waitingForInput?: { messageId: string; description: string }
+    waitingForInputs?: { messageId: string; inputs: HumanInputField[] }
     tools: { tool: string; status: string; text?: string }[]
     newMessageCount: number
     totalMessageCount: number
+  }
+
+  interface HumanInputField {
+    name: string
+    type: string
+    description: string
+    default?: string
+    options?: string[]
+  }
+
+  interface MessagesResponse {
+    messages: Record<string, unknown>[]
+    isProcessing: boolean
+  }
+
+  async function fetchMessages(
+    client: ApiClient,
+    conversationId: string
+  ): Promise<MessagesResponse> {
+    const raw = await client.get<MessagesResponse | Record<string, unknown>[]>(
+      `${BASE}/${conversationId}/messages`
+    )
+
+    if (Array.isArray(raw)) {
+      return { messages: raw, isProcessing: false }
+    }
+    return {
+      messages: Array.isArray(raw.messages) ? raw.messages : [],
+      isProcessing: Boolean(raw.isProcessing)
+    }
   }
 
   async function checkMessagesForStatus(
@@ -318,46 +358,105 @@ export function registerBuilderCommands(program: Command): void {
     conversationId: string,
     sinceIndex: number
   ): Promise<PollFromMessagesResult | null> {
-    const allMessages = await client.get<Record<string, unknown>[]>(
-      `${BASE}/${conversationId}/messages`
+    const { messages: allMessages, isProcessing } = await fetchMessages(
+      client,
+      conversationId
     )
-    if (!Array.isArray(allMessages)) return null
 
     const newMessages = allMessages.slice(sinceIndex)
-
-    let status: PollFromMessagesResult["status"] = "processing"
-    let text: string | undefined
-    let waitingForInput: PollFromMessagesResult["waitingForInput"]
+    const tools = newMessages
+      .filter((m) => m.role === "tool" && m.toolName)
+      .map((m) => ({
+        tool: m.toolName as string,
+        status: m.status as string,
+        text: (m.text as string)?.slice(0, 100)
+      }))
 
     for (let i = newMessages.length - 1; i >= 0; i--) {
       const msg = newMessages[i]
-      const role = msg.role as string
       const msgStatus = msg.status as string
       const eventType = msg.event_type as string
-
-      if (msgStatus === "error") {
-        status = "error"
-        text = msg.text as string
-        break
-      }
 
       if (
         eventType === "interaction.inputs" ||
         msgStatus === "waiting_for_input"
       ) {
-        status = "waiting_for_input"
         const content = msg.content as Record<string, unknown> | undefined
+        const humanInputs =
+          (content?.humanInputs as Record<string, unknown>[] | undefined) ?? []
         const humanInput = content?.humanInput as
           | Record<string, unknown>
-          | undefined
-        waitingForInput = {
-          messageId: msg.id as string,
-          description:
-            (humanInput?.description as string) ??
-            (humanInput?.name as string) ??
-            (msg.text as string) ??
-            "Input requested"
+          | undefined ?? humanInputs[0]
+        const messageId = msg.id as string
+        const result: PollFromMessagesResult = {
+          status: "waiting_for_input",
+          waitingForInput: {
+            messageId,
+            description:
+              (humanInput?.description as string) ??
+              (humanInput?.name as string) ??
+              (msg.text as string) ??
+              "Input requested"
+          },
+          tools,
+          newMessageCount: newMessages.length,
+          totalMessageCount: allMessages.length
         }
+
+        if (humanInputs.length > 0) {
+          result.waitingForInputs = {
+            messageId,
+            inputs: humanInputs.map((input) => {
+              const field: HumanInputField = {
+                name: input.name as string,
+                type: input.type as string,
+                description: input.description as string
+              }
+              if (input.default !== undefined) {
+                field.default = input.default as string
+              }
+              if (input.options) field.options = input.options as string[]
+              return field
+            })
+          }
+        }
+
+        updateSession({ lastMessageCount: allMessages.length })
+        return result
+      }
+    }
+
+    if (isProcessing) {
+      updateSession({ lastMessageCount: allMessages.length })
+      return {
+        status: "processing",
+        tools,
+        newMessageCount: newMessages.length,
+        totalMessageCount: allMessages.length
+      }
+    }
+
+    if (newMessages.length === 0) {
+      updateSession({ lastMessageCount: allMessages.length })
+      return {
+        status: "idle",
+        tools: [],
+        newMessageCount: 0,
+        totalMessageCount: allMessages.length
+      }
+    }
+
+    let status: PollFromMessagesResult["status"] = "idle"
+    let text: string | undefined
+
+    for (let i = newMessages.length - 1; i >= 0; i--) {
+      const msg = newMessages[i]
+      const role = msg.role as string
+      const msgStatus = msg.status as string
+
+      if (msgStatus === "error") {
+        status = "error"
+        text = msg.text as string
         break
       }
 
@@ -368,20 +467,11 @@ export function registerBuilderCommands(program: Command): void {
       }
     }
 
-    const tools = newMessages
-      .filter((m) => m.role === "tool" && m.toolName)
-      .map((m) => ({
-        tool: m.toolName as string,
-        status: m.status as string,
-        text: (m.text as string)?.slice(0, 100)
-      }))
-
     updateSession({ lastMessageCount: allMessages.length })
 
     return {
       status,
       text,
-      waitingForInput,
       tools,
       newMessageCount: newMessages.length,
       totalMessageCount: allMessages.length
@@ -506,51 +596,85 @@ export function registerBuilderCommands(program: Command): void {
       .requiredOption("--message-id <id>", "ID of the input request message")
       .option("--value <value>", "Response value (rejected by default; use --value-stdin)")
       .option("--value-stdin", "Read response value from stdin")
+      .option("--responses-stdin", "Read JSON object of name-to-value responses from stdin")
   ).action(
     async (
       opts: {
         messageId: string
         value?: string
         valueStdin?: boolean
+        responsesStdin?: boolean
       } & AuthOptions
     ) => {
       try {
         enforceNoArgSecrets({ "--value": opts.value }, "builder respond")
-        if (!opts.value && !opts.valueStdin) {
-          throw new Error("Provide --value or --value-stdin")
+        const providedCount = [
+          opts.value !== undefined,
+          Boolean(opts.valueStdin),
+          Boolean(opts.responsesStdin)
+        ].filter(Boolean).length
+        if (providedCount === 0) {
+          throw new Error("Provide --value, --value-stdin, or --responses-stdin")
         }
-        if (opts.value && opts.valueStdin) {
-          throw new Error("Use only one of --value or --value-stdin")
+        if (providedCount > 1) {
+          throw new Error("Use only one of --value, --value-stdin, or --responses-stdin")
         }
-        const rawValue = opts.valueStdin
-          ? (await readStdin()).trimEnd()
-          : opts.value as string
 
         const auth = await resolveBuilderAuth(opts)
         const client = new ApiClient(auth)
         const session = requireSession()
 
-        // Try to parse as JSON for typed values (number, boolean, null)
-        let value: string | number | boolean | null = rawValue
         try {
-          const parsed = JSON.parse(rawValue)
-          if (
-            typeof parsed === "number" ||
-            typeof parsed === "boolean" ||
-            parsed === null
-          ) {
-            value = parsed
-          }
+          const { messages } = await fetchMessages(
+            client,
+            session.conversationId
+          )
+          updateSession({ lastMessageCount: messages.length })
         } catch {
-          // Keep as string
+          // Best effort — response can still be sent.
+        }
+
+        const body: Record<string, unknown> = { messageId: opts.messageId }
+
+        if (opts.responsesStdin) {
+          const rawResponses = (await readStdin()).trimEnd()
+          try {
+            body.responses = JSON.parse(rawResponses)
+          } catch {
+            throw new Error("--responses-stdin must contain valid JSON")
+          }
+          if (
+            body.responses === null ||
+            Array.isArray(body.responses) ||
+            typeof body.responses !== "object"
+          ) {
+            throw new Error("--responses-stdin must contain a JSON object")
+          }
+        } else {
+          const rawValue = opts.valueStdin
+            ? (await readStdin()).trimEnd()
+            : opts.value as string
+
+          // Try to parse as JSON for typed values (number, boolean, null)
+          let value: string | number | boolean | null = rawValue
+          try {
+            const parsed = JSON.parse(rawValue)
+            if (
+              typeof parsed === "number" ||
+              typeof parsed === "boolean" ||
+              parsed === null
+            ) {
+              value = parsed
+            }
+          } catch {
+            // Keep as string
+          }
+          body.value = value
         }
 
         const result = await client.post(
           `${BASE}/${session.conversationId}/respond`,
-          {
-            messageId: opts.messageId,
-            value
-          }
+          body
         )
         outputJson(result)
       } catch (err: unknown) {
@@ -710,7 +834,7 @@ export function registerBuilderCommands(program: Command): void {
         const result = await client.get(
           `${BASE}/${session.conversationId}/messages${query}`
         )
-        outputJson(result)
+        outputJson(stripBase64(result))
       } catch (err: unknown) {
         outputError(err instanceof Error ? err.message : String(err))
         process.exit(1)
