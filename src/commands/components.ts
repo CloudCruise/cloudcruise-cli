@@ -30,6 +30,18 @@ const READONLY_FIELDS = [
   "workspace_id"
 ]
 
+// Workflow-shape fields that must NEVER appear inside componentData. If a
+// user pipes `workflows get` straight into `components create/update`, these
+// would otherwise leak workflow-level secrets and settings into the component
+// body. encrypted_keys is the security-critical one (encrypted credentials);
+// proxy_value/proxy_setting are workflow-scoped runtime config that have no
+// place in a reusable component definition.
+const WORKFLOW_ONLY_FIELDS = [
+  "encrypted_keys",
+  "proxy_value",
+  "proxy_setting"
+]
+
 async function readStdin(): Promise<string> {
   const chunks: Buffer[] = []
   for await (const chunk of process.stdin) {
@@ -68,6 +80,9 @@ function extractComponentData(
     (raw.componentData as unknown) ?? (raw.component_data as unknown)
   const inner = wrapped !== undefined ? assertJsonObject(wrapped) : raw
   for (const field of READONLY_FIELDS) {
+    delete inner[field]
+  }
+  for (const field of WORKFLOW_ONLY_FIELDS) {
     delete inner[field]
   }
   return inner
