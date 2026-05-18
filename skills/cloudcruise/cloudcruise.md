@@ -37,10 +37,54 @@ cloudcruise auth logout                      # Remove saved credentials
 
 ### Workflows
 
+Use `workflows` commands to edit existing workflows. For new workflows, use the builder instead.
+
 ```bash
-cloudcruise workflows get <workflow_id>                                          # Get workflow definition with nodes
+cloudcruise workflows get <workflow_id>                                          # Get latest workflow definition with nodes
+cloudcruise workflows get <workflow_id> --version-number 18                      # Get a specific historical version
+cloudcruise workflows versions <workflow_id>                                     # List version history (newest first)
+cloudcruise workflows versions <workflow_id> --limit 10                          # Cap the list
 cloudcruise workflows update <workflow_id> --file w.json --version-note "..."   # Update workflow (creates new version)
 cloudcruise workflows update <workflow_id> --stdin --version-note "..."          # Update from piped JSON
+```
+
+**When adding new nodes, always generate UUIDs with `cloudcruise utils uuid`.** Node IDs must be valid UUIDs -- do not use natural language IDs like `"click-submit-button"`.
+
+**Edit pattern:** fetch → edit → push:
+
+```bash
+cloudcruise workflows get <workflow_id> > workflow.json
+# Edit workflow.json with your file editing tools (targeted replacements, not full rewrites)
+# Read-only fields (id, version_id, version_number, created_at, created_by,
+# workspace_id, loginStructure, updated_at, workflow_id, encrypted_keys) are stripped automatically.
+cloudcruise workflows update <workflow_id> --file workflow.json --version-note "Description of changes"
+```
+
+**Rolling back versions:** `workflows versions` lists history newest first. Fetch a prior version's full JSON via `--version-number <N>` (same shape as latest), then push it back to roll back — history is preserved as a new version on top:
+
+```bash
+cloudcruise workflows get <workflow_id> --version-number 17 > rollback.json
+cloudcruise workflows update <workflow_id> --file rollback.json --version-note "Rollback to v17"
+```
+
+**Login workflow edit pattern:** For existing login workflows, make the first three nodes `START (logged-in destination URL)` → `IF (already logged in?)` → false branch login recovery. On the false branch, set `clear_cookies_on_false: true`, then add a `NAVIGATE` node to the login page before the credential-entry steps.
+
+**Download capture pattern:** In manual workflow edits, add a `FILE_DOWNLOAD` node immediately after any `CLICK` that triggers a download. The builder adds this automatically; direct workflow edits do not.
+
+**Iterative build pattern** (for creating workflows node-by-node without the builder):
+
+```bash
+# 1. Start with a minimal workflow: START (target URL) → END
+#    Run with --debug to capture a snapshot of the landing page
+cloudcruise run start <workflow_id> --input '{}' --wait --debug
+
+# 2. Discover elements → validate → add nodes → run again → repeat
+cloudcruise snapshot suggest <session_id> <end_node_id>
+cloudcruise snapshot test "//input[@name='email']" <session_id> <end_node_id>
+# Edit workflow.json, push with: cloudcruise workflows update ... --version-note "..."
+cloudcruise run start <workflow_id> --input '{}' --wait --debug
+# On success: inspect END node's snapshot for the next page state.
+# On failure: inspect the failed node's snapshot (see Debug Snapshots).
 ```
 
 ### Utils
@@ -58,7 +102,7 @@ cloudcruise run start <workflow_id> --wait                   # Start and stream 
 cloudcruise run start <workflow_id> --wait --debug           # Start with debug snapshots on every node
 cloudcruise run start <workflow_id> --input '{"key":"val"}'  # Start with input variables
 cloudcruise run get <session_id>                             # Get run status, errors, screenshots, output
-cloudcruise run list --workflow <id> --status <s> --limit 50 # List runs with filters
+cloudcruise run list --workflow <id> --status <s> --since 7d --limit 50 # List runs with filters
 cloudcruise run interrupt <session_id>                       # Stop a running session
 cloudcruise run errors <workflow_id> --since 24h             # Error analytics (24h, 7d, 30m)
 cloudcruise run snapshots <session_id> <node_id>             # Debug snapshots for a specific node
@@ -101,11 +145,15 @@ echo "secret" | cloudcruise vault encrypt --stdin                   # Encrypt fr
 
 ### Builder
 
+Use the builder to create new workflows from scratch. For editing existing workflows, use `workflows get` + `workflows update` instead.
+
+When the user asks to build a "workflow" / "cloudcruise workflow" / "cc workflow", **all web interaction goes through the builder** — do not browse the target site yourself with other tools. The builder agent handles all browsing; send it instructions and poll for results.
+
 ```bash
 # ── Start a new workflow from scratch ──
 cloudcruise builder start --start-url "https://app.example.com" --name "Login flow"
 cloudcruise builder start --start-url "https://app.example.com" \
-  --credential "f47ac10b-58cc-4372-a567-0e02b2c3d479" --auth-url "https://app.example.com/login" \
+  --vault-user-id "f47ac10b-58cc-4372-a567-0e02b2c3d479" --vault-domain "https://app.example.com" \
   --proxy country --proxy-value US
 
 # ── Interact with the builder agent ──
@@ -131,71 +179,22 @@ cloudcruise builder end         # End session and clean up
 
 **Session is implicit** — `start` saves the conversation ID locally. All other builder commands use it automatically. One active session at a time.
 
-## Workflow DSL Reference
-
-See `references/workflow-dsl.md` for the complete workflow DSL reference: all node types, parameters, edge structure, variable system, execution types, XPath best practices, data model schema extensions, and error classification.
-
-## Editing Workflows — Pick the Right Tool
-
-Choose the lightest tool that fits:
-
-| Tier | Command | Use case |
-|------|---------|----------|
-| Direct edit | `workflows update` | Edit existing workflows: fix XPath, change URL, tweak schema, add/remove nodes, change logic |
-| Builder create | `builder start` | Build a brand-new workflow from scratch |
-
-### Direct Editing (`workflows update`)
-
-For targeted fixes and mechanical changes. Save the workflow to a file, edit, push.
-
-**When adding new nodes, always generate UUIDs with `cloudcruise utils uuid`.** Node IDs must be valid UUIDs -- do not use natural language IDs like `"click-submit-button"`.
-
-```bash
-# Fetch and save to file
-cloudcruise workflows get <workflow_id> > workflow.json
-
-# Edit the file using your file editing tools:
-#   - Read specific line ranges to find the node you need
-#   - Make targeted replacements (e.g. fix an XPath selector)
-#   - Don't rewrite the entire file for a single-field change
-
-# Push the updated workflow
-# Read-only fields (id, version_id, version_number, created_at, created_by,
-# workspace_id, loginStructure, updated_at, workflow_id, encrypted_keys) are stripped automatically.
-cloudcruise workflows update <workflow_id> --file workflow.json --version-note "Description of changes"
-```
-
-**Iterative build pattern** (for creating workflows node-by-node without the builder):
-
-```bash
-# 1. Start with a minimal workflow: START (target URL) → END
-#    Run with --debug to capture a snapshot of the landing page
-cloudcruise run start <workflow_id> --input '{}' --wait --debug
-
-# 2. Discover elements → validate → add nodes → run again → repeat
-cloudcruise snapshot suggest <session_id> <end_node_id>
-cloudcruise snapshot test "//input[@name='email']" <session_id> <end_node_id>
-# Edit workflow.json, push with: cloudcruise workflows update ... --version-note "..."
-cloudcruise run start <workflow_id> --input '{}' --wait --debug
-# On success: inspect END node's snapshot for the next page state.
-# On failure: inspect the failed node's snapshot (see Debug Snapshots).
-```
-
-### Builder (new workflows only)
-
-Use the builder only when creating a new workflow from scratch.
-
-For existing workflows, do not use the builder. Fetch the workflow JSON with `workflows get`, make targeted edits, validate with `run`/`snapshot`, and push with `workflows update`.
-
-When the user asks you to use the CloudCruise CLI, or to build a "workflow" / "cloudcruise workflow" / "cc workflow", **all web interaction goes through the builder** — do not browse the target site yourself with other tools. The builder agent handles all browsing; send it instructions and poll for results.
-
 **Important guidelines:**
+
 - `builder send` returns immediately — use `builder poll` to check for completion
 - Break complex tasks into small steps (e.g. "log in", then "navigate to X", then "search for Y")
 - Poll in a loop — if poll returns `processing`, wait a few seconds and poll again
 - **`waiting_for_input` is how the builder asks for information it needs** (e.g. email, password, 2FA code). When you see it, relay the question to the user, then pass their answer back with `builder respond`. The agent may request multiple inputs at once — check `waitingForInputs.inputs` for the full list and use `--responses` with a JSON object keyed by input name. Never pre-emptively browse the site or ask the user for form values — let the builder discover what it needs.
 - Only fall back to direct DSL editing after the builder reaches a true terminal state such as `done` or `error`.
 - **Wait for `done`/`error` before sending the next message** — sending while the agent is processing interrupts the current turn
+
+**Writing effective builder messages:**
+
+- **Describe the goal, not the clicks** — say "Download all EOBs from the claims table" not "Click the first download link in the third column". The builder sees the page and will figure out selectors, logic, and interaction details on its own.
+- **Don't tell the builder how to build** — never specify execution types ("use STATIC"), selector strategies ("use an XPath with @id"), or node structure ("add a LOOP node"). The builder has access to the page DOM and knows the workflow DSL; let it make implementation decisions.
+- **Reference credentials naturally** — "Log in using the vault credentials" is enough. The builder knows to use vault credential templates.
+
+**Poll statuses:** `done` → proceed to next step. `waiting_for_input` → respond then poll. `error` → read text, send corrective instruction. `processing` → wait and poll again. `idle` → no pending work.
 
 **Send + poll pattern:**
 
@@ -219,16 +218,22 @@ cloudcruise builder poll
 # → {"status":"waiting_for_input","waitingForInputs":{"messageId":"m1","inputs":[{"name":"npi",...},{"name":"last_name",...}]}}
 cloudcruise builder respond --message-id m1 --responses '{"npi":"1234567890","last_name":"Ziegler"}'
 cloudcruise builder poll
-```
 
-**Poll statuses:** `done` → proceed to next step. `waiting_for_input` → respond then poll. `error` → read text, send corrective instruction. `processing` → wait and poll again. `idle` → no pending work.
+# If agent needs credentials (type: "auth"):
+# → {"status":"waiting_for_input","waitingForInputs":{"messageId":"m1","inputs":[{"name":"Portal Credentials","type":"auth",...}]}}
+# 1. Look up the vault entry to get the domain:
+cloudcruise vault list
+# 2. Respond with { permissioned_user_id, domain }:
+cloudcruise builder respond --message-id m1 --responses '{"Portal Credentials":{"permissioned_user_id":"d2b9d80e-...","domain":"https://example.com"}}'
+cloudcruise builder poll
+```
 
 **Full example: Login → Navigate → Search**
 
 ```bash
 # Start
 cloudcruise builder start --start-url "https://app.example.com" --name "Search workflow" \
-  --credential "f47ac10b-58cc-4372-a567-0e02b2c3d479" --auth-url "https://app.example.com"
+  --vault-user-id "f47ac10b-58cc-4372-a567-0e02b2c3d479" --vault-domain "https://app.example.com"
 
 # Step 1: Login
 cloudcruise builder send "Log in using the vault credentials"
@@ -246,6 +251,10 @@ cloudcruise builder poll   # repeat until "done"
 cloudcruise builder save
 cloudcruise builder end
 ```
+
+## Workflow DSL Reference
+
+See `references/workflow-dsl.md` for the complete workflow DSL reference: all node types, parameters, edge structure, variable system, execution types, XPath best practices, data model schema extensions, and error classification.
 
 ## Error-Fix-Verify Loop
 
@@ -289,12 +298,13 @@ cloudcruise snapshot test "//input[@name='email']" <session_id> <node_id>
 
 If `snapshot fetch` reports no HTML, the run was not `--debug`. Re-run with `--debug`.
 
-**Snapshot timing:** Snapshots capture page state *when a node starts executing* (i.e., post-action state of the *previous* node). To see what appeared after a node's action, inspect the *next* node's snapshot. On success, the END node shows final state. On failure, the END node has no snapshot — use the *failed* node's snapshot instead.
+**Snapshot timing:** Snapshots capture page state _when a node starts executing_ (i.e., post-action state of the _previous_ node). To see what appeared after a node's action, inspect the _next_ node's snapshot. On success, the END node shows final state. On failure, the END node has no snapshot — use the _failed_ node's snapshot instead.
 
 ## Key Details
 
 - `run get` returns: status, output_data, workflow_errors (with node_id, llm_error_category, llm_error_description), screenshot_urls (with node_id)
 - `run start --wait` prints NDJSON events to stdout, then the final run result. Exit code 0 = success, 1 = failure.
+- `run list --since` accepts duration strings: `24h`, `7d`, `30m`; without `--since`, the API defaults to the last 24 hours
 - `run errors --since` accepts duration strings: `24h`, `7d`, `30m`
 - `workflows update` requires: nodes, edges, name, input_schema, output_schema, max_retries. Keep all other mutable fields from the GET response (e.g., description, enable_xpath_recovery, proxy_setting).
 - All commands accept `--api-key`, `--base-url`, and `--encryption-key` overrides

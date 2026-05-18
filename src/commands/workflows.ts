@@ -1,4 +1,4 @@
-import { Command } from "commander"
+import { Command, InvalidArgumentError } from "commander"
 import { readFileSync } from "fs"
 import { resolveAuth } from "../core/auth.js"
 import { ApiClient } from "../core/api-client.js"
@@ -7,6 +7,19 @@ import { addAuthOptions, type AuthOptions } from "../core/auth-options.js"
 
 export function registerWorkflowCommands(program: Command): void {
   const workflows = program.command("workflows").description("Manage workflows")
+
+  const parsePositiveInt = (value: string): number => {
+    if (!/^\d+$/.test(value)) {
+      throw new InvalidArgumentError(
+        `Must be a positive integer (got: ${value}).`
+      )
+    }
+    const n = Number(value)
+    if (n < 1) {
+      throw new InvalidArgumentError(`Must be >= 1 (got: ${value}).`)
+    }
+    return n
+  }
 
   addAuthOptions(
     workflows
@@ -47,17 +60,56 @@ Examples:
   addAuthOptions(
     workflows
       .command("get <id>")
-      .description("Get workflow with nodes")
+      .description("Get workflow with nodes (latest version by default)")
+      .option(
+        "--version-number <n>",
+        "Fetch a specific historical version by version_number (use `workflows versions <id>` to list)",
+        parsePositiveInt
+      )
   ).addHelpText("after", `
 Examples:
   $ cloudcruise workflows get wf_abc123
   $ cloudcruise workflows get wf_abc123 > workflow.json
-`).action(async (id: string, opts: AuthOptions) => {
+  $ cloudcruise workflows get wf_abc123 --version-number 18
+`).action(async (id: string, opts: { versionNumber?: number } & AuthOptions) => {
     try {
       const auth = await resolveAuth(opts)
       const client = new ApiClient(auth)
-      const data = await client.get(`/workflows/${id}`)
+      const path =
+        opts.versionNumber !== undefined
+          ? `/workflows/${id}/versions/${opts.versionNumber}`
+          : `/workflows/${id}`
+      const data = await client.get(path)
       outputJson(data)
+    } catch (err: unknown) {
+      outputError(err instanceof Error ? err.message : String(err))
+      process.exit(1)
+    }
+  })
+
+  addAuthOptions(
+    workflows
+      .command("versions <id>")
+      .description("List version history for a workflow (newest first)")
+      .option(
+        "--limit <n>",
+        "Cap the number of versions returned (client-side slice)",
+        parsePositiveInt
+      )
+  ).addHelpText("after", `
+Examples:
+  $ cloudcruise workflows versions wf_abc123
+  $ cloudcruise workflows versions wf_abc123 --limit 10
+`).action(async (id: string, opts: { limit?: number } & AuthOptions) => {
+    try {
+      const auth = await resolveAuth(opts)
+      const client = new ApiClient(auth)
+      const data = await client.get<Record<string, unknown>[]>(
+        `/workflows/${id}/versions`
+      )
+      const sliced =
+        opts.limit !== undefined ? data.slice(0, opts.limit) : data
+      outputJson(sliced)
     } catch (err: unknown) {
       outputError(err instanceof Error ? err.message : String(err))
       process.exit(1)

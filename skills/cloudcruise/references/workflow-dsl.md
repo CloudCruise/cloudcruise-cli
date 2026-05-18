@@ -29,6 +29,10 @@ A workflow is a directed graph of nodes (actions) connected by edges. The browse
 
 **Optional:** `description`, `version_note`, `use_native_actions`, `video_record_session`, `extract_network_urls`, `popup_xpaths`, `vault_schema`, `enable_popup_handling`, `enable_action_timing_recovery`, `enable_xpath_recovery`, `enable_error_code_generation`, `enable_service_unavailable_recovery`, `proxy_setting`, `proxy_value`, `enable_network_listener`
 
+### `popup_xpaths`
+
+An array of XPath selectors that identify dismissible popups (cookie banners, survey modals, chat widgets, etc.). When `enable_popup_handling` is `true`, the runtime checks for elements matching these XPaths before each node executes and clicks them to dismiss. Set at the workflow level to apply globally.
+
 ## Variables
 
 Variables use double curly braces: `{{expression}}`.
@@ -68,11 +72,9 @@ JSONata is especially useful in BoolCondition `comparison_value_1` for complex c
 | Type           | Description                                                                 | Used By                                                        |
 | -------------- | --------------------------------------------------------------------------- | -------------------------------------------------------------- |
 | `STATIC`       | Explicit XPath selectors. Fast and reliable. **Prefer this when possible.** | Click, InputText, InputSelect, BoolCondition, ExtractDatamodel |
-| `LLM_VISION`   | AI decision or extraction from screenshot                                   | ExtractDatamodel, BoolCondition                                |
+| `LLM_VISION`   | AI decision or extraction from screenshot                                   | ExtractDatamodel, BoolCondition, Click, InputText, TFA         |
 | `LLM_DOM`      | AI extraction from HTML DOM structure.                                      | ExtractDatamodel                                               |
 | `PROMPT`       | AI reasoning on context data (no screenshot).                               | ExtractDatamodel, BoolCondition                                |
-| `COORDINATES`  | Click/type at specific x,y screen coordinates.                              | Click, InputText                                               |
-| `COMPUTER_USE` | AI action from screenshot. Handles scrolling and waits autonomously.        | Click, InputText, TFA                                          |
 
 ## Writing Good XPath Selectors
 
@@ -117,26 +119,10 @@ For STATIC execution on Click, Input Text, and Input Select: **the XPath must ma
 - Scrambled/generated IDs (e.g., `app-title-5ubdNjG9AIzOgXfv0b1J2`)
 - Deep positional paths like `div[3]/span[2]/a[1]` -- these break on minor DOM changes
 - Unnecessary positional indices `[1]` unless unavoidable (and then wrap: `(//div[@class='result'])[1]`)
-- Selecting `<option>` directly -- always target the parent `<select>` element (use InputSelect node instead)
-
-### Common Patterns
-
-```
-//button[@type='submit']
-//input[@placeholder='Search...']
-//a[@aria-label='Close']
-//select[@name='country']
-//input[@id='email']
-//div[@role='dialog']//button[normalize-space()='Confirm']
-//table[@id='results']//tbody/tr
-//label[normalize-space()='Email']/following::input[1]
-(//button[normalize-space()='Save'])[1]
-```
 
 ### Technical Notes
 
 - Always use `normalize-space()` instead of `text()` for visible text matching
-- If the existing XPath in a workflow is already correct, do not rewrite it
 - When a selector is too fragile or complex to maintain, switch the node to `LLM_VISION` execution instead
 
 ## Edges
@@ -172,8 +158,6 @@ Every node has:
 
 **IMPORTANT:** The `id` field must be a valid UUID (e.g., `"f47ac10b-58cc-4372-a567-0e02b2c3d479"`). Do not use natural language IDs like `"click-submit-button"`. Generate UUIDs with `cloudcruise utils uuid`.
 
-Optional base fields: `description`, `use_native_actions`, `popup_xpaths`, `take_snapshot`
-
 ## Node Types
 
 ### START
@@ -186,19 +170,14 @@ Entry point. Every workflow has exactly one.
   "name": "Open site",
   "action": "START",
   "parameters": {
-    "url": "https://app.example.com/login",
-    "input_variables": {}
+    "url": "https://app.example.com/login"
   }
 }
 ```
 
-| Parameter                | Type     | Required | Description                             |
-| ------------------------ | -------- | -------- | --------------------------------------- |
-| `url`                    | string   | Yes      | Starting URL                            |
-| `input_variables`        | object   | No       | Default input values                    |
-| `video_record_session`   | boolean  | No       | Record video of the run                 |
-| `store_downloaded_files` | boolean  | No       | Store downloaded files                  |
-| `extract_network_urls`   | string[] | No       | URL patterns to capture network traffic |
+| Parameter | Type   | Required | Description  |
+| --------- | ------ | -------- | ------------ |
+| `url`     | string | Yes      | Starting URL |
 
 ### END
 
@@ -229,17 +208,16 @@ Click on page elements.
   }
 }
 ```
-
-| Parameter                | Type    | Required | Description                                               |
-| ------------------------ | ------- | -------- | --------------------------------------------------------- |
-| `execution`              | string  | Yes      | `STATIC`, `COORDINATES`, or `COMPUTER_USE`                |
-| `selector`               | string  | No       | XPath (STATIC) or JSON `{"x":N,"y":N}` (COORDINATES)      |
-| `prompt`                 | string  | No       | Natural language target description (COMPUTER_USE)        |
-| `click_type`             | string  | No       | `click` (default), `double_click`, `right_click`, `hover` |
-| `wait_time`              | number  | No       | Max ms to wait for element. Default: 15000                |
-| `selector_error_message` | string  | No       | Custom error message if element not found                 |
-| `human_mode`             | boolean | No       | Human-like click behavior                                 |
-| `llm_model`              | string  | No       | Override LLM model                                        |
+| Parameter                | Type    | Required         | Description                                                                                                                                                                        |
+| ------------------------ | ------- | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `execution`              | string  | Yes              | `STATIC` or `LLM_VISION`                                                                                                                                                           |
+| `selector`               | string  | Yes (STATIC)     | XPath selector                                                                                                                                                                     |
+| `prompt`                 | string  | Yes (LLM_VISION) | Natural language target description                                                                                                                                                |
+| `click_type`             | string  | No               | `click` (default), `double_click`, `right_click`, `hover`                                                                                                                          |
+| `wait_time`              | number  | No               | Max ms to wait for element. Default: 15000                                                                                                                                         |
+| `selector_error_message` | string  | No               | Custom error message if element not found                                                                                                                                          |
+| `human_mode`             | boolean | No               | Human-like click behavior                                                                                                                                                          |
+| `end_here_on_dry_run`    | boolean | No               | Skip this node and end the workflow during dry runs. Set on the final submit/save click of write workflows so dry runs validate everything without submitting to the target system |
 
 ### INPUT_TEXT
 
@@ -258,17 +236,17 @@ Type text into form fields.
 }
 ```
 
-| Parameter            | Type    | Required | Description                                              |
-| -------------------- | ------- | -------- | -------------------------------------------------------- |
-| `text`               | string  | Yes      | Text to type (supports variables and JSONata)            |
-| `execution`          | string  | Yes      | `STATIC`, `COORDINATES`, or `COMPUTER_USE`               |
-| `selector`           | string  | No       | XPath (STATIC) or coordinates (COORDINATES)              |
-| `prompt`             | string  | No       | Natural language field description (COMPUTER_USE)        |
-| `do_not_clear`       | boolean | No       | Append without clearing existing content                 |
-| `submit_after_input` | boolean | No       | Press Enter after typing                                 |
-| `aggressive_clear`   | boolean | No       | Aggressively clear field before typing                   |
-| `wait_time`          | number  | No       | Max ms to wait. Default: 15000                           |
-| `human_mode`         | boolean | No       | Human-like typing behavior                               |
+| Parameter            | Type    | Required         | Description                                                                                                             |
+| -------------------- | ------- | ---------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `text`               | string  | Yes              | Text to type (supports variables and JSONata)                                                                           |
+| `execution`          | string  | Yes              | `STATIC` or `LLM_VISION`                                                                                                |
+| `selector`           | string  | Yes (STATIC)     | XPath selector                                                                                                          |
+| `prompt`             | string  | Yes (LLM_VISION) | Natural language field description                                                                                      |
+| `do_not_clear`       | boolean | No               | Append without clearing existing content                                                                                |
+| `submit_after_input` | boolean | No               | Press Enter after typing                                                                                                |
+| `aggressive_clear`   | boolean | No               | Adds a second clear pass. Enable only after observing typing leaves old text behind or appends to it — not preemptively |
+| `wait_time`          | number  | No               | Max ms to wait. Default: 15000                                                                                          |
+| `human_mode`         | boolean | No               | Human-like typing behavior                                                                                              |
 
 ### INPUT_SELECT
 
@@ -343,15 +321,14 @@ Extract structured data from the page using a JSON schema.
 }
 ```
 
-| Parameter            | Type    | Required    | Description                                              |
-| -------------------- | ------- | ----------- | -------------------------------------------------------- |
-| `extract_data_model` | object  | Yes         | JSON Schema with CloudCruise extensions (see below)      |
-| `execution`          | string  | No          | `STATIC`, `LLM_DOM` (default), `LLM_VISION`, or `PROMPT` |
-| `selector`           | string  | Conditional | XPath to scope extraction area. Required for `LLM_DOM`   |
-| `prompt`             | string  | Conditional | Additional instructions. Required for `PROMPT` execution |
-| `wait_time`          | number  | No          | Max ms to wait for selector. Default: 15000              |
-| `keep_html_metadata` | boolean | No          | Preserve HTML attributes for LLM_DOM extraction          |
-| `llm_model`          | string  | No          | Override LLM model                                       |
+| Parameter            | Type    | Required        | Description                                                                                                              |
+| -------------------- | ------- | --------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `extract_data_model` | object  | Yes             | JSON Schema with CloudCruise extensions (see below)                                                                      |
+| `execution`          | string  | No              | `STATIC`, `LLM_DOM` (default), `LLM_VISION`, or `PROMPT`                                                                 |
+| `selector`           | string  | Yes (`LLM_DOM`) | XPath to scope extraction area                                                                                           |
+| `prompt`             | string  | Yes (`PROMPT`)  | Additional instructions for the model                                                                                    |
+| `wait_time`          | number  | No              | Max ms to wait for selector. Default: 15000                                                                              |
+| `keep_html_metadata` | boolean | No              | Only used by `LLM_DOM`. Preserve HTML attributes (id, class, data-\*) so the model can extract from them. Default: false |
 
 #### Data Model Schema Extensions
 
@@ -416,17 +393,16 @@ Conditional branching. Uses `true`/`false` edges.
   }
 }
 ```
-
-| Parameter                | Type    | Required | Description                                                                          |
-| ------------------------ | ------- | -------- | ------------------------------------------------------------------------------------ |
-| `execution`              | string  | Yes      | `STATIC`, `LLM_VISION`, or `PROMPT`                                                  |
-| `comparison_operator`    | string  | No       | For STATIC: `EQUAL`, `NOT_EQUAL`, `IS_NULL`, `IS_NOT_NULL` |
-| `comparison_value_1`     | string  | No       | First value (STATIC). Supports variables, JSONata, and `<<xpath:...>>` (see below)   |
-| `comparison_value_2`     | string  | No       | Second value (STATIC). Not needed for IS_NULL/IS_NOT_NULL                            |
-| `prompt`                 | string  | No       | Natural language condition (LLM_VISION/PROMPT)                                       |
-| `clear_cookies_on_false` | boolean | No       | Clear cookies when false (useful for login flows)                                    |
-| `wait_time`              | number  | No       | Max ms to wait before evaluation                                                     |
-| `error_on_false_message` | string  | No       | Custom error code to throw when false                                                |
+| Parameter                | Type    | Required                 | Description                                                                |
+| ------------------------ | ------- | ------------------------ | -------------------------------------------------------------------------- |
+| `execution`              | string  | Yes                      | `STATIC`, `LLM_VISION`, or `PROMPT`                                        |
+| `comparison_operator`    | string  | Yes (STATIC)             | `EQUAL`, `NOT_EQUAL`, `IS_NULL`, `IS_NOT_NULL`, `CONTAINS`, `NOT_CONTAINS` |
+| `comparison_value_1`     | string  | Yes (STATIC)             | First value. Supports variables, JSONata, and `<<xpath:...>>` (see below)  |
+| `comparison_value_2`     | string  | No                       | Second value (STATIC). Not needed for IS_NULL/IS_NOT_NULL                  |
+| `prompt`                 | string  | Yes (LLM_VISION, PROMPT) | Natural language condition                                                 |
+| `clear_cookies_on_false` | boolean | No                       | Clear cookies when false (useful for login flows, default false)           |
+| `wait_time`              | number  | No                       | Max ms to wait before evaluation (default 15000)                          |
+| `error_on_false_message` | string  | No                       | Custom error code to throw when false                                      |
 
 #### XPath evaluation with `<<xpath:...>>`
 
@@ -564,6 +540,17 @@ Scroll the page or containers.
 }
 ```
 
+| Parameter                              | Type   | Required           | Description                                                                       |
+| -------------------------------------- | ------ | ------------------ | --------------------------------------------------------------------------------- |
+| `scroll_mode`                          | string | No                 | `simple` (default), `to-element`, or `region`                                     |
+| `direction`                            | string | No                 | `up` or `down` (default `down`). Used by `simple` and `region` modes              |
+| `load_events_triggered_through_scroll` | number | Yes                | Number of scroll wheel ticks. Only used by `simple` mode — set to `0` otherwise   |
+| `xpath`                                | string | Yes (`to-element`) | XPath of the element to scroll into view                                          |
+| `position`                             | string | No                 | `start` or `center`. Where the target ends up in the viewport (`to-element` mode) |
+| `container_xpath`                      | string | Yes (`region`)     | XPath of the scrollable container                                                 |
+| `goal`                                 | string | Yes (`region`)     | `find-element` or `full-container`                                                |
+| `wait_time`                            | number | No                 | Max ms to wait for elements. Default: 15000                                       |
+
 ### TAB_MANAGEMENT
 
 Open, close, or switch browser tabs.
@@ -603,13 +590,13 @@ Handle 2FA challenges. Automatically extracts codes from SMS/email or generates 
 }
 ```
 
-| Parameter            | Type   | Required    | Description                                      |
-| -------------------- | ------ | ----------- | ------------------------------------------------ |
-| `tfa_type`           | string | Yes         | `SMS`, `EMAIL`, `AUTHENTICATOR`, or `MAGIC_LINK` |
-| `credential`         | string | Yes         | Vault credential key for the 2FA receiver        |
-| `selector`           | string | Conditional | XPath for code input (not needed for MAGIC_LINK) |
-| `execution`          | string | No          | `STATIC` (default) or `COMPUTER_USE`             |
-| `link_regex_pattern` | string | No          | Regex to extract magic link from email           |
+| Parameter            | Type   | Required               | Description                                      |
+| -------------------- | ------ | ---------------------- | ------------------------------------------------ |
+| `tfa_type`           | string | Yes                    | `SMS`, `EMAIL`, `AUTHENTICATOR`, or `MAGIC_LINK` |
+| `credential`         | string | Yes                    | Vault credential key for the 2FA receiver        |
+| `selector`           | string | Yes (non-`MAGIC_LINK`) | XPath for code input                             |
+| `execution`          | string | No                     | `STATIC` (default) or `LLM_VISION`               |
+| `link_regex_pattern` | string | No                     | Regex to extract magic link from email           |
 
 Codes are automatically entered and submitted (Enter pressed). No subsequent Click node needed.
 
@@ -735,7 +722,7 @@ When a run fails, the maintenance agent classifies errors:
 ## Best Practices
 
 1. **Use descriptive node names.** The maintenance agent uses them during recovery.
-2. **Prefer STATIC execution** for speed and reliability. For Click and InputText, use `COMPUTER_USE` when a selector-driven interaction is not viable.
+2. **Prefer STATIC execution** for speed and reliability. For Click and InputText, use `LLM_VISION` when a selector-driven interaction is not viable.
 3. **Use `wait_time` on action nodes** instead of separate Delay nodes.
 4. **Use variables** (`{{context.inputs.*}}`) instead of hardcoded values.
 5. **XPath selectors should be semantic** — use @id, @name, @aria-label, @placeholder, not generated class names.

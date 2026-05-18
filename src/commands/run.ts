@@ -151,20 +151,20 @@ Examples:
       .option("--workflow <id>", "Filter by workflow ID")
       .option("--status <status>", "Filter by status")
       .option("--limit <n>", "Max results", "100")
-      .option("--start-time <iso>", "Start time (ISO 8601)")
-      .option("--end-time <iso>", "End time (ISO 8601)")
+      .option("--since <duration>", "Time range (e.g. 24h, 7d, 30m)")
   ).addHelpText("after", `
+By default, the API returns runs from the last 24 hours.
+
 Examples:
   $ cloudcruise run list
   $ cloudcruise run list --workflow wf_abc123 --status completed --limit 10
-  $ cloudcruise run list --workflow wf_abc123 --start-time 2025-01-01T00:00:00Z
+  $ cloudcruise run list --workflow wf_abc123 --since 7d
 `).action(
     async (opts: {
       workflow?: string
       status?: string
       limit: string
-      startTime?: string
-      endTime?: string
+      since?: string
     } & AuthOptions) => {
       try {
         const auth = await resolveAuth(opts)
@@ -174,8 +174,7 @@ Examples:
         if (opts.workflow) params.set("workflow_id", opts.workflow)
         if (opts.status) params.set("status", opts.status)
         if (opts.limit) params.set("limit", opts.limit)
-        if (opts.startTime) params.set("start_time", opts.startTime)
-        if (opts.endTime) params.set("end_time", opts.endTime)
+        if (opts.since) params.set("start_time", parseSince(opts.since).toISOString())
 
         const query = params.toString()
         const path = `/runs${query ? `?${query}` : ""}`
@@ -184,6 +183,11 @@ Examples:
         const text = await response.text()
         try {
           const data = JSON.parse(text)
+          if (Array.isArray(data) && data.length === 0 && !opts.since) {
+            process.stderr.write(
+              "No runs found in the default 24h window. Try --since 7d.\n"
+            )
+          }
           outputJson(data)
         } catch {
           process.stdout.write(text + "\n")

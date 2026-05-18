@@ -1,4 +1,5 @@
 import { Command } from "commander"
+import { exec } from "child_process"
 import { writeFileSync } from "fs"
 import { resolveAuth } from "../core/auth.js"
 import { ApiClient } from "../core/api-client.js"
@@ -20,8 +21,33 @@ import { enforceNoArgSecrets } from "../core/secret-args.js"
 
 const BASE = "/workflow-builder/agent"
 
+function openInBrowser(url: string): void {
+  const cmd =
+    process.platform === "darwin"
+      ? "open"
+      : process.platform === "win32"
+        ? "start"
+        : "xdg-open"
+  exec(`${cmd} ${JSON.stringify(url)}`, () => {
+    // Best effort — ignore errors such as headless Linux.
+  })
+}
+
 function progress(msg: string): void {
   process.stderr.write(`${msg}\n`)
+}
+
+function normalizeUrl(value: string, flagName: string): string {
+  const trimmed = value.trim()
+  const withScheme = /^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//.test(trimmed)
+    ? trimmed
+    : `https://${trimmed}`
+  try {
+    return new URL(withScheme).href
+  } catch {
+    outputError(`${flagName}: Invalid URL (${JSON.stringify(value)})`)
+    process.exit(1)
+  }
 }
 
 async function readStdin(): Promise<string> {
@@ -74,8 +100,16 @@ export function registerBuilderCommands(program: Command): void {
       .requiredOption("--start-url <url>", "URL to open in the browser")
       .option("--name <name>", "Session name", "Untitled")
       .option("--description <text>", "Session description")
-      .option("--credential <id>", "Vault permissioned_user_id for auth")
-      .option("--auth-url <url>", "Auth URL (used with --credential)")
+      .option(
+        "--vault-user-id <id>",
+        "Vault entry's permissioned_user_id to log in with (requires --vault-domain; see `vault list`)"
+      )
+      .option(
+        "--vault-domain <domain>",
+        "Vault entry's domain (required with --vault-user-id; must match the domain from `vault list`)"
+      )
+      .option("--credential <id>", "[Deprecated] Alias for --vault-user-id")
+      .option("--auth-url <url>", "[Deprecated] Alias for --vault-domain")
       .option(
         "--proxy <setting>",
         "Proxy setting: country, static, random, off"
@@ -84,12 +118,15 @@ export function registerBuilderCommands(program: Command): void {
       .option("--input-schema <json>", "Input schema as JSON")
       .option("--input <json>", "Example input values as JSON")
       .option("--network", "Enable network traffic capture")
+      .option("--no-open", "Don't open the live browser URL in the default browser")
   ).action(
     async (
       opts: {
         startUrl: string
         name: string
         description?: string
+        vaultUserId?: string
+        vaultDomain?: string
         credential?: string
         authUrl?: string
         proxy?: string
@@ -97,19 +134,45 @@ export function registerBuilderCommands(program: Command): void {
         inputSchema?: string
         input?: string
         network?: boolean
+        open: boolean
       } & AuthOptions
     ) => {
       try {
+        if (opts.vaultUserId && opts.credential) {
+          throw new Error("--vault-user-id and --credential are aliases; pass only one")
+        }
+        if (opts.vaultDomain && opts.authUrl) {
+          throw new Error("--vault-domain and --auth-url are aliases; pass only one")
+        }
+        if (opts.credential) {
+          progress("[deprecated] --credential is deprecated; use --vault-user-id instead.")
+        }
+        if (opts.authUrl) {
+          progress("[deprecated] --auth-url is deprecated; use --vault-domain instead.")
+        }
+
+        const vaultUserId = opts.vaultUserId ?? opts.credential
+        const vaultDomain = opts.vaultDomain ?? opts.authUrl
+        if (Boolean(vaultUserId) !== Boolean(vaultDomain)) {
+          throw new Error(
+            "--vault-user-id and --vault-domain must be used together. Pass both to pre-configure login, or omit both to let the builder prompt for credentials."
+          )
+        }
+
+        const startUrl = normalizeUrl(opts.startUrl, "--start-url")
+        const normalizedVaultDomain = vaultDomain
+          ? normalizeUrl(vaultDomain, "--vault-domain")
+          : undefined
         const auth = await resolveAuth(opts)
         const client = new ApiClient(auth)
 
         const body: Record<string, unknown> = {
           name: opts.name,
-          startUrl: opts.startUrl
+          startUrl
         }
         if (opts.description) body.description = opts.description
-        if (opts.credential) body.permissionedUserId = opts.credential
-        if (opts.authUrl) body.authUrl = opts.authUrl
+        if (vaultUserId) body.permissionedUserId = vaultUserId
+        if (normalizedVaultDomain) body.authUrl = normalizedVaultDomain
         if (opts.proxy) body.proxySetting = opts.proxy
         if (opts.proxyValue) body.proxyValue = opts.proxyValue
         if (opts.inputSchema) body.inputSchema = JSON.parse(opts.inputSchema)
@@ -131,6 +194,14 @@ export function registerBuilderCommands(program: Command): void {
         })
 
         outputJson(result)
+
+        const sessionUrl = (
+          result as { builderSession?: { url?: string } }
+        ).builderSession?.url
+        if (opts.open && sessionUrl) {
+          openInBrowser(sessionUrl)
+          progress("Opened live browser session in default browser")
+        }
       } catch (err: unknown) {
         outputError(err instanceof Error ? err.message : String(err))
         process.exit(1)
@@ -624,12 +695,15 @@ export function registerBuilderCommands(program: Command): void {
         const client = new ApiClient(auth)
         const session = requireSession()
 
+        let inputMessages: Record<string, unknown>[] = []
+        let fetchedMessageCount: number | undefined
         try {
           const { messages } = await fetchMessages(
             client,
             session.conversationId
           )
-          updateSession({ lastMessageCount: messages.length })
+          inputMessages = messages
+          fetchedMessageCount = messages.length
         } catch {
           // Best effort — response can still be sent.
         }
@@ -672,10 +746,46 @@ export function registerBuilderCommands(program: Command): void {
           body.value = value
         }
 
+        const targetMsg = inputMessages.find(
+          (message) => (message.id as string) === opts.messageId
+        )
+        if (targetMsg) {
+          const content = targetMsg.content as Record<string, unknown> | undefined
+          const humanInputs =
+            (content?.humanInputs as Record<string, unknown>[] | undefined) ?? []
+          const authInputs = humanInputs.filter((input) => input.type === "auth")
+
+          if (authInputs.length > 0) {
+            const responses = body.responses as Record<string, unknown> | undefined
+            for (const input of authInputs) {
+              const name = input.name as string
+              const value =
+                responses?.[name] ??
+                (humanInputs.length === 1 ? body.value : undefined)
+              if (value === undefined) continue
+
+              const isValid =
+                typeof value === "object" &&
+                value !== null &&
+                typeof (value as Record<string, unknown>).permissioned_user_id === "string" &&
+                typeof (value as Record<string, unknown>).domain === "string"
+
+              if (!isValid) {
+                throw new Error(
+                  `Auth input "${name}" requires an object with "permissioned_user_id" and "domain" strings. Use --responses-stdin with {"${name}":{"permissioned_user_id":"<user_id>","domain":"<domain>"}}.`
+                )
+              }
+            }
+          }
+        }
+
         const result = await client.post(
           `${BASE}/${session.conversationId}/respond`,
           body
         )
+        if (fetchedMessageCount !== undefined) {
+          updateSession({ lastMessageCount: fetchedMessageCount })
+        }
         outputJson(result)
       } catch (err: unknown) {
         outputError(err instanceof Error ? err.message : String(err))
