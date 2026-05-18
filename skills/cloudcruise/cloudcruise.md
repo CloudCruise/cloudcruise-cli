@@ -113,6 +113,14 @@ cloudcruise components get <component_id> > component.json
 cloudcruise components update <component_id> --file component.json --version-note "Fixed login XPath"
 ```
 
+**Before updating, check what propagation will affect.** `update` defaults to `propagate=true` and will create a new version of every workflow that embeds the component. Inspect first, then decide:
+
+```bash
+cloudcruise components usage <component_id>                                   # List affected workflows
+cloudcruise components update <component_id> --file c.json --version-note "…" # Default: propagate
+cloudcruise components update <component_id> --file c.json --no-propagate     # Component-only update
+```
+
 ### Utils
 
 ```bash
