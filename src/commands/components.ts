@@ -18,6 +18,15 @@ const parsePositiveInt = (value: string): number => {
   return n
 }
 
+// Fields stripped from any payload before being sent as componentData.
+// Two groups, one list for simpler review:
+//   • Response metadata that would clobber server state if echoed back
+//     (id, version_*, created_*, etc.).
+//   • Workflow-only fields that leak credential material or workflow-
+//     scoped runtime config if a user pipes `workflows get` into a
+//     component command. encrypted_keys + loginStructure carry credential
+//     material; proxy_value/proxy_setting are workflow-scoped runtime
+//     config with no place in a reusable component definition.
 const READONLY_FIELDS = [
   "id",
   "component_id",
@@ -27,17 +36,9 @@ const READONLY_FIELDS = [
   "created_at",
   "created_by",
   "updated_at",
-  "workspace_id"
-]
-
-// Workflow-shape fields that must NEVER appear inside componentData. If a
-// user pipes `workflows get` straight into `components create/update`, these
-// would otherwise leak workflow-level secrets and settings into the component
-// body. encrypted_keys is the security-critical one (encrypted credentials);
-// proxy_value/proxy_setting are workflow-scoped runtime config that have no
-// place in a reusable component definition.
-const WORKFLOW_ONLY_FIELDS = [
+  "workspace_id",
   "encrypted_keys",
+  "loginStructure",
   "proxy_value",
   "proxy_setting"
 ]
@@ -80,9 +81,6 @@ function extractComponentData(
     (raw.componentData as unknown) ?? (raw.component_data as unknown)
   const inner = wrapped !== undefined ? assertJsonObject(wrapped) : raw
   for (const field of READONLY_FIELDS) {
-    delete inner[field]
-  }
-  for (const field of WORKFLOW_ONLY_FIELDS) {
     delete inner[field]
   }
   return inner
