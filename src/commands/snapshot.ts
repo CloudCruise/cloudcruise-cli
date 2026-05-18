@@ -33,8 +33,37 @@ interface RunResponse {
   screenshot_urls?: SnapshotScreenshot[]
 }
 
+function assertAllowedDownloadUrl(rawUrl: string): URL {
+  let url: URL
+  try {
+    url = new URL(rawUrl)
+  } catch {
+    throw new Error(`Invalid snapshot download URL: ${rawUrl}`)
+  }
+
+  if (url.protocol !== "https:") {
+    throw new Error(`Refusing non-HTTPS snapshot download URL: ${rawUrl}`)
+  }
+
+  const host = url.hostname.toLowerCase()
+  const allowed =
+    host === "cloudcruise.com" ||
+    host.endsWith(".cloudcruise.com") ||
+    host === "cloudcruise.app" ||
+    host.endsWith(".cloudcruise.app") ||
+    host.endsWith(".supabase.co") ||
+    host.endsWith(".storage.supabase.co")
+
+  if (!allowed) {
+    throw new Error(`Refusing snapshot download from untrusted host: ${host}`)
+  }
+
+  return url
+}
+
 async function downloadFile(url: string): Promise<Buffer> {
-  const res = await fetch(url)
+  const safeUrl = assertAllowedDownloadUrl(url)
+  const res = await fetch(safeUrl)
   if (!res.ok) {
     throw new Error(`Download failed (${res.status}): ${url}`)
   }
@@ -78,7 +107,7 @@ export function registerSnapshotCommands(program: Command): void {
       } & AuthOptions
     ) => {
       try {
-        const auth = resolveAuth(opts)
+        const auth = await resolveAuth(opts)
         const client = new ApiClient(auth)
 
         const downloadAll = !opts.html && !opts.image
@@ -184,7 +213,7 @@ export function registerSnapshotCommands(program: Command): void {
               "session_id and node_id are required when --file is not provided"
             )
           }
-          const auth = resolveAuth(opts)
+          const auth = await resolveAuth(opts)
           const client = new ApiClient(auth)
           const snapshotData = await client.get<DebugSnapshotResponse>(
             `/run/${sessionId}/debug-snapshots/${nodeId}`
@@ -241,7 +270,7 @@ export function registerSnapshotCommands(program: Command): void {
               "session_id and node_id are required when --file is not provided"
             )
           }
-          const auth = resolveAuth(opts)
+          const auth = await resolveAuth(opts)
           const client = new ApiClient(auth)
           const snapshotData = await client.get<DebugSnapshotResponse>(
             `/run/${sessionId}/debug-snapshots/${nodeId}`

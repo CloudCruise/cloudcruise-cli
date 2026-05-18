@@ -125,7 +125,7 @@ export async function processBuilderStream(
       waitingForInput = { messageId }
       writeText("\n")
       writeProgress(
-        `Agent is waiting for input. Use \`cloudcruise builder respond --message-id ${messageId} --value <val>\` to continue.`
+        `Agent is waiting for input. Use \`printf %s <value> | cloudcruise builder respond --message-id ${messageId} --value-stdin\` to continue.`
       )
       finalText = text ?? prev?.text ?? ""
       opts.onDone()

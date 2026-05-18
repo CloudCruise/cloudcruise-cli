@@ -9,9 +9,7 @@ npm install -g @cloudcruise/cli
 
 ## Setup
 
-```bash
-cloudcruise auth login --api-key "sk_..."
-```
+Copy [.env.example](./.env.example) to `.env`, fill in the environment you want, then source it before running `cloudcruise login`.
 
 
 ## Coding Agent Integration
@@ -69,11 +67,14 @@ cloudcruise snapshot test '//input[@name="email"]' --file ./snapshots/page.html
 
 | Command                                          | Description                                |
 | ------------------------------------------------ | ------------------------------------------ |
-| `auth login`                                     | Save API key (`--profile <name>`)          |
+| `login`                                          | Browser OAuth + PKCE login                 |
+| `auth login`                                     | Browser OAuth + PKCE login                 |
 | `auth status`                                    | Check authentication (`--profile <name>`)  |
 | `auth logout`                                    | Remove credentials (`--profile`, `--all`)  |
 | `auth switch <name>`                             | Set the active profile                     |
 | `auth profiles`                                  | List all profiles                          |
+| `auth workspace use <id>`                        | Set the active workspace for a profile     |
+| `workspaces list`                                | List workspaces for the active auth        |
 | `workflows list`                                 | List all workflows in your workspace       |
 | `workflows get <id>`                             | Get workflow definition                    |
 | `workflows update <id>`                          | Update workflow (new version)              |
@@ -88,6 +89,8 @@ cloudcruise snapshot test '//input[@name="email"]' --file ./snapshots/page.html
 | `snapshot test <xpath> [session_id] [node_id]`   | Test an XPath selector against a snapshot  |
 | `utils uuid`                                     | Generate UUIDs for node IDs                |
 | `install --skills`                               | Install skill files for coding agents      |
+
+The CLI uses a loopback redirect on `http://127.0.0.1` during login and stores reusable credentials in the OS keychain.
 
 ## License
 

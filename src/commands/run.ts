@@ -52,7 +52,7 @@ export function registerRunCommands(program: Command): void {
       } & AuthOptions
     ) => {
       try {
-        const auth = resolveAuth(opts)
+        const auth = await resolveAuth(opts)
         const client = new ApiClient(auth)
 
         let inputVariables: Record<string, unknown>
@@ -124,7 +124,7 @@ export function registerRunCommands(program: Command): void {
       opts: AuthOptions
     ) => {
       try {
-        const auth = resolveAuth(opts)
+        const auth = await resolveAuth(opts)
         const client = new ApiClient(auth)
         const data = await client.get(`/run/${sessionId}`)
         outputJson(data)
@@ -153,7 +153,7 @@ export function registerRunCommands(program: Command): void {
       endTime?: string
     } & AuthOptions) => {
       try {
-        const auth = resolveAuth(opts)
+        const auth = await resolveAuth(opts)
         const client = new ApiClient(auth)
 
         const params = new URLSearchParams()
@@ -191,7 +191,7 @@ export function registerRunCommands(program: Command): void {
       opts: AuthOptions
     ) => {
       try {
-        const auth = resolveAuth(opts)
+        const auth = await resolveAuth(opts)
         const client = new ApiClient(auth)
         const data = await client.post(`/run/${sessionId}/interrupt`)
         outputJson(data)
@@ -217,7 +217,7 @@ export function registerRunCommands(program: Command): void {
       } & AuthOptions
     ) => {
       try {
-        const auth = resolveAuth(opts)
+        const auth = await resolveAuth(opts)
         const client = new ApiClient(auth)
 
         const startTimestamp = parseSince(opts.since).toISOString()
@@ -251,7 +251,7 @@ export function registerRunCommands(program: Command): void {
       opts: AuthOptions
     ) => {
       try {
-        const auth = resolveAuth(opts)
+        const auth = await resolveAuth(opts)
         const client = new ApiClient(auth)
         const data = await client.get(
           `/run/${sessionId}/debug-snapshots/${nodeId}`

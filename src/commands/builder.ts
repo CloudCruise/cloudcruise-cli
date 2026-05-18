@@ -16,6 +16,7 @@ import {
   processBuilderStream,
   pollBuilderStream
 } from "../core/builder-stream.js"
+import { enforceNoArgSecrets } from "../core/secret-args.js"
 
 const BASE = "/workflow-builder/agent"
 
@@ -23,17 +24,39 @@ function progress(msg: string): void {
   process.stderr.write(`${msg}\n`)
 }
 
+async function readStdin(): Promise<string> {
+  const chunks: Buffer[] = []
+  for await (const chunk of process.stdin) {
+    chunks.push(chunk as Buffer)
+  }
+  return Buffer.concat(chunks).toString("utf-8")
+}
+
+function parseLimit(limit: string | undefined): number | undefined {
+  if (limit === undefined) return undefined
+  if (!/^[1-9]\d*$/.test(limit)) {
+    throw new Error("--limit must be a positive integer")
+  }
+  const parsed = Number.parseInt(limit, 10)
+  if (!Number.isSafeInteger(parsed) || parsed > 1000) {
+    throw new Error("--limit must be between 1 and 1000")
+  }
+  return parsed
+}
+
 /**
- * Resolve auth for builder commands. Uses session-stored auth as fallback
- * so --api-key and --base-url only need to be passed at `builder start`.
+ * Resolve auth for builder commands. Uses non-secret session metadata as
+ * fallback so profile/base URL/workspace only need to be passed at session start.
  */
-function resolveBuilderAuth(opts: AuthOptions) {
+async function resolveBuilderAuth(opts: AuthOptions) {
   const session = loadSession()
   const merged = { ...opts }
   if (session) {
-    if (!merged.apiKey && session.apiKey) merged.apiKey = session.apiKey
     if (!merged.baseUrl && session.baseUrl) merged.baseUrl = session.baseUrl
     if (!merged.profile && session.profile) merged.profile = session.profile
+    if (!merged.workspaceId && session.workspaceId) {
+      merged.workspaceId = session.workspaceId
+    }
   }
   return resolveAuth(merged)
 }
@@ -77,7 +100,7 @@ export function registerBuilderCommands(program: Command): void {
       } & AuthOptions
     ) => {
       try {
-        const auth = resolveAuth(opts)
+        const auth = await resolveAuth(opts)
         const client = new ApiClient(auth)
 
         const body: Record<string, unknown> = {
@@ -102,9 +125,9 @@ export function registerBuilderCommands(program: Command): void {
           conversationId: result.conversationId,
           name: opts.name,
           startedAt: new Date().toISOString(),
-          apiKey: auth.apiKey,
           baseUrl: auth.baseUrl,
-          profile: opts.profile
+          profile: opts.profile,
+          workspaceId: auth.workspaceId
         })
 
         outputJson(result)
@@ -137,7 +160,7 @@ export function registerBuilderCommands(program: Command): void {
       } & AuthOptions
     ) => {
       try {
-        const auth = resolveAuth(opts)
+        const auth = await resolveAuth(opts)
         const client = new ApiClient(auth)
 
         const body: Record<string, unknown> = {
@@ -156,9 +179,9 @@ export function registerBuilderCommands(program: Command): void {
           conversationId: result.conversationId,
           name: `Edit ${opts.workflow}`,
           startedAt: new Date().toISOString(),
-          apiKey: auth.apiKey,
           baseUrl: auth.baseUrl,
-          profile: opts.profile
+          profile: opts.profile,
+          workspaceId: auth.workspaceId
         })
 
         outputJson(result)
@@ -185,7 +208,7 @@ export function registerBuilderCommands(program: Command): void {
       } & AuthOptions
     ) => {
       try {
-        const auth = resolveBuilderAuth(opts)
+        const auth = await resolveBuilderAuth(opts)
         const client = new ApiClient(auth)
         const session = requireSession()
 
@@ -201,7 +224,9 @@ export function registerBuilderCommands(program: Command): void {
               {
                 method: "POST",
                 headers: {
-                  "cc-key": auth.apiKey,
+                  ...(auth.authScheme === "bearer"
+                    ? { Authorization: `Bearer ${auth.token}` }
+                    : { "cc-key": auth.token }),
                   "Content-Type": "application/json"
                 },
                 body: JSON.stringify({ text: message }),
@@ -381,7 +406,7 @@ export function registerBuilderCommands(program: Command): void {
       } & AuthOptions
     ) => {
       try {
-        const auth = resolveBuilderAuth(opts)
+        const auth = await resolveBuilderAuth(opts)
         const client = new ApiClient(auth)
         const session = requireSession()
         const sinceIndex = session.lastMessageCount ?? 0
@@ -479,23 +504,36 @@ export function registerBuilderCommands(program: Command): void {
       .command("respond")
       .description("Respond to a human input request from the builder agent")
       .requiredOption("--message-id <id>", "ID of the input request message")
-      .requiredOption("--value <value>", "Response value")
+      .option("--value <value>", "Response value (rejected by default; use --value-stdin)")
+      .option("--value-stdin", "Read response value from stdin")
   ).action(
     async (
       opts: {
         messageId: string
-        value: string
+        value?: string
+        valueStdin?: boolean
       } & AuthOptions
     ) => {
       try {
-        const auth = resolveBuilderAuth(opts)
+        enforceNoArgSecrets({ "--value": opts.value }, "builder respond")
+        if (!opts.value && !opts.valueStdin) {
+          throw new Error("Provide --value or --value-stdin")
+        }
+        if (opts.value && opts.valueStdin) {
+          throw new Error("Use only one of --value or --value-stdin")
+        }
+        const rawValue = opts.valueStdin
+          ? (await readStdin()).trimEnd()
+          : opts.value as string
+
+        const auth = await resolveBuilderAuth(opts)
         const client = new ApiClient(auth)
         const session = requireSession()
 
         // Try to parse as JSON for typed values (number, boolean, null)
-        let value: string | number | boolean | null = opts.value
+        let value: string | number | boolean | null = rawValue
         try {
-          const parsed = JSON.parse(opts.value)
+          const parsed = JSON.parse(rawValue)
           if (
             typeof parsed === "number" ||
             typeof parsed === "boolean" ||
@@ -534,7 +572,7 @@ export function registerBuilderCommands(program: Command): void {
       }
 
       // Verify session is still alive by fetching workflow
-      const auth = resolveBuilderAuth(opts)
+      const auth = await resolveBuilderAuth(opts)
       const client = new ApiClient(auth)
       try {
         const workflow = await client.get(
@@ -571,7 +609,7 @@ export function registerBuilderCommands(program: Command): void {
       } & AuthOptions
     ) => {
       try {
-        const auth = resolveBuilderAuth(opts)
+        const auth = await resolveBuilderAuth(opts)
         const client = new ApiClient(auth)
         const session = requireSession()
 
@@ -607,7 +645,7 @@ export function registerBuilderCommands(program: Command): void {
       } & AuthOptions
     ) => {
       try {
-        const auth = resolveBuilderAuth(opts)
+        const auth = await resolveBuilderAuth(opts)
         const client = new ApiClient(auth)
         const session = requireSession()
 
@@ -636,7 +674,7 @@ export function registerBuilderCommands(program: Command): void {
       .description("Get the current workflow definition")
   ).action(async (opts: AuthOptions) => {
     try {
-      const auth = resolveBuilderAuth(opts)
+      const auth = await resolveBuilderAuth(opts)
       const client = new ApiClient(auth)
       const session = requireSession()
 
@@ -663,11 +701,12 @@ export function registerBuilderCommands(program: Command): void {
       } & AuthOptions
     ) => {
       try {
-        const auth = resolveBuilderAuth(opts)
+        const limit = parseLimit(opts.limit)
+        const auth = await resolveBuilderAuth(opts)
         const client = new ApiClient(auth)
         const session = requireSession()
 
-        const query = opts.limit ? `?limit=${opts.limit}` : ""
+        const query = limit !== undefined ? `?limit=${limit}` : ""
         const result = await client.get(
           `${BASE}/${session.conversationId}/messages${query}`
         )
@@ -684,7 +723,7 @@ export function registerBuilderCommands(program: Command): void {
     builder.command("save").description("Save the workflow to the database")
   ).action(async (opts: AuthOptions) => {
     try {
-      const auth = resolveBuilderAuth(opts)
+      const auth = await resolveBuilderAuth(opts)
       const client = new ApiClient(auth)
       const session = requireSession()
 
@@ -705,7 +744,7 @@ export function registerBuilderCommands(program: Command): void {
       .description("Interrupt the builder agent's current processing")
   ).action(async (opts: AuthOptions) => {
     try {
-      const auth = resolveBuilderAuth(opts)
+      const auth = await resolveBuilderAuth(opts)
       const client = new ApiClient(auth)
       const session = requireSession()
 
@@ -726,7 +765,7 @@ export function registerBuilderCommands(program: Command): void {
       .description("End the builder session and clean up")
   ).action(async (opts: AuthOptions) => {
     try {
-      const auth = resolveBuilderAuth(opts)
+      const auth = await resolveBuilderAuth(opts)
       const client = new ApiClient(auth)
       const session = requireSession()
 

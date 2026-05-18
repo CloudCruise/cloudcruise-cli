@@ -16,7 +16,7 @@ export function registerWorkflowCommands(program: Command): void {
   ).action(
     async (opts: { full?: boolean } & AuthOptions) => {
       try {
-        const auth = resolveAuth(opts)
+        const auth = await resolveAuth(opts)
         const client = new ApiClient(auth)
         const data = await client.get<Record<string, unknown>[]>(
           "/workflows"
@@ -46,7 +46,7 @@ export function registerWorkflowCommands(program: Command): void {
       .description("Get workflow with nodes")
   ).action(async (id: string, opts: AuthOptions) => {
     try {
-      const auth = resolveAuth(opts)
+      const auth = await resolveAuth(opts)
       const client = new ApiClient(auth)
       const data = await client.get(`/workflows/${id}`)
       outputJson(data)
@@ -106,7 +106,7 @@ export function registerWorkflowCommands(program: Command): void {
           body.version_note = opts.versionNote
         }
 
-        const auth = resolveAuth(opts)
+        const auth = await resolveAuth(opts)
         const client = new ApiClient(auth)
         const data = await client.put(`/workflows/${id}`, body)
         outputJson(data)

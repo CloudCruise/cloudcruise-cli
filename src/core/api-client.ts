@@ -13,7 +13,7 @@ export class ApiClient {
 
   private headers(extra?: Record<string, string>): Record<string, string> {
     return {
-      "cc-key": this.auth.apiKey,
+      ...this.authHeaders(),
       "Content-Type": "application/json",
       ...extra
     }
@@ -45,7 +45,7 @@ export class ApiClient {
 
   async post<T = unknown>(path: string, body?: unknown): Promise<T> {
     const hasBody = body !== undefined
-    const headers: Record<string, string> = { "cc-key": this.auth.apiKey }
+    const headers: Record<string, string> = this.authHeaders()
     if (hasBody) {
       headers["Content-Type"] = "application/json"
     }
@@ -103,7 +103,13 @@ export class ApiClient {
     return this.url(path)
   }
 
-  get apiKey(): string {
-    return this.auth.apiKey
+  authHeaders(extra?: Record<string, string>): Record<string, string> {
+    return {
+      ...(this.auth.authScheme === "bearer"
+        ? { Authorization: `Bearer ${this.auth.token}` }
+        : { "cc-key": this.auth.token }),
+      ...(this.auth.workspaceId ? { "x-workspace-id": this.auth.workspaceId } : {}),
+      ...extra
+    }
   }
 }

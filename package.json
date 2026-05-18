@@ -1,6 +1,6 @@
 {
   "name": "@cloudcruise/cli",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "CLI for managing CloudCruise browser automation workflows and runs",
   "type": "module",
   "license": "MIT",
@@ -32,10 +32,13 @@
     "prepublishOnly": "npm run build"
   },
   "files": [
+    ".env.example",
+    "assets",
     "dist",
     "skills"
   ],
   "dependencies": {
+    "@napi-rs/keyring": "^1.3.0",
     "commander": "^13.0.0",
     "fontoxpath": "^3.34.0",
     "linkedom": "^0.18.12",

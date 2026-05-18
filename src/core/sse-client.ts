@@ -14,10 +14,9 @@ export async function* streamSSE(
   const url = client.sseUrl(path)
   const res = await fetch(url, {
     method: "GET",
-    headers: {
-      "cc-key": client.apiKey,
+    headers: client.authHeaders({
       Accept: "text/event-stream"
-    },
+    }),
     signal
   })
 
