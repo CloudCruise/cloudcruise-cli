@@ -38,6 +38,35 @@ async function readStdin(): Promise<string> {
   return Buffer.concat(chunks).toString("utf-8")
 }
 
+async function readPayload(opts: {
+  file?: string
+  stdin?: boolean
+}): Promise<Record<string, unknown>> {
+  if (opts.stdin && opts.file) {
+    throw new Error("Pass either --file or --stdin, not both")
+  }
+  if (opts.stdin) {
+    return JSON.parse(await readStdin())
+  }
+  if (opts.file) {
+    return JSON.parse(readFileSync(opts.file, "utf-8"))
+  }
+  throw new Error("Provide --file <path> or --stdin")
+}
+
+function extractComponentData(
+  raw: Record<string, unknown>
+): Record<string, unknown> {
+  const inner =
+    (raw.componentData as Record<string, unknown> | undefined) ??
+    (raw.component_data as Record<string, unknown> | undefined) ??
+    raw
+  for (const field of READONLY_FIELDS) {
+    delete inner[field]
+  }
+  return inner
+}
+
 export function registerComponentCommands(program: Command): void {
   const components = program
     .command("components")
@@ -207,14 +236,8 @@ Examples:
         opts: { name: string; file?: string; stdin?: boolean } & AuthOptions
       ) => {
         try {
-          let componentData: Record<string, unknown>
-          if (opts.stdin) {
-            componentData = JSON.parse(await readStdin())
-          } else if (opts.file) {
-            componentData = JSON.parse(readFileSync(opts.file, "utf-8"))
-          } else {
-            throw new Error("Provide --file <path> or --stdin")
-          }
+          const raw = await readPayload(opts)
+          const componentData = extractComponentData(raw)
           const auth = resolveAuth(opts)
           const client = new ApiClient(auth)
           const data = await client.post(`/workflow-components`, {
@@ -300,19 +323,8 @@ Examples:
         } & AuthOptions
       ) => {
         try {
-          let raw: Record<string, unknown>
-          if (opts.stdin) {
-            raw = JSON.parse(await readStdin())
-          } else if (opts.file) {
-            raw = JSON.parse(readFileSync(opts.file, "utf-8"))
-          } else {
-            throw new Error("Provide --file <path> or --stdin")
-          }
-          for (const field of READONLY_FIELDS) {
-            delete raw[field]
-          }
-          const componentData =
-            raw.componentData ?? raw.component_data ?? raw
+          const raw = await readPayload(opts)
+          const componentData = extractComponentData(raw)
 
           const body: Record<string, unknown> = { componentData }
           if (opts.versionNote) body.versionNote = opts.versionNote
@@ -352,9 +364,9 @@ Examples:
         try {
           await client.delete(`/workflow-components/${id}`)
         } catch (err) {
-          // Backend returns 204; ApiClient.delete() throws on empty body.
-          // Mirrors frontend workaround at workflowComponentService.ts:104-106.
-          if (!(err instanceof Error) || !err.message.includes("Unexpected")) {
+          // Backend returns 204; ApiClient.delete() throws SyntaxError parsing
+          // the empty body. Only swallow that — real HTTP errors must surface.
+          if (!(err instanceof SyntaxError)) {
             throw err
           }
         }
