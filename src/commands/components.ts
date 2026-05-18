@@ -38,6 +38,13 @@ async function readStdin(): Promise<string> {
   return Buffer.concat(chunks).toString("utf-8")
 }
 
+function assertJsonObject(value: unknown): Record<string, unknown> {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Expected a JSON object")
+  }
+  return value as Record<string, unknown>
+}
+
 async function readPayload(opts: {
   file?: string
   stdin?: boolean
@@ -46,10 +53,10 @@ async function readPayload(opts: {
     throw new Error("Pass either --file or --stdin, not both")
   }
   if (opts.stdin) {
-    return JSON.parse(await readStdin())
+    return assertJsonObject(JSON.parse(await readStdin()))
   }
   if (opts.file) {
-    return JSON.parse(readFileSync(opts.file, "utf-8"))
+    return assertJsonObject(JSON.parse(readFileSync(opts.file, "utf-8")))
   }
   throw new Error("Provide --file <path> or --stdin")
 }
@@ -57,14 +64,27 @@ async function readPayload(opts: {
 function extractComponentData(
   raw: Record<string, unknown>
 ): Record<string, unknown> {
-  const inner =
-    (raw.componentData as Record<string, unknown> | undefined) ??
-    (raw.component_data as Record<string, unknown> | undefined) ??
-    raw
+  const wrapped =
+    (raw.componentData as unknown) ?? (raw.component_data as unknown)
+  const inner = wrapped !== undefined ? assertJsonObject(wrapped) : raw
   for (const field of READONLY_FIELDS) {
     delete inner[field]
   }
   return inner
+}
+
+// Endpoint DTO uses camelCase (workflow-components.dto.ts) — intentionally
+// asymmetric with the workflows endpoint, which uses snake_case (version_note).
+// Each CLI command mirrors its own endpoint's contract.
+type CreateComponentBody = {
+  name: string
+  componentData: Record<string, unknown>
+}
+type UpdateComponentBody = {
+  componentData: Record<string, unknown>
+  versionNote?: string
+  propagate?: boolean
+  sourceWorkflowId?: string
 }
 
 export function registerComponentCommands(program: Command): void {
@@ -238,12 +258,10 @@ Examples:
         try {
           const raw = await readPayload(opts)
           const componentData = extractComponentData(raw)
+          const body: CreateComponentBody = { name: opts.name, componentData }
           const auth = resolveAuth(opts)
           const client = new ApiClient(auth)
-          const data = await client.post(`/workflow-components`, {
-            name: opts.name,
-            componentData
-          })
+          const data = await client.post(`/workflow-components`, body)
           outputJson(data)
         } catch (err: unknown) {
           outputError(err instanceof Error ? err.message : String(err))
@@ -326,7 +344,7 @@ Examples:
           const raw = await readPayload(opts)
           const componentData = extractComponentData(raw)
 
-          const body: Record<string, unknown> = { componentData }
+          const body: UpdateComponentBody = { componentData }
           if (opts.versionNote) body.versionNote = opts.versionNote
           if (opts.propagate === false) body.propagate = false
           if (opts.sourceWorkflowId) {
