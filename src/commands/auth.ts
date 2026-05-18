@@ -42,6 +42,11 @@ import {
 } from "../core/workspaces.js"
 import { enforceNoArgSecrets } from "../core/secret-args.js"
 import { outputJson, outputError } from "../core/output.js"
+import {
+  clearWorkspaceProfile,
+  showWorkspaceProfile,
+  useWorkspaceProfile,
+} from "./workspace-profile.js"
 
 interface LoginOptions {
   apiKey?: string
@@ -336,22 +341,6 @@ function registerLoginCommand(command: Command): void {
     })
 }
 
-function commandProfileOption(
-  opts: { profile?: string },
-  cmd?: Command
-): string | undefined {
-  const parsed = opts.profile ?? cmd?.opts<{ profile?: string }>().profile
-  if (parsed) return parsed
-
-  const profileEq = process.argv.find((arg) => arg.startsWith("--profile="))
-  if (profileEq) return profileEq.slice("--profile=".length)
-
-  const profileIndex = process.argv.indexOf("--profile")
-  if (profileIndex >= 0) return process.argv[profileIndex + 1]
-
-  return undefined
-}
-
 function profileStatus(profileName: string, opts: LoginOptions) {
   const profile = migrateProfileSecrets(profileName, loadProfile(profileName))
   const tokenAccount = profile.tokenAccount ?? tokenAccountForProfile(profileName)
@@ -497,13 +486,7 @@ export function registerAuthCommands(program: Command): void {
     .option("--profile <name>", "Profile to inspect")
     .action((opts: { profile?: string }) => {
       try {
-        const profileName = resolveProfileName(opts.profile)
-        const profile = loadProfile(profileName)
-        outputJson({
-          status: "ok",
-          profile: profileName,
-          workspace_id: profile.currentWorkspaceId ?? null,
-        })
+        showWorkspaceProfile(opts)
       } catch (err: unknown) {
         outputError(err instanceof Error ? err.message : String(err))
         process.exit(1)
@@ -516,13 +499,7 @@ export function registerAuthCommands(program: Command): void {
     .option("--profile <name>", "Profile to inspect")
     .action((opts: { profile?: string }, cmd?: Command) => {
       try {
-        const profileName = resolveProfileName(commandProfileOption(opts, cmd))
-        const profile = loadProfile(profileName)
-        outputJson({
-          status: "ok",
-          profile: profileName,
-          workspace_id: profile.currentWorkspaceId ?? null,
-        })
+        showWorkspaceProfile(opts, cmd)
       } catch (err: unknown) {
         outputError(err instanceof Error ? err.message : String(err))
         process.exit(1)
@@ -535,15 +512,7 @@ export function registerAuthCommands(program: Command): void {
     .option("--profile <name>", "Profile to update")
     .action((id: string, opts: { profile?: string }, cmd?: Command) => {
       try {
-        const profileName = resolveProfileName(commandProfileOption(opts, cmd))
-        const profile = loadProfile(profileName)
-        profile.currentWorkspaceId = id
-        saveProfile(profileName, profile)
-        outputJson({
-          status: "ok",
-          profile: profileName,
-          workspace_id: profile.currentWorkspaceId,
-        })
+        useWorkspaceProfile(id, opts, cmd)
       } catch (err: unknown) {
         outputError(err instanceof Error ? err.message : String(err))
         process.exit(1)
@@ -556,11 +525,7 @@ export function registerAuthCommands(program: Command): void {
     .option("--profile <name>", "Profile to update")
     .action((opts: { profile?: string }, cmd?: Command) => {
       try {
-        const profileName = resolveProfileName(commandProfileOption(opts, cmd))
-        const profile = loadProfile(profileName)
-        delete profile.currentWorkspaceId
-        saveProfile(profileName, profile)
-        outputJson({ status: "ok", profile: profileName, workspace_id: null })
+        clearWorkspaceProfile(opts, cmd)
       } catch (err: unknown) {
         outputError(err instanceof Error ? err.message : String(err))
         process.exit(1)

@@ -4,6 +4,11 @@ import { ApiClient } from "../core/api-client.js"
 import { addAuthOptions, type AuthOptions } from "../core/auth-options.js"
 import { fetchWorkspaceChoices } from "../core/workspaces.js"
 import { outputError, outputJson } from "../core/output.js"
+import {
+  clearWorkspaceProfile,
+  showWorkspaceProfile,
+  useWorkspaceProfile,
+} from "./workspace-profile.js"
 
 export function registerWorkspaceCommands(program: Command): void {
   const workspaces = program
@@ -46,4 +51,43 @@ export function registerWorkspaceCommands(program: Command): void {
       }
     }
   )
+
+  workspaces
+    .command("show")
+    .description("Show the active workspace for an auth profile")
+    .option("--profile <name>", "Profile to inspect")
+    .action((opts: { profile?: string }, cmd?: Command) => {
+      try {
+        showWorkspaceProfile(opts, cmd)
+      } catch (err: unknown) {
+        outputError(err instanceof Error ? err.message : String(err))
+        process.exit(1)
+      }
+    })
+
+  workspaces
+    .command("use <id>")
+    .description("Set the active workspace for an auth profile")
+    .option("--profile <name>", "Profile to update")
+    .action((id: string, opts: { profile?: string }, cmd?: Command) => {
+      try {
+        useWorkspaceProfile(id, opts, cmd)
+      } catch (err: unknown) {
+        outputError(err instanceof Error ? err.message : String(err))
+        process.exit(1)
+      }
+    })
+
+  workspaces
+    .command("clear")
+    .description("Clear the active workspace for an auth profile")
+    .option("--profile <name>", "Profile to update")
+    .action((opts: { profile?: string }, cmd?: Command) => {
+      try {
+        clearWorkspaceProfile(opts, cmd)
+      } catch (err: unknown) {
+        outputError(err instanceof Error ? err.message : String(err))
+        process.exit(1)
+      }
+    })
 }
