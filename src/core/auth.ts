@@ -25,6 +25,7 @@ export interface ResolvedAuth {
 }
 
 const DEFAULT_BASE_URL = "https://api.cloudcruise.com";
+type OAuthTokenEndpointAuthMethod = "none" | "client_secret_basic";
 
 function resolveBaseUrl(options: { baseUrl?: string }, profile: { baseUrl?: string }): string {
   return (
@@ -33,6 +34,41 @@ function resolveBaseUrl(options: { baseUrl?: string }, profile: { baseUrl?: stri
     process.env.CLOUDCRUISE_BASE_URL ||
     DEFAULT_BASE_URL
   );
+}
+
+function oauthAuthMethodMismatch(err: unknown, method: OAuthTokenEndpointAuthMethod): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return (
+    method === "none" &&
+    message.includes("invalid authentication method") &&
+    message.includes("client_secret_basic")
+  );
+}
+
+function oauthRefreshSettings(
+  profile: {
+    issuer?: string;
+    clientId?: string;
+  },
+  method: OAuthTokenEndpointAuthMethod,
+): {
+  issuer: string;
+  clientId: string;
+  tokenEndpointAuthMethod: OAuthTokenEndpointAuthMethod;
+  clientSecret?: string;
+} {
+  if (!profile.issuer || !profile.clientId) {
+    throw new Error("OAuth profile is missing issuer or client ID. Run cloudcruise login again.");
+  }
+  return {
+    issuer: profile.issuer,
+    clientId: profile.clientId,
+    tokenEndpointAuthMethod: method,
+    clientSecret:
+      method === "client_secret_basic"
+        ? process.env.CLOUDCRUISE_OAUTH_CLIENT_SECRET
+        : undefined,
+  };
 }
 
 export async function resolveAuth(options: {
@@ -116,27 +152,36 @@ export async function resolveAuth(options: {
           `OAuth profile "${profileName}" is missing issuer or client ID. Run cloudcruise login again.`,
         );
       }
-      const refreshed = tokenResponseToStoredTokens(
-        await refreshOAuthToken(
-          {
-            issuer: profile.issuer,
-            clientId: profile.clientId,
-            tokenEndpointAuthMethod:
-              profile.tokenEndpointAuthMethod ?? "none",
-            clientSecret:
-              profile.tokenEndpointAuthMethod === "client_secret_basic"
-                ? process.env.CLOUDCRUISE_OAUTH_CLIENT_SECRET
-                : undefined,
-          },
+      const method = profile.tokenEndpointAuthMethod ?? "none";
+      let refreshedResponse;
+      let refreshedMethod = method;
+      try {
+        refreshedResponse = await refreshOAuthToken(
+          oauthRefreshSettings(profile, method),
           tokens.refreshToken,
-        ),
-      );
+        );
+      } catch (err: unknown) {
+        if (!profile.tokenEndpointAuthMethod && oauthAuthMethodMismatch(err, method)) {
+          refreshedMethod = "client_secret_basic";
+          refreshedResponse = await refreshOAuthToken(
+            oauthRefreshSettings(profile, refreshedMethod),
+            tokens.refreshToken,
+          );
+        } else {
+          throw err;
+        }
+      }
+      const refreshed = tokenResponseToStoredTokens(refreshedResponse);
       const merged = {
         ...tokens,
         ...refreshed,
         refreshToken: refreshed.refreshToken ?? tokens.refreshToken,
       };
       saveOAuthTokens(account, merged);
+      if (profile.tokenEndpointAuthMethod !== refreshedMethod) {
+        profile.tokenEndpointAuthMethod = refreshedMethod;
+        saveProfile(profileName, profile);
+      }
       accessToken = merged.accessToken;
     } else if (
       !tokens.refreshToken &&
