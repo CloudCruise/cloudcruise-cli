@@ -9,6 +9,7 @@ export interface OAuthSettings {
   issuer: string;
   clientId: string;
   clientSecret?: string;
+  tokenEndpointAuthMethod: "none" | "client_secret_basic";
   baseUrl: string;
   redirectUri: string;
   scope: string;
@@ -98,6 +99,7 @@ export function resolveOAuthSettings(opts: {
   issuer?: string;
   clientId?: string;
   clientSecret?: string;
+  tokenEndpointAuthMethod?: "none" | "client_secret_basic";
   baseUrl?: string;
   redirectUri?: string;
   redirectPort?: string;
@@ -116,6 +118,13 @@ export function resolveOAuthSettings(opts: {
     opts.baseUrl ??
     process.env.CLOUDCRUISE_BASE_URL ??
     (environment === "production" ? "https://api.cloudcruise.com" : undefined);
+  const tokenEndpointAuthMethod =
+    opts.tokenEndpointAuthMethod ??
+    (process.env.CLOUDCRUISE_OAUTH_TOKEN_AUTH_METHOD as
+      | "none"
+      | "client_secret_basic"
+      | undefined) ??
+    "none";
 
   if (!issuer || !clientId) {
     throw new Error(
@@ -127,11 +136,28 @@ export function resolveOAuthSettings(opts: {
       `OAuth environment "${environment}" requires --base-url or CLOUDCRUISE_BASE_URL.`,
     );
   }
+  if (
+    tokenEndpointAuthMethod !== "none" &&
+    tokenEndpointAuthMethod !== "client_secret_basic"
+  ) {
+    throw new Error(
+      "CLOUDCRUISE_OAUTH_TOKEN_AUTH_METHOD must be one of: none, client_secret_basic.",
+    );
+  }
+  if (
+    tokenEndpointAuthMethod === "client_secret_basic" &&
+    !(opts.clientSecret ?? process.env.CLOUDCRUISE_OAUTH_CLIENT_SECRET)
+  ) {
+    throw new Error(
+      "OAuth token auth method client_secret_basic requires CLOUDCRUISE_OAUTH_CLIENT_SECRET.",
+    );
+  }
 
   return {
     environment,
     issuer,
     clientId,
+    tokenEndpointAuthMethod,
     clientSecret:
       opts.clientSecret ?? process.env.CLOUDCRUISE_OAUTH_CLIENT_SECRET,
     baseUrl,
@@ -489,6 +515,7 @@ export async function refreshOAuthToken(
     issuer: string;
     clientId: string;
     clientSecret?: string;
+    tokenEndpointAuthMethod?: "none" | "client_secret_basic";
   },
   refreshToken: string,
 ): Promise<OAuthTokenResponse> {
@@ -504,6 +531,7 @@ async function tokenRequest(
     issuer: string;
     clientId: string;
     clientSecret?: string;
+    tokenEndpointAuthMethod?: "none" | "client_secret_basic";
   },
   body: URLSearchParams,
 ): Promise<OAuthTokenResponse> {
@@ -511,7 +539,10 @@ async function tokenRequest(
     "Content-Type": "application/x-www-form-urlencoded",
   };
 
-  if (settings.clientSecret) {
+  if (settings.tokenEndpointAuthMethod === "client_secret_basic") {
+    if (!settings.clientSecret) {
+      throw new Error("OAuth client_secret_basic refresh requires a client secret.");
+    }
     headers.Authorization = `Basic ${Buffer.from(
       `${settings.clientId}:${settings.clientSecret}`,
     ).toString("base64")}`;

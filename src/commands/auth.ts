@@ -228,6 +228,7 @@ async function performOAuthLogin(opts: LoginOptions): Promise<void> {
     environment: settings.environment,
     issuer: settings.issuer,
     clientId: settings.clientId,
+    tokenEndpointAuthMethod: settings.tokenEndpointAuthMethod,
     baseUrl: settings.baseUrl,
     scope: tokenResponse.scope ?? settings.scope,
     tokenAccount,

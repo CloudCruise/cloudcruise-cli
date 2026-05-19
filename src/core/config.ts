@@ -19,6 +19,7 @@ export interface ProfileConfig {
   environment?: string
   issuer?: string
   clientId?: string
+  tokenEndpointAuthMethod?: "none" | "client_secret_basic"
   scope?: string
   tokenAccount?: string
   tokenExpiresAt?: string

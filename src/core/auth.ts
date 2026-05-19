@@ -121,7 +121,12 @@ export async function resolveAuth(options: {
           {
             issuer: profile.issuer,
             clientId: profile.clientId,
-            clientSecret: process.env.CLOUDCRUISE_OAUTH_CLIENT_SECRET,
+            tokenEndpointAuthMethod:
+              profile.tokenEndpointAuthMethod ?? "none",
+            clientSecret:
+              profile.tokenEndpointAuthMethod === "client_secret_basic"
+                ? process.env.CLOUDCRUISE_OAUTH_CLIENT_SECRET
+                : undefined,
           },
           tokens.refreshToken,
         ),
