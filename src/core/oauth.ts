@@ -528,7 +528,32 @@ async function tokenRequest(
   if (!res.ok) {
     throw new Error(`OAuth token request failed (${res.status}): ${text}`);
   }
-  return JSON.parse(text) as OAuthTokenResponse;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new Error("OAuth token request returned invalid JSON.");
+  }
+
+  if (
+    !parsed ||
+    typeof parsed !== "object" ||
+    typeof (parsed as OAuthTokenResponse).access_token !== "string" ||
+    !(parsed as OAuthTokenResponse).access_token
+  ) {
+    throw new Error("OAuth token response was missing access_token.");
+  }
+
+  const response = parsed as OAuthTokenResponse;
+  if (
+    response.expires_in !== undefined &&
+    typeof response.expires_in !== "number"
+  ) {
+    throw new Error("OAuth token response had an invalid expires_in value.");
+  }
+
+  return response;
 }
 
 export function saveTokenResponse(

@@ -55,6 +55,20 @@ export async function resolveAuth(options: {
     profile.currentWorkspaceId ||
     undefined;
 
+  const machineToken = process.env.CLOUDCRUISE_TOKEN;
+  if (machineToken) {
+    return {
+      token: machineToken,
+      authScheme: "bearer",
+      baseUrl: resolveBaseUrl(options, profile),
+      workspaceId,
+      encryptionKey:
+        options.encryptionKey ||
+        process.env.CLOUDCRUISE_ENCRYPTION_KEY ||
+        undefined,
+    };
+  }
+
   let storedEncryptionKey = profile.encryptionKeyAccount
     ? loadEncryptionKey(profile.encryptionKeyAccount)
     : null;
@@ -66,21 +80,6 @@ export async function resolveAuth(options: {
     profile.encryptionKeyAccount = encryptionKeyAccount;
     saveProfile(profileName, profile);
     storedEncryptionKey = loadEncryptionKey(encryptionKeyAccount);
-  }
-
-  const machineToken = process.env.CLOUDCRUISE_TOKEN;
-  if (machineToken) {
-    return {
-      token: machineToken,
-      authScheme: "bearer",
-      baseUrl: resolveBaseUrl(options, profile),
-      workspaceId,
-      encryptionKey:
-        options.encryptionKey ||
-        process.env.CLOUDCRUISE_ENCRYPTION_KEY ||
-        storedEncryptionKey ||
-        undefined,
-    };
   }
 
   if (profile.authType === "oauth") {
@@ -121,6 +120,14 @@ export async function resolveAuth(options: {
       };
       saveOAuthTokens(account, merged);
       accessToken = merged.accessToken;
+    } else if (
+      !tokens.refreshToken &&
+      tokens.expiresAt !== undefined &&
+      tokens.expiresAt <= Date.now()
+    ) {
+      throw new Error(
+        `OAuth access token for profile "${profileName}" has expired. Run: cloudcruise login --profile ${profileName}`,
+      );
     }
 
     return {

@@ -70,6 +70,17 @@ function parseLimit(limit: string | undefined): number | undefined {
   return parsed
 }
 
+function parseTimeoutSeconds(timeout: string): number {
+  if (!/^[1-9]\d*$/.test(timeout)) {
+    throw new Error("--timeout must be a positive integer number of seconds")
+  }
+  const parsed = Number.parseInt(timeout, 10)
+  if (!Number.isSafeInteger(parsed) || parsed > 86_400) {
+    throw new Error("--timeout must be between 1 and 86400 seconds")
+  }
+  return parsed
+}
+
 /**
  * Resolve auth for builder commands. Uses non-secret session metadata as
  * fallback so profile/base URL/workspace only need to be passed at session start.
@@ -302,7 +313,7 @@ export function registerBuilderCommands(program: Command): void {
           const ac = new AbortController()
           const timer = setTimeout(() => ac.abort(), 5000)
           try {
-            await fetch(
+            const res = await fetch(
               `${auth.baseUrl}${BASE}/${session.conversationId}/message`,
               {
                 method: "POST",
@@ -313,9 +324,18 @@ export function registerBuilderCommands(program: Command): void {
                 signal: ac.signal
               }
             )
-          } catch {
+            if (!res.ok) {
+              const body = await res.text()
+              throw new Error(
+                `Builder send failed (${res.status}): ${body}`
+              )
+            }
+          } catch (err: unknown) {
+            if (!(err instanceof DOMException && err.name === "AbortError")) {
+              throw err
+            }
             // AbortError is expected — server accepted but we're not
-            // waiting for the response. Network errors also caught here.
+            // waiting for the full response.
           } finally {
             clearTimeout(timer)
           }
@@ -324,7 +344,7 @@ export function registerBuilderCommands(program: Command): void {
         }
 
         // Blocking mode: POST + stream SSE until done
-        const timeoutMs = parseInt(opts.timeout) * 1000
+        const timeoutMs = parseTimeoutSeconds(opts.timeout) * 1000
         const abortController = new AbortController()
 
         const interruptAndExit = async () => {

@@ -158,12 +158,34 @@ function addOAuthLoginOptions(cmd: Command): Command {
     .option("--no-browser", "Use headless login relay (not implemented yet)")
 }
 
+function isProfileUpdateOnly(opts: LoginOptions): boolean {
+  return Boolean(
+    (opts.encryptionKey || opts.encryptionKeyStdin || opts.workspaceId) &&
+      !opts.apiKey &&
+      !opts.apiKeyStdin &&
+      !opts.baseUrl &&
+      !opts.issuer &&
+      !opts.clientId &&
+      !opts.redirectUri &&
+      opts.browser !== false
+  )
+}
+
 async function performOAuthLogin(opts: LoginOptions): Promise<void> {
   if (opts.browser === false) {
     throw new Error(
       "Headless OAuth requires the CloudCruise CLI login relay endpoint. Use browser login for now."
     )
   }
+
+  const argEncryptionKey = opts.encryptionKey
+  if (opts.encryptionKeyStdin) {
+    opts.encryptionKey = (await readStdin()).trimEnd()
+  }
+  enforceNoArgSecrets(
+    { "--encryption-key": argEncryptionKey },
+    "auth login"
+  )
 
   const profileName = resolveProfileName(opts.profile)
   const settings = resolveOAuthSettings({
@@ -200,7 +222,7 @@ async function performOAuthLogin(opts: LoginOptions): Promise<void> {
       : undefined
 
   const existing = loadProfile(profileName)
-  const profile: ProfileConfig = {
+  let profile: ProfileConfig = {
     ...existing,
     authType: "oauth",
     environment: settings.environment,
@@ -213,6 +235,14 @@ async function performOAuthLogin(opts: LoginOptions): Promise<void> {
     accountId: typeof claims.sub === "string" ? claims.sub : undefined,
     accountEmail: typeof claims.email === "string" ? claims.email : undefined,
     currentWorkspaceId: opts.workspaceId ?? existing.currentWorkspaceId,
+  }
+  const envEncryptionKey = process.env.CLOUDCRUISE_ENCRYPTION_KEY
+  if (opts.encryptionKey || envEncryptionKey) {
+    profile = saveProfileEncryptionKey(
+      profileName,
+      profile,
+      opts.encryptionKey ?? envEncryptionKey as string
+    )
   }
 
   if (!profile.currentWorkspaceId && process.stdin.isTTY && process.stderr.isTTY) {
@@ -249,6 +279,39 @@ async function performOAuthLogin(opts: LoginOptions): Promise<void> {
     account: profile.accountEmail ?? profile.accountId ?? null,
     workspace_id: profile.currentWorkspaceId ?? null,
     expires_at: expiresAt ?? null,
+    config_path: getConfigPath(),
+  })
+}
+
+async function saveProfileUpdates(opts: LoginOptions): Promise<void> {
+  const argEncryptionKey = opts.encryptionKey
+  if (opts.encryptionKeyStdin) {
+    opts.encryptionKey = (await readStdin()).trimEnd()
+  }
+  enforceNoArgSecrets(
+    { "--encryption-key": argEncryptionKey },
+    "auth login"
+  )
+
+  const profileName = resolveProfileName(opts.profile)
+  let profile = migrateProfileSecrets(profileName, loadProfile(profileName))
+  const envEncryptionKey = process.env.CLOUDCRUISE_ENCRYPTION_KEY
+
+  if (opts.workspaceId) profile.currentWorkspaceId = opts.workspaceId
+  if (opts.encryptionKey || envEncryptionKey) {
+    profile = saveProfileEncryptionKey(
+      profileName,
+      profile,
+      opts.encryptionKey ?? envEncryptionKey as string
+    )
+  }
+
+  delete profile.encryptionKey
+  delete profile.apiKey
+  saveProfile(profileName, profile)
+  outputJson({
+    status: "ok",
+    profile: profileName,
     config_path: getConfigPath(),
   })
 }
@@ -323,14 +386,10 @@ function registerLoginCommand(command: Command): void {
     .option("--encryption-key-stdin", "Read encryption key from stdin")
     .action(async (opts: LoginOptions) => {
       try {
-        if (
-          opts.apiKey ||
-          opts.apiKeyStdin ||
-          opts.encryptionKey ||
-          opts.encryptionKeyStdin ||
-          opts.baseUrl
-        ) {
+        if (opts.apiKey || opts.apiKeyStdin) {
           await saveLegacyProfile(opts)
+        } else if (isProfileUpdateOnly(opts)) {
+          await saveProfileUpdates(opts)
         } else {
           await performOAuthLogin(opts)
         }
@@ -344,17 +403,17 @@ function registerLoginCommand(command: Command): void {
 function profileStatus(profileName: string, opts: LoginOptions) {
   const profile = migrateProfileSecrets(profileName, loadProfile(profileName))
   const tokenAccount = profile.tokenAccount ?? tokenAccountForProfile(profileName)
-  const oauthTokens =
-    profile.authType === "oauth" ? loadOAuthTokens(tokenAccount) : null
   const envToken = process.env.CLOUDCRUISE_TOKEN
+  const oauthTokens =
+    !envToken && profile.authType === "oauth" ? loadOAuthTokens(tokenAccount) : null
   const envKey = process.env.CLOUDCRUISE_API_KEY
   const storedApiKey =
-    profile.authType === "api_key" ? loadStoredApiKey(profileName, profile) : null
+    !envToken && profile.authType === "api_key" ? loadStoredApiKey(profileName, profile) : null
   const apiKey = opts.apiKey || envKey || storedApiKey
   const encKey =
     opts.encryptionKey ||
     process.env.CLOUDCRUISE_ENCRYPTION_KEY ||
-    loadStoredEncryptionKey(profileName, profile)
+    (!envToken ? loadStoredEncryptionKey(profileName, profile) : null)
 
   return {
     authenticated: Boolean(envToken || oauthTokens || apiKey),

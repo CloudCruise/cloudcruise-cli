@@ -33,6 +33,31 @@ export async function* streamSSE(
   const decoder = new TextDecoder()
   let buffer = ""
   let currentEvent: Partial<SSEEvent> = {}
+  const processLine = (rawLine: string): SSEEvent | null => {
+    const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine
+    if (line.startsWith("event:")) {
+      let event = line.slice(6)
+      if (event.startsWith(" ")) event = event.slice(1)
+      currentEvent.event = event
+    } else if (line.startsWith("data:")) {
+      let chunk = line.slice(5)
+      if (chunk.startsWith(" ")) chunk = chunk.slice(1)
+      currentEvent.data =
+        currentEvent.data !== undefined ? `${currentEvent.data}\n${chunk}` : chunk
+    } else if (line.startsWith("id:")) {
+      let id = line.slice(3)
+      if (id.startsWith(" ")) id = id.slice(1)
+      currentEvent.id = id
+    } else if (line === "") {
+      if (currentEvent.data !== undefined) {
+        const event = currentEvent as SSEEvent
+        currentEvent = {}
+        return event
+      }
+      currentEvent = {}
+    }
+    return null
+  }
 
   try {
     while (true) {
@@ -44,21 +69,20 @@ export async function* streamSSE(
       buffer = lines.pop() ?? ""
 
       for (const line of lines) {
-        if (line.startsWith("event:")) {
-          currentEvent.event = line.slice(6).trim()
-        } else if (line.startsWith("data:")) {
-          const chunk = line.slice(5).trim()
-          currentEvent.data =
-            currentEvent.data !== undefined ? currentEvent.data + chunk : chunk
-        } else if (line.startsWith("id:")) {
-          currentEvent.id = line.slice(3).trim()
-        } else if (line === "") {
-          if (currentEvent.data !== undefined) {
-            yield currentEvent as SSEEvent
-          }
-          currentEvent = {}
-        }
+        const event = processLine(line)
+        if (event) yield event
       }
+    }
+    buffer += decoder.decode()
+    if (buffer.length > 0) {
+      const lines = buffer.split("\n")
+      for (const line of lines) {
+        const event = processLine(line)
+        if (event) yield event
+      }
+    }
+    if (currentEvent.data !== undefined) {
+      yield currentEvent as SSEEvent
     }
   } catch (err: unknown) {
     if (err instanceof DOMException && err.name === "AbortError") return
