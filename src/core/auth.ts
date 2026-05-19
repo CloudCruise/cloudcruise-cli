@@ -41,6 +41,7 @@ export async function resolveAuth(options: {
   profile?: string;
   workspaceId?: string;
   encryptionKey?: string;
+  requireEncryptionKey?: boolean;
 }): Promise<ResolvedAuth> {
   enforceNoArgSecrets(
     { "--api-key": options.apiKey, "--encryption-key": options.encryptionKey },
@@ -55,8 +56,30 @@ export async function resolveAuth(options: {
     profile.currentWorkspaceId ||
     undefined;
 
+  const loadStoredEncryptionKey = (): string | null => {
+    let storedEncryptionKey = profile.encryptionKeyAccount
+      ? loadEncryptionKey(profile.encryptionKeyAccount)
+      : null;
+    if (!storedEncryptionKey && profile.encryptionKey) {
+      const encryptionKeyAccount =
+        profile.encryptionKeyAccount ?? encryptionKeyAccountForProfile(profileName);
+      saveEncryptionKey(encryptionKeyAccount, profile.encryptionKey);
+      delete profile.encryptionKey;
+      profile.encryptionKeyAccount = encryptionKeyAccount;
+      saveProfile(profileName, profile);
+      storedEncryptionKey = loadEncryptionKey(encryptionKeyAccount);
+    }
+    return storedEncryptionKey;
+  };
+
   const machineToken = process.env.CLOUDCRUISE_TOKEN;
   if (machineToken) {
+    const storedEncryptionKey =
+      options.requireEncryptionKey &&
+      !options.encryptionKey &&
+      !process.env.CLOUDCRUISE_ENCRYPTION_KEY
+        ? loadStoredEncryptionKey()
+        : null;
     return {
       token: machineToken,
       authScheme: "bearer",
@@ -65,22 +88,12 @@ export async function resolveAuth(options: {
       encryptionKey:
         options.encryptionKey ||
         process.env.CLOUDCRUISE_ENCRYPTION_KEY ||
+        storedEncryptionKey ||
         undefined,
     };
   }
 
-  let storedEncryptionKey = profile.encryptionKeyAccount
-    ? loadEncryptionKey(profile.encryptionKeyAccount)
-    : null;
-  if (!storedEncryptionKey && profile.encryptionKey) {
-    const encryptionKeyAccount =
-      profile.encryptionKeyAccount ?? encryptionKeyAccountForProfile(profileName);
-    saveEncryptionKey(encryptionKeyAccount, profile.encryptionKey);
-    delete profile.encryptionKey;
-    profile.encryptionKeyAccount = encryptionKeyAccount;
-    saveProfile(profileName, profile);
-    storedEncryptionKey = loadEncryptionKey(encryptionKeyAccount);
-  }
+  const storedEncryptionKey = loadStoredEncryptionKey();
 
   if (profile.authType === "oauth") {
     const account = profile.tokenAccount ?? tokenAccountForProfile(profileName);

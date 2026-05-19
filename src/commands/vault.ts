@@ -159,7 +159,10 @@ Examples:
       } & AuthOptions
     ) => {
       try {
-        const auth = await resolveAuth(opts)
+        const auth = await resolveAuth({
+          ...opts,
+          requireEncryptionKey: Boolean(opts.decrypt),
+        })
         const client = new ApiClient(auth)
         const params = new URLSearchParams({
           permissioned_user_id: opts.userId,
@@ -225,7 +228,10 @@ Examples:
         if (!opts.stdin && !opts.file) {
           await applySecretStdinOptions(opts)
         }
-        const auth = await resolveAuth(opts)
+        const auth = await resolveAuth({
+          ...opts,
+          requireEncryptionKey: !opts.stdin && !opts.file,
+        })
         const client = new ApiClient(auth)
         let payload: Record<string, unknown>
 
@@ -304,7 +310,10 @@ Examples:
         if (!opts.stdin && !opts.file) {
           await applySecretStdinOptions(opts)
         }
-        const auth = await resolveAuth(opts)
+        const auth = await resolveAuth({
+          ...opts,
+          requireEncryptionKey: !opts.stdin && !opts.file,
+        })
         const client = new ApiClient(auth)
         let payload: Record<string, unknown>
 
@@ -388,7 +397,7 @@ Examples:
         if (!opts.stdin && plaintext !== undefined) {
           enforceNoArgSecrets({ plaintext }, "vault encrypt")
         }
-        const auth = await resolveAuth(opts)
+        const auth = await resolveAuth({ ...opts, requireEncryptionKey: true })
         const key = requireEncryptionKey(auth)
         validateHexKey(key)
 
@@ -427,7 +436,7 @@ Examples:
       opts: { stdin?: boolean; raw?: boolean } & AuthOptions
     ) => {
       try {
-        const auth = await resolveAuth(opts)
+        const auth = await resolveAuth({ ...opts, requireEncryptionKey: true })
         const key = requireEncryptionKey(auth)
         validateHexKey(key)
 
