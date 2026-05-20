@@ -1,7 +1,6 @@
 # CloudCruise CLI
 
-CLI for managing [CloudCruise](https://cloudcruise.com) browser automation workflows and runs. Designed for coding agents to build, edit and fix CloudCruise workflows.
-
+CLI for managing [CloudCruise](https://cloudcruise.com) browser automation workflows and runs. Designed for coding agents to fix and edit CloudCruise workflows.
 ## Install
 
 ```bash
@@ -10,12 +9,8 @@ npm install -g @cloudcruise/cli
 
 ## Setup
 
-```bash
-cloudcruise auth login --api-key "sk_..."
-cloudcruise auth login --api-key "sk_..." --encryption-key "hex..."  # With vault encryption key
-```
+Copy [.env.example](./.env.example) to `.env`, fill in the environment you want, then source it before running `cloudcruise login`.
 
-Or set `CLOUDCRUISE_API_KEY` and optionally `CLOUDCRUISE_ENCRYPTION_KEY` environment variables.
 
 ## Coding Agent Integration
 
@@ -42,9 +37,6 @@ cloudcruise run start <workflow_id> --wait
 # Start a debug run with snapshots on every node
 cloudcruise run start <workflow_id> --wait --debug
 
-# Start a run with input variables
-cloudcruise run start <workflow_id> --input '{"key":"val"}' --wait
-
 # Inspect a failed run
 cloudcruise run get <session_id>
 
@@ -59,81 +51,38 @@ After a `--debug` run, use snapshot commands to diagnose failures:
 ```bash
 # Download HTML snapshot, screenshots, and metadata for a node
 cloudcruise snapshot fetch <session_id> <node_id>
-cloudcruise snapshot fetch <session_id> <node_id> --html   # HTML only
-cloudcruise snapshot fetch <session_id> <node_id> --image  # Screenshots only
 
 # Suggest unique XPath selectors for interactive elements
 cloudcruise snapshot suggest <session_id> <node_id>
-cloudcruise snapshot suggest <session_id> <node_id> --filter input,button
 
 # Test an XPath selector against a snapshot
 cloudcruise snapshot test '//button[@id="submit"]' <session_id> <node_id>
-cloudcruise snapshot test '//button[@id="submit"]' <session_id> <node_id> --count
 
 # Work with a local HTML file instead of fetching from the API
 cloudcruise snapshot suggest --file ./snapshots/page.html
 cloudcruise snapshot test '//input[@name="email"]' --file ./snapshots/page.html
 ```
 
-## Vault
-
-Manage encrypted credentials for use in workflows. The CLI handles client-side AES-256-GCM encryption automatically.
-
-```bash
-cloudcruise vault list                                          # List all vault entries
-cloudcruise vault get --user-id <id> --domain <domain>          # Get entry (encrypted)
-cloudcruise vault get --user-id <id> --domain <domain> --decrypt  # Get entry (plaintext)
-cloudcruise vault create --user-id <id> --domain <domain> \
-  --user-name <name> --password <pass>                          # Create with auto-encrypt
-cloudcruise vault update --user-id <id> --domain <domain> \
-  --password <new_pass>                                         # Update specific fields
-cloudcruise vault clear-state --user-id <id> --domain <domain>  # Clear browser state
-cloudcruise vault encrypt "plaintext"                           # Encrypt a value locally
-cloudcruise vault decrypt "ciphertext"                          # Decrypt a value locally
-```
-
-Requires an encryption key via `auth login --encryption-key`, `CLOUDCRUISE_ENCRYPTION_KEY` env, or `--encryption-key` flag.
-
-## Builder
-
-Build new workflows interactively through a conversational agent:
-
-```bash
-# Start a new workflow
-cloudcruise builder start --start-url "https://app.example.com" --name "Login flow"
-cloudcruise builder start --start-url "https://app.example.com" \
-  --vault-user-id <user_id> --vault-domain "https://app.example.com"
-
-# Send instructions and poll for completion
-cloudcruise builder send "Click the login button"
-cloudcruise builder poll
-
-# Respond to agent input requests
-cloudcruise builder respond --message-id <id> --value "123456"
-cloudcruise builder respond --message-id <id> --responses '{"email":"user@example.com"}'
-
-# Inspect session
-cloudcruise builder status       # Session status and workflow summary
-cloudcruise builder workflow     # Current workflow definition
-cloudcruise builder messages     # Conversation history
-
-# Session lifecycle
-cloudcruise builder save         # Persist workflow
-cloudcruise builder interrupt    # Stop current processing
-cloudcruise builder end          # End session and clean up
-```
-
 ## All Commands
 
 | Command | Description |
 | --- | --- |
-| `auth login` | Save API key and encryption key (`--profile`) |
+| `login` | Browser OAuth + PKCE login |
+| `logout` | Remove credentials for the active profile |
+| `whoami` | Show the authenticated account |
+| `auth login` | Browser OAuth + PKCE login |
 | `auth status` | Check authentication (`--profile`) |
 | `auth logout` | Remove credentials (`--profile`, `--all`) |
 | `auth switch <name>` | Set the active profile |
 | `auth profiles` | List all profiles |
+| `auth workspace use <id>` | Set the active workspace for a profile |
+| `workspaces list` | List workspaces for the active auth |
+| `workspaces show` | Show the active workspace for a profile |
+| `workspaces use <id>` | Set the active workspace for a profile |
+| `workspaces clear` | Clear the active workspace for a profile |
 | `workflows list` | List workflows (`--full` for details) |
 | `workflows get <id>` | Get workflow definition |
+| `workflows versions <id>` | List workflow version history |
 | `workflows update <id>` | Update workflow (`--file`, `--stdin`, `--version-note`) |
 | `components list` | List workflow components (`--full`) |
 | `components get <id>` | Get component (`--version-number`) |
@@ -161,7 +110,7 @@ cloudcruise builder end          # End session and clean up
 | `builder start` | Start builder session (`--start-url`, `--name`, `--vault-user-id`) |
 | `builder send <message>` | Send instruction to builder agent |
 | `builder poll` | Check agent status and new messages |
-| `builder respond` | Reply to agent input requests (`--message-id`, `--value`) |
+| `builder respond` | Reply to agent input requests (`--message-id`, `--value-stdin`) |
 | `builder status` | Check session status |
 | `builder workflow` | Get current workflow definition |
 | `builder messages` | Get conversation history (`--limit`) |
@@ -171,6 +120,7 @@ cloudcruise builder end          # End session and clean up
 | `utils uuid` | Generate UUIDs for node IDs (`--count`) |
 | `install --skills` | Install skill files for coding agents (`--target`) |
 
+The CLI uses a loopback redirect on `http://127.0.0.1` during login and stores reusable credentials in the OS keychain.
 `run list` defaults to the last 24 hours when `--since` is omitted. Use values like `24h`, `7d`, or `30m` to adjust the time window.
 
 ## License

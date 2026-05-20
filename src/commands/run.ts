@@ -58,7 +58,7 @@ Examples:
       } & AuthOptions
     ) => {
       try {
-        const auth = resolveAuth(opts)
+        const auth = await resolveAuth(opts)
         const client = new ApiClient(auth)
 
         let inputVariables: Record<string, unknown>
@@ -133,7 +133,7 @@ Examples:
       opts: AuthOptions
     ) => {
       try {
-        const auth = resolveAuth(opts)
+        const auth = await resolveAuth(opts)
         const client = new ApiClient(auth)
         const data = await client.get(`/run/${sessionId}`)
         outputJson(data)
@@ -167,7 +167,7 @@ Examples:
       since?: string
     } & AuthOptions) => {
       try {
-        const auth = resolveAuth(opts)
+        const auth = await resolveAuth(opts)
         const client = new ApiClient(auth)
 
         const params = new URLSearchParams()
@@ -212,7 +212,7 @@ Examples:
       opts: AuthOptions
     ) => {
       try {
-        const auth = resolveAuth(opts)
+        const auth = await resolveAuth(opts)
         const client = new ApiClient(auth)
         const data = await client.post(`/run/${sessionId}/interrupt`)
         outputJson(data)
@@ -243,7 +243,7 @@ Examples:
       } & AuthOptions
     ) => {
       try {
-        const auth = resolveAuth(opts)
+        const auth = await resolveAuth(opts)
         const client = new ApiClient(auth)
 
         const startTimestamp = parseSince(opts.since).toISOString()
@@ -280,7 +280,7 @@ Examples:
       opts: AuthOptions
     ) => {
       try {
-        const auth = resolveAuth(opts)
+        const auth = await resolveAuth(opts)
         const client = new ApiClient(auth)
         const data = await client.get(
           `/run/${sessionId}/debug-snapshots/${nodeId}`

@@ -1,7 +1,9 @@
 import { Command } from "commander"
 import { exec } from "child_process"
+import { writeFileSync } from "fs"
 import { resolveAuth } from "../core/auth.js"
 import { ApiClient } from "../core/api-client.js"
+import { streamSSE } from "../core/sse-client.js"
 import { outputJson, outputError, stripBase64 } from "../core/output.js"
 import { addAuthOptions, type AuthOptions } from "../core/auth-options.js"
 import {
@@ -11,6 +13,13 @@ import {
   loadSession,
   updateSession
 } from "../core/session.js"
+import {
+  processBuilderStream,
+  pollBuilderStream
+} from "../core/builder-stream.js"
+import { enforceNoArgSecrets } from "../core/secret-args.js"
+
+const BASE = "/workflow-builder/agent"
 
 function openInBrowser(url: string): void {
   const cmd =
@@ -20,24 +29,14 @@ function openInBrowser(url: string): void {
         ? "start"
         : "xdg-open"
   exec(`${cmd} ${JSON.stringify(url)}`, () => {
-    // Best effort — ignore errors (e.g. no display server on headless Linux)
+    // Best effort — ignore errors such as headless Linux.
   })
 }
-
-const BASE = "/workflow-builder/agent"
 
 function progress(msg: string): void {
   process.stderr.write(`${msg}\n`)
 }
 
-/**
- * Normalize a user-supplied URL: trim, auto-prefix `https://` when a scheme
- * is missing, then return the canonical form produced by the WHATWG URL
- * parser. Using `url.href` (rather than `encodeURI` on the raw string)
- * ensures correct handling of IDN hosts (punycode), dot-segment resolution,
- * default-port stripping, host case-folding, and the trailing-slash for
- * bare hosts.
- */
 function normalizeUrl(value: string, flagName: string): string {
   const trimmed = value.trim()
   const withScheme = /^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//.test(trimmed)
@@ -51,17 +50,50 @@ function normalizeUrl(value: string, flagName: string): string {
   }
 }
 
+async function readStdin(): Promise<string> {
+  const chunks: Buffer[] = []
+  for await (const chunk of process.stdin) {
+    chunks.push(chunk as Buffer)
+  }
+  return Buffer.concat(chunks).toString("utf-8")
+}
+
+function parseLimit(limit: string | undefined): number | undefined {
+  if (limit === undefined) return undefined
+  if (!/^[1-9]\d*$/.test(limit)) {
+    throw new Error("--limit must be a positive integer")
+  }
+  const parsed = Number.parseInt(limit, 10)
+  if (!Number.isSafeInteger(parsed) || parsed > 1000) {
+    throw new Error("--limit must be between 1 and 1000")
+  }
+  return parsed
+}
+
+function parseTimeoutSeconds(timeout: string): number {
+  if (!/^[1-9]\d*$/.test(timeout)) {
+    throw new Error("--timeout must be a positive integer number of seconds")
+  }
+  const parsed = Number.parseInt(timeout, 10)
+  if (!Number.isSafeInteger(parsed) || parsed > 86_400) {
+    throw new Error("--timeout must be between 1 and 86400 seconds")
+  }
+  return parsed
+}
+
 /**
- * Resolve auth for builder commands. Uses session-stored auth as fallback
- * so --api-key and --base-url only need to be passed at `builder start`.
+ * Resolve auth for builder commands. Uses non-secret session metadata as
+ * fallback so profile/base URL/workspace only need to be passed at session start.
  */
-function resolveBuilderAuth(opts: AuthOptions) {
+async function resolveBuilderAuth(opts: AuthOptions) {
   const session = loadSession()
   const merged = { ...opts }
   if (session) {
-    if (!merged.apiKey && session.apiKey) merged.apiKey = session.apiKey
     if (!merged.baseUrl && session.baseUrl) merged.baseUrl = session.baseUrl
     if (!merged.profile && session.profile) merged.profile = session.profile
+    if (!merged.workspaceId && session.workspaceId) {
+      merged.workspaceId = session.workspaceId
+    }
   }
   return resolveAuth(merged)
 }
@@ -69,7 +101,7 @@ function resolveBuilderAuth(opts: AuthOptions) {
 export function registerBuilderCommands(program: Command): void {
   const builder = program
     .command("builder")
-    .description("Build new workflows with the CloudCruise builder agent")
+    .description("Build and edit workflows with the AI builder agent")
 
   // ── builder start ──────────────────────────────────────────────
   addAuthOptions(
@@ -87,14 +119,8 @@ export function registerBuilderCommands(program: Command): void {
         "--vault-domain <domain>",
         "Vault entry's domain (required with --vault-user-id; must match the domain from `vault list`)"
       )
-      .option(
-        "--credential <id>",
-        "[Deprecated] Alias for --vault-user-id"
-      )
-      .option(
-        "--auth-url <url>",
-        "[Deprecated] Alias for --vault-domain"
-      )
+      .option("--credential <id>", "[Deprecated] Alias for --vault-user-id")
+      .option("--auth-url <url>", "[Deprecated] Alias for --vault-domain")
       .option(
         "--proxy <setting>",
         "Proxy setting: country, static, random, off"
@@ -104,12 +130,7 @@ export function registerBuilderCommands(program: Command): void {
       .option("--input <json>", "Example input values as JSON")
       .option("--network", "Enable network traffic capture")
       .option("--no-open", "Don't open the live browser URL in the default browser")
-  ).addHelpText("after", `
-Examples:
-  $ cloudcruise builder start --start-url "https://app.example.com" --name "Login flow"
-  $ cloudcruise builder start --start-url "https://app.example.com" --vault-user-id "f47ac10b-..." --vault-domain "https://app.example.com"
-  $ cloudcruise builder start --start-url "https://app.example.com" --proxy country --proxy-value US
-`).action(
+  ).action(
     async (
       opts: {
         startUrl: string
@@ -129,42 +150,31 @@ Examples:
     ) => {
       try {
         if (opts.vaultUserId && opts.credential) {
-          outputError(
-            "--vault-user-id and --credential are aliases; pass only one (prefer --vault-user-id)."
-          )
-          process.exit(1)
+          throw new Error("--vault-user-id and --credential are aliases; pass only one")
         }
         if (opts.vaultDomain && opts.authUrl) {
-          outputError(
-            "--vault-domain and --auth-url are aliases; pass only one (prefer --vault-domain)."
-          )
-          process.exit(1)
+          throw new Error("--vault-domain and --auth-url are aliases; pass only one")
         }
         if (opts.credential) {
-          progress(
-            "[deprecated] --credential is deprecated; use --vault-user-id instead."
-          )
+          progress("[deprecated] --credential is deprecated; use --vault-user-id instead.")
         }
         if (opts.authUrl) {
-          progress(
-            "[deprecated] --auth-url is deprecated; use --vault-domain instead."
-          )
+          progress("[deprecated] --auth-url is deprecated; use --vault-domain instead.")
         }
 
         const vaultUserId = opts.vaultUserId ?? opts.credential
         const vaultDomain = opts.vaultDomain ?? opts.authUrl
-
-        if (!!vaultUserId !== !!vaultDomain) {
-          outputError(
-            "--vault-user-id and --vault-domain must be used together. " +
-              "Pass both to pre-configure login, or omit both to let the builder prompt for credentials when it hits a login page."
+        if (Boolean(vaultUserId) !== Boolean(vaultDomain)) {
+          throw new Error(
+            "--vault-user-id and --vault-domain must be used together. Pass both to pre-configure login, or omit both to let the builder prompt for credentials."
           )
-          process.exit(1)
         }
 
         const startUrl = normalizeUrl(opts.startUrl, "--start-url")
-
-        const auth = resolveAuth(opts)
+        const normalizedVaultDomain = vaultDomain
+          ? normalizeUrl(vaultDomain, "--vault-domain")
+          : undefined
+        const auth = await resolveAuth(opts)
         const client = new ApiClient(auth)
 
         const body: Record<string, unknown> = {
@@ -173,7 +183,7 @@ Examples:
         }
         if (opts.description) body.description = opts.description
         if (vaultUserId) body.permissionedUserId = vaultUserId
-        if (vaultDomain) body.authUrl = vaultDomain
+        if (normalizedVaultDomain) body.authUrl = normalizedVaultDomain
         if (opts.proxy) body.proxySetting = opts.proxy
         if (opts.proxyValue) body.proxyValue = opts.proxyValue
         if (opts.inputSchema) body.inputSchema = JSON.parse(opts.inputSchema)
@@ -189,9 +199,9 @@ Examples:
           conversationId: result.conversationId,
           name: opts.name,
           startedAt: new Date().toISOString(),
-          apiKey: auth.apiKey,
           baseUrl: auth.baseUrl,
-          profile: opts.profile
+          profile: opts.profile,
+          workspaceId: auth.workspaceId
         })
 
         outputJson(result)
@@ -210,65 +220,182 @@ Examples:
     }
   )
 
+  // ── builder edit ───────────────────────────────────────────────
+  addAuthOptions(
+    builder
+      .command("edit")
+      .description("Edit an existing workflow in the builder")
+      .requiredOption("--workflow <id>", "Workflow ID to edit")
+      .option("--target-node <id>", "Start from a specific node")
+      .option("--input <json>", "Input variables as JSON")
+      .option(
+        "--use-last-browser-state",
+        "Continue from previous browser state"
+      )
+  ).action(
+    async (
+      opts: {
+        workflow: string
+        targetNode?: string
+        input?: string
+        useLastBrowserState?: boolean
+      } & AuthOptions
+    ) => {
+      try {
+        const auth = await resolveAuth(opts)
+        const client = new ApiClient(auth)
+
+        const body: Record<string, unknown> = {
+          workflowId: opts.workflow
+        }
+        if (opts.targetNode) body.targetNodeId = opts.targetNode
+        if (opts.input) body.inputVariables = JSON.parse(opts.input)
+        if (opts.useLastBrowserState) body.useLastBrowserState = true
+
+        const result = await client.post<{
+          conversationId: string
+          [k: string]: unknown
+        }>(`${BASE}/session/from-workflow`, body)
+
+        saveSession({
+          conversationId: result.conversationId,
+          name: `Edit ${opts.workflow}`,
+          startedAt: new Date().toISOString(),
+          baseUrl: auth.baseUrl,
+          profile: opts.profile,
+          workspaceId: auth.workspaceId
+        })
+
+        outputJson(result)
+      } catch (err: unknown) {
+        outputError(err instanceof Error ? err.message : String(err))
+        process.exit(1)
+      }
+    }
+  )
+
   // ── builder send ───────────────────────────────────────────────
   addAuthOptions(
     builder
       .command("send <message>")
-      .description("Send a message to the builder agent (returns immediately; use poll to check status)")
-  ).addHelpText("after", `
-Examples:
-  $ cloudcruise builder send "Click the login button"
-  $ cloudcruise builder send "Search for order 12345 and extract the status"
-`).action(
+      .description("Send a message to the builder agent")
+      .option("--no-wait", "Return immediately without waiting for completion")
+      .option("--timeout <seconds>", "Timeout in seconds (ignored with --no-wait)", "300")
+  ).action(
     async (
       message: string,
-      opts: AuthOptions
+      opts: {
+        wait: boolean  // commander inverts --no-wait to opts.wait = false
+        timeout: string
+      } & AuthOptions
     ) => {
       try {
-        const auth = resolveBuilderAuth(opts)
+        const auth = await resolveBuilderAuth(opts)
         const client = new ApiClient(auth)
         const session = requireSession()
 
-        // Snapshot message count before sending so poll knows
-        // where this turn starts.
-        let messageCountBefore: number | undefined
-        try {
-          const { messages } = await fetchMessages(
-            client,
-            session.conversationId
-          )
-          messageCountBefore = messages.length
-          updateSession({ lastMessageCount: messages.length })
-        } catch {
-          // Best effort — poll will still work with stale sinceIndex
+        if (opts.wait === false) {
+          let messageCountBefore: number | undefined
+          try {
+            const { messages } = await fetchMessages(
+              client,
+              session.conversationId
+            )
+            messageCountBefore = messages.length
+            updateSession({ lastMessageCount: messages.length })
+          } catch {
+            // Best effort — poll still works with the previous index.
+          }
+
+          // Async mode: fire request with a 5s abort — enough for the
+          // server to accept and start processing, but don't wait for
+          // the full response (which blocks until the agent turn ends).
+          const ac = new AbortController()
+          const timer = setTimeout(() => ac.abort(), 5000)
+          try {
+            const res = await fetch(
+              `${auth.baseUrl}${BASE}/${session.conversationId}/message`,
+              {
+                method: "POST",
+                headers: client.authHeaders({
+                  "Content-Type": "application/json"
+                }),
+                body: JSON.stringify({ text: message }),
+                signal: ac.signal
+              }
+            )
+            if (!res.ok) {
+              const body = await res.text()
+              throw new Error(
+                `Builder send failed (${res.status}): ${body}`
+              )
+            }
+          } catch (err: unknown) {
+            if (!(err instanceof DOMException && err.name === "AbortError")) {
+              throw err
+            }
+            // AbortError is expected — server accepted but we're not
+            // waiting for the full response.
+          } finally {
+            clearTimeout(timer)
+          }
+          outputJson({ status: "sent", messageCountBefore })
+          process.exit(0)
         }
 
-        // Fire request with a 5s abort — enough for the server to accept
-        // and start processing, but don't wait for the full response
-        // (which blocks until the agent turn ends).
-        const ac = new AbortController()
-        const timer = setTimeout(() => ac.abort(), 5000)
-        try {
-          await fetch(
-            `${auth.baseUrl}${BASE}/${session.conversationId}/message`,
-            {
-              method: "POST",
-              headers: {
-                "cc-key": auth.apiKey,
-                "Content-Type": "application/json"
-              },
-              body: JSON.stringify({ text: message }),
-              signal: ac.signal
-            }
-          )
-        } catch {
-          // AbortError is expected — server accepted but we're not
-          // waiting for the response. Network errors also caught here.
-        } finally {
-          clearTimeout(timer)
+        // Blocking mode: POST + stream SSE until done
+        const timeoutMs = parseTimeoutSeconds(opts.timeout) * 1000
+        const abortController = new AbortController()
+
+        const interruptAndExit = async () => {
+          progress("Interrupted — sending interrupt to builder agent...")
+          abortController.abort()
+          try {
+            await client.post(
+              `${BASE}/${session.conversationId}/interrupt`
+            )
+          } catch {
+            // Best effort — server may already be done
+          }
+          process.exit(130)
         }
-        outputJson({ status: "sent", messageCountBefore })
-        process.exit(0)
+        process.on("SIGINT", interruptAndExit)
+        process.on("SIGTERM", interruptAndExit)
+
+        const timeout = setTimeout(() => {
+          abortController.abort()
+          progress("Timeout waiting for builder agent")
+          process.exit(1)
+        }, timeoutMs)
+
+        try {
+          const sseUrl = `${BASE}/${session.conversationId}/stream`
+          const stream = streamSSE(client, sseUrl, abortController.signal)
+
+          let postError: string | undefined
+          client
+            .post(`${BASE}/${session.conversationId}/message`, {
+              text: message
+            })
+            .catch((err: unknown) => {
+              postError =
+                err instanceof Error ? err.message : String(err)
+              abortController.abort()
+            })
+
+          const result = await processBuilderStream(stream, {
+            onDone: () => abortController.abort()
+          })
+
+          if (postError && !result.finalText) {
+            outputError(postError)
+            process.exit(1)
+          }
+        } finally {
+          clearTimeout(timeout)
+          process.off("SIGINT", interruptAndExit)
+          process.off("SIGTERM", interruptAndExit)
+        }
       } catch (err: unknown) {
         outputError(err instanceof Error ? err.message : String(err))
         process.exit(1)
@@ -277,14 +404,6 @@ Examples:
   )
 
   // ── builder poll (helpers) ──────────────────────────────────────
-  interface HumanInputField {
-    name: string
-    type: string
-    description: string
-    default?: string
-    options?: string[]
-  }
-
   interface PollFromMessagesResult {
     status: "processing" | "done" | "error" | "waiting_for_input" | "idle"
     text?: string
@@ -293,6 +412,14 @@ Examples:
     tools: { tool: string; status: string; text?: string }[]
     newMessageCount: number
     totalMessageCount: number
+  }
+
+  interface HumanInputField {
+    name: string
+    type: string
+    description: string
+    default?: string
+    options?: string[]
   }
 
   interface MessagesResponse {
@@ -304,16 +431,16 @@ Examples:
     client: ApiClient,
     conversationId: string
   ): Promise<MessagesResponse> {
-    const raw = await client.get<
-      MessagesResponse | Record<string, unknown>[]
-    >(`${BASE}/${conversationId}/messages`)
+    const raw = await client.get<MessagesResponse | Record<string, unknown>[]>(
+      `${BASE}/${conversationId}/messages`
+    )
 
     if (Array.isArray(raw)) {
       return { messages: raw, isProcessing: false }
     }
     return {
       messages: Array.isArray(raw.messages) ? raw.messages : [],
-      isProcessing: !!raw.isProcessing
+      isProcessing: Boolean(raw.isProcessing)
     }
   }
 
@@ -328,7 +455,6 @@ Examples:
     )
 
     const newMessages = allMessages.slice(sinceIndex)
-
     const tools = newMessages
       .filter((m) => m.role === "tool" && m.toolName)
       .map((m) => ({
@@ -337,7 +463,6 @@ Examples:
         text: (m.text as string)?.slice(0, 100)
       }))
 
-    // Check for waiting_for_input first — it's actionable regardless of isProcessing
     for (let i = newMessages.length - 1; i >= 0; i--) {
       const msg = newMessages[i]
       const msgStatus = msg.status as string
@@ -348,21 +473,22 @@ Examples:
         msgStatus === "waiting_for_input"
       ) {
         const content = msg.content as Record<string, unknown> | undefined
-        const humanInputs = (content?.humanInputs as Record<string, unknown>[]) ?? []
-        const humanInput =
-          (content?.humanInput as Record<string, unknown> | undefined) ??
-          humanInputs[0]
-
+        const humanInputs =
+          (content?.humanInputs as Record<string, unknown>[] | undefined) ?? []
+        const humanInput = content?.humanInput as
+          | Record<string, unknown>
+          | undefined ?? humanInputs[0]
         const messageId = msg.id as string
-        const description =
-          (humanInput?.description as string) ??
-          (humanInput?.name as string) ??
-          (msg.text as string) ??
-          "Input requested"
-
         const result: PollFromMessagesResult = {
-          status: "waiting_for_input" as const,
-          waitingForInput: { messageId, description },
+          status: "waiting_for_input",
+          waitingForInput: {
+            messageId,
+            description:
+              (humanInput?.description as string) ??
+              (humanInput?.name as string) ??
+              (msg.text as string) ??
+              "Input requested"
+          },
           tools,
           newMessageCount: newMessages.length,
           totalMessageCount: allMessages.length
@@ -371,24 +497,28 @@ Examples:
         if (humanInputs.length > 0) {
           result.waitingForInputs = {
             messageId,
-            inputs: humanInputs.map((hi) => {
+            inputs: humanInputs.map((input) => {
               const field: HumanInputField = {
-                name: hi.name as string,
-                type: hi.type as string,
-                description: hi.description as string
+                name: input.name as string,
+                type: input.type as string,
+                description: input.description as string
               }
-              if (hi.default !== undefined) field.default = hi.default as string
-              if (hi.options) field.options = hi.options as string[]
+              if (input.default !== undefined) {
+                field.default = input.default as string
+              }
+              if (input.options) field.options = input.options as string[]
               return field
             })
           }
         }
 
+        updateSession({ lastMessageCount: allMessages.length })
         return result
       }
     }
 
     if (isProcessing) {
+      updateSession({ lastMessageCount: allMessages.length })
       return {
         status: "processing",
         tools,
@@ -398,6 +528,7 @@ Examples:
     }
 
     if (newMessages.length === 0) {
+      updateSession({ lastMessageCount: allMessages.length })
       return {
         status: "idle",
         tools: [],
@@ -427,6 +558,8 @@ Examples:
       }
     }
 
+    updateSession({ lastMessageCount: allMessages.length })
+
     return {
       status,
       text,
@@ -440,18 +573,94 @@ Examples:
   addAuthOptions(
     builder
       .command("poll")
-      .description("Check builder agent status")
-  ).addHelpText("after", `
-Examples:
-  $ cloudcruise builder poll
-`).action(
-    async (opts: AuthOptions) => {
+      .description(
+        "Check builder agent status. With --wait, blocks until status changes."
+      )
+      .option(
+        "--wait <seconds>",
+        "Block until agent finishes, errors, or needs input (max seconds)"
+      )
+  ).action(
+    async (
+      opts: {
+        wait?: string
+      } & AuthOptions
+    ) => {
       try {
-        const auth = resolveBuilderAuth(opts)
+        const auth = await resolveBuilderAuth(opts)
         const client = new ApiClient(auth)
         const session = requireSession()
         const sinceIndex = session.lastMessageCount ?? 0
 
+        if (opts.wait) {
+          // Step 1: Check messages first — terminal state may already exist
+          const immediate = await checkMessagesForStatus(
+            client,
+            session.conversationId,
+            sinceIndex
+          )
+          if (immediate && immediate.status !== "processing") {
+            outputJson(immediate)
+            return
+          }
+
+          // Step 2: Not done yet — open SSE stream and wait
+          const timeoutMs = parseInt(opts.wait) * 1000
+          const abortController = new AbortController()
+
+          const timeout = setTimeout(() => {
+            abortController.abort()
+          }, timeoutMs)
+
+          const interruptAndExit = async () => {
+            abortController.abort()
+            try {
+              await client.post(
+                `${BASE}/${session.conversationId}/interrupt`
+              )
+            } catch {
+              // Best effort
+            }
+            process.exit(130)
+          }
+          process.on("SIGINT", interruptAndExit)
+          process.on("SIGTERM", interruptAndExit)
+
+          try {
+            const sseUrl = `${BASE}/${session.conversationId}/stream`
+            const stream = streamSSE(
+              client,
+              sseUrl,
+              abortController.signal
+            )
+            const sseResult = await pollBuilderStream(
+              stream,
+              abortController.signal
+            )
+
+            // Step 3: SSE returned — if timeout, do final message check
+            if (sseResult.status === "timeout") {
+              const final = await checkMessagesForStatus(
+                client,
+                session.conversationId,
+                sinceIndex
+              )
+              if (final) {
+                outputJson(final)
+                return
+              }
+            }
+
+            outputJson(sseResult)
+          } finally {
+            clearTimeout(timeout)
+            process.off("SIGINT", interruptAndExit)
+            process.off("SIGTERM", interruptAndExit)
+          }
+          return
+        }
+
+        // Instant mode: just check messages
         const result = await checkMessagesForStatus(
           client,
           session.conversationId,
@@ -476,38 +685,36 @@ Examples:
       .command("respond")
       .description("Respond to a human input request from the builder agent")
       .requiredOption("--message-id <id>", "ID of the input request message")
-      .option("--value <value>", "Response value (single input)")
-      .option("--responses <json>", "JSON object of name-to-value responses (multiple inputs)")
-  ).addHelpText("after", `
-Examples:
-  $ cloudcruise builder respond --message-id msg_abc123 --value "123456"
-  $ cloudcruise builder respond --message-id msg_abc123 --responses '{"email":"user@example.com","password":"s3cret"}'
-
-  # Auth-type inputs require { permissioned_user_id, domain }:
-  $ cloudcruise builder respond --message-id msg_abc123 --responses '{"Portal Credentials":{"permissioned_user_id":"d2b9d80e-...","domain":"https://example.com"}}'
-`).action(
+      .option("--value <value>", "Response value (rejected by default; use --value-stdin)")
+      .option("--value-stdin", "Read response value from stdin")
+      .option("--responses-stdin", "Read JSON object of name-to-value responses from stdin")
+  ).action(
     async (
       opts: {
         messageId: string
         value?: string
-        responses?: string
+        valueStdin?: boolean
+        responsesStdin?: boolean
       } & AuthOptions
     ) => {
       try {
-        if (!opts.value && !opts.responses) {
-          outputError("Either --value or --responses is required")
-          process.exit(1)
+        enforceNoArgSecrets({ "--value": opts.value }, "builder respond")
+        const providedCount = [
+          opts.value !== undefined,
+          Boolean(opts.valueStdin),
+          Boolean(opts.responsesStdin)
+        ].filter(Boolean).length
+        if (providedCount === 0) {
+          throw new Error("Provide --value, --value-stdin, or --responses-stdin")
         }
-        if (opts.value && opts.responses) {
-          outputError("Use either --value or --responses, not both")
-          process.exit(1)
+        if (providedCount > 1) {
+          throw new Error("Use only one of --value, --value-stdin, or --responses-stdin")
         }
 
-        const auth = resolveBuilderAuth(opts)
+        const auth = await resolveBuilderAuth(opts)
         const client = new ApiClient(auth)
         const session = requireSession()
 
-        // Snapshot message count and fetch input metadata for validation.
         let inputMessages: Record<string, unknown>[] = []
         let fetchedMessageCount: number | undefined
         try {
@@ -518,22 +725,34 @@ Examples:
           inputMessages = messages
           fetchedMessageCount = messages.length
         } catch {
-          // Best effort
+          // Best effort — response can still be sent.
         }
 
         const body: Record<string, unknown> = { messageId: opts.messageId }
 
-        if (opts.responses) {
+        if (opts.responsesStdin) {
+          const rawResponses = (await readStdin()).trimEnd()
           try {
-            body.responses = JSON.parse(opts.responses)
+            body.responses = JSON.parse(rawResponses)
           } catch {
-            outputError("--responses must be valid JSON")
-            process.exit(1)
+            throw new Error("--responses-stdin must contain valid JSON")
           }
-        } else if (opts.value !== undefined) {
-          let value: string | number | boolean | null = opts.value
+          if (
+            body.responses === null ||
+            Array.isArray(body.responses) ||
+            typeof body.responses !== "object"
+          ) {
+            throw new Error("--responses-stdin must contain a JSON object")
+          }
+        } else {
+          const rawValue = opts.valueStdin
+            ? (await readStdin()).trimEnd()
+            : opts.value as string
+
+          // Try to parse as JSON for typed values (number, boolean, null)
+          let value: string | number | boolean | null = rawValue
           try {
-            const parsed = JSON.parse(opts.value)
+            const parsed = JSON.parse(rawValue)
             if (
               typeof parsed === "number" ||
               typeof parsed === "boolean" ||
@@ -547,36 +766,34 @@ Examples:
           body.value = value
         }
 
-        // Validate auth-type inputs have the required { permissioned_user_id, domain } shape.
         const targetMsg = inputMessages.find(
-          (m) => (m.id as string) === opts.messageId
+          (message) => (message.id as string) === opts.messageId
         )
         if (targetMsg) {
           const content = targetMsg.content as Record<string, unknown> | undefined
-          const humanInputs = (content?.humanInputs as Record<string, unknown>[]) ?? []
-          const authInputs = humanInputs.filter((hi) => hi.type === "auth")
+          const humanInputs =
+            (content?.humanInputs as Record<string, unknown>[] | undefined) ?? []
+          const authInputs = humanInputs.filter((input) => input.type === "auth")
 
           if (authInputs.length > 0) {
             const responses = body.responses as Record<string, unknown> | undefined
             for (const input of authInputs) {
               const name = input.name as string
-              const val = responses?.[name] ?? (humanInputs.length === 1 ? body.value : undefined)
-              if (val === undefined) continue
+              const value =
+                responses?.[name] ??
+                (humanInputs.length === 1 ? body.value : undefined)
+              if (value === undefined) continue
 
               const isValid =
-                typeof val === "object" &&
-                val !== null &&
-                typeof (val as Record<string, unknown>).permissioned_user_id === "string" &&
-                typeof (val as Record<string, unknown>).domain === "string"
+                typeof value === "object" &&
+                value !== null &&
+                typeof (value as Record<string, unknown>).permissioned_user_id === "string" &&
+                typeof (value as Record<string, unknown>).domain === "string"
 
               if (!isValid) {
-                outputError(
-                  `Auth input "${name}" requires an object with "permissioned_user_id" and "domain" strings. ` +
-                  `Got: ${JSON.stringify(val)}. ` +
-                  `Use: --responses '{"${name}":{"permissioned_user_id":"<user_id>","domain":"<domain>"}}'` +
-                  ` (look up the domain from "cloudcruise vault list")`
+                throw new Error(
+                  `Auth input "${name}" requires an object with "permissioned_user_id" and "domain" strings. Use --responses-stdin with {"${name}":{"permissioned_user_id":"<user_id>","domain":"<domain>"}}.`
                 )
-                process.exit(1)
               }
             }
           }
@@ -600,10 +817,7 @@ Examples:
   // ── builder status ─────────────────────────────────────────────
   addAuthOptions(
     builder.command("status").description("Show current builder session status")
-  ).addHelpText("after", `
-Examples:
-  $ cloudcruise builder status
-`).action(async (opts: AuthOptions) => {
+  ).action(async (opts: AuthOptions) => {
     try {
       const session = loadSession()
       if (!session) {
@@ -612,7 +826,7 @@ Examples:
       }
 
       // Verify session is still alive by fetching workflow
-      const auth = resolveBuilderAuth(opts)
+      const auth = await resolveBuilderAuth(opts)
       const client = new ApiClient(auth)
       try {
         const workflow = await client.get(
@@ -636,17 +850,85 @@ Examples:
     }
   })
 
+  // ── builder screenshot ─────────────────────────────────────────
+  addAuthOptions(
+    builder
+      .command("screenshot")
+      .description("Get a screenshot of the current browser state")
+      .option("--output <path>", "Write screenshot image to file")
+  ).action(
+    async (
+      opts: {
+        output?: string
+      } & AuthOptions
+    ) => {
+      try {
+        const auth = await resolveBuilderAuth(opts)
+        const client = new ApiClient(auth)
+        const session = requireSession()
+
+        const result = await client.get<{
+          url: string | null
+          base64: string | null
+        }>(`${BASE}/${session.conversationId}/screenshot`)
+
+        if (opts.output && result.base64) {
+          const raw = result.base64.replace(/^data:image\/[^;]+;base64,/, "")
+          writeFileSync(opts.output, Buffer.from(raw, "base64"))
+          outputJson({ url: result.url, file: opts.output })
+        } else {
+          outputJson(result)
+        }
+      } catch (err: unknown) {
+        outputError(err instanceof Error ? err.message : String(err))
+        process.exit(1)
+      }
+    }
+  )
+
+  // ── builder html ───────────────────────────────────────────────
+  addAuthOptions(
+    builder
+      .command("html")
+      .description("Get the HTML of the current page")
+      .option("--output <path>", "Write HTML to file")
+  ).action(
+    async (
+      opts: {
+        output?: string
+      } & AuthOptions
+    ) => {
+      try {
+        const auth = await resolveBuilderAuth(opts)
+        const client = new ApiClient(auth)
+        const session = requireSession()
+
+        const result = await client.get<{
+          url: string | null
+          html: string | null
+        }>(`${BASE}/${session.conversationId}/html`)
+
+        if (opts.output && result.html) {
+          writeFileSync(opts.output, result.html)
+          outputJson({ url: result.url, file: opts.output })
+        } else {
+          outputJson(result)
+        }
+      } catch (err: unknown) {
+        outputError(err instanceof Error ? err.message : String(err))
+        process.exit(1)
+      }
+    }
+  )
+
   // ── builder workflow ───────────────────────────────────────────
   addAuthOptions(
     builder
       .command("workflow")
       .description("Get the current workflow definition")
-  ).addHelpText("after", `
-Examples:
-  $ cloudcruise builder workflow
-`).action(async (opts: AuthOptions) => {
+  ).action(async (opts: AuthOptions) => {
     try {
-      const auth = resolveBuilderAuth(opts)
+      const auth = await resolveBuilderAuth(opts)
       const client = new ApiClient(auth)
       const session = requireSession()
 
@@ -666,22 +948,19 @@ Examples:
       .command("messages")
       .description("Get conversation messages")
       .option("--limit <n>", "Max messages to return")
-  ).addHelpText("after", `
-Examples:
-  $ cloudcruise builder messages
-  $ cloudcruise builder messages --limit 5
-`).action(
+  ).action(
     async (
       opts: {
         limit?: string
       } & AuthOptions
     ) => {
       try {
-        const auth = resolveBuilderAuth(opts)
+        const limit = parseLimit(opts.limit)
+        const auth = await resolveBuilderAuth(opts)
         const client = new ApiClient(auth)
         const session = requireSession()
 
-        const query = opts.limit ? `?limit=${opts.limit}` : ""
+        const query = limit !== undefined ? `?limit=${limit}` : ""
         const result = await client.get(
           `${BASE}/${session.conversationId}/messages${query}`
         )
@@ -696,12 +975,9 @@ Examples:
   // ── builder save ───────────────────────────────────────────────
   addAuthOptions(
     builder.command("save").description("Save the workflow to the database")
-  ).addHelpText("after", `
-Examples:
-  $ cloudcruise builder save
-`).action(async (opts: AuthOptions) => {
+  ).action(async (opts: AuthOptions) => {
     try {
-      const auth = resolveBuilderAuth(opts)
+      const auth = await resolveBuilderAuth(opts)
       const client = new ApiClient(auth)
       const session = requireSession()
 
@@ -720,12 +996,9 @@ Examples:
     builder
       .command("interrupt")
       .description("Interrupt the builder agent's current processing")
-  ).addHelpText("after", `
-Examples:
-  $ cloudcruise builder interrupt
-`).action(async (opts: AuthOptions) => {
+  ).action(async (opts: AuthOptions) => {
     try {
-      const auth = resolveBuilderAuth(opts)
+      const auth = await resolveBuilderAuth(opts)
       const client = new ApiClient(auth)
       const session = requireSession()
 
@@ -744,12 +1017,9 @@ Examples:
     builder
       .command("end")
       .description("End the builder session and clean up")
-  ).addHelpText("after", `
-Examples:
-  $ cloudcruise builder end
-`).action(async (opts: AuthOptions) => {
+  ).action(async (opts: AuthOptions) => {
     try {
-      const auth = resolveBuilderAuth(opts)
+      const auth = await resolveBuilderAuth(opts)
       const client = new ApiClient(auth)
       const session = requireSession()
 

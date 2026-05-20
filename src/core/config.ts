@@ -13,6 +13,19 @@ export interface ProfileConfig {
   apiKey?: string
   baseUrl?: string
   encryptionKey?: string
+  authType?: "api_key" | "oauth"
+  apiKeyAccount?: string
+  encryptionKeyAccount?: string
+  environment?: string
+  issuer?: string
+  clientId?: string
+  tokenEndpointAuthMethod?: "none" | "client_secret_basic"
+  scope?: string
+  tokenAccount?: string
+  tokenExpiresAt?: string
+  accountId?: string
+  accountEmail?: string
+  currentWorkspaceId?: string
 }
 
 export interface CliConfig {

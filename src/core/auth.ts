@@ -1,49 +1,259 @@
-import { loadProfile, resolveProfileName } from "./config.js";
+import { loadProfile, resolveProfileName, saveProfile } from "./config.js";
+import {
+  apiKeyAccountForProfile,
+  encryptionKeyAccountForProfile,
+  loadApiKey,
+  loadEncryptionKey,
+  loadOAuthTokens,
+  saveApiKey,
+  saveEncryptionKey,
+  saveOAuthTokens,
+  tokenAccountForProfile
+} from "./credential-store.js";
+import {
+  refreshOAuthToken,
+  tokenResponseToStoredTokens
+} from "./oauth.js";
+import { enforceNoArgSecrets } from "./secret-args.js";
 
 export interface ResolvedAuth {
-  apiKey: string;
+  token: string;
+  authScheme: "bearer" | "api-key";
   baseUrl: string;
+  workspaceId?: string;
   encryptionKey?: string;
 }
 
 const DEFAULT_BASE_URL = "https://api.cloudcruise.com";
+type OAuthTokenEndpointAuthMethod = "none" | "client_secret_basic";
 
-export function resolveAuth(options: {
+function resolveBaseUrl(options: { baseUrl?: string }, profile: { baseUrl?: string }): string {
+  return (
+    options.baseUrl ||
+    profile.baseUrl ||
+    process.env.CLOUDCRUISE_BASE_URL ||
+    DEFAULT_BASE_URL
+  );
+}
+
+function oauthAuthMethodMismatch(err: unknown, method: OAuthTokenEndpointAuthMethod): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return (
+    message.includes("invalid authentication method") &&
+    message.includes(method === "none" ? "client_secret_basic" : "'none'")
+  );
+}
+
+function oauthRefreshSettings(
+  profile: {
+    issuer?: string;
+    clientId?: string;
+  },
+  method: OAuthTokenEndpointAuthMethod,
+): {
+  issuer: string;
+  clientId: string;
+  tokenEndpointAuthMethod: OAuthTokenEndpointAuthMethod;
+  clientSecret?: string;
+} {
+  if (!profile.issuer || !profile.clientId) {
+    throw new Error("OAuth profile is missing issuer or client ID. Run cloudcruise login again.");
+  }
+  return {
+    issuer: profile.issuer,
+    clientId: profile.clientId,
+    tokenEndpointAuthMethod: method,
+    clientSecret:
+      method === "client_secret_basic"
+        ? process.env.CLOUDCRUISE_OAUTH_CLIENT_SECRET
+        : undefined,
+  };
+}
+
+export async function resolveAuth(options: {
   apiKey?: string;
   baseUrl?: string;
   profile?: string;
+  workspaceId?: string;
   encryptionKey?: string;
-}): ResolvedAuth {
+  requireEncryptionKey?: boolean;
+}): Promise<ResolvedAuth> {
+  enforceNoArgSecrets(
+    { "--api-key": options.apiKey, "--encryption-key": options.encryptionKey },
+    "authentication",
+  );
+
   const profileName = resolveProfileName(options.profile);
   const profile = loadProfile(profileName);
+  const workspaceId =
+    options.workspaceId ||
+    process.env.CLOUDCRUISE_WORKSPACE_ID ||
+    profile.currentWorkspaceId ||
+    undefined;
+
+  const loadStoredEncryptionKey = (): string | null => {
+    let storedEncryptionKey = profile.encryptionKeyAccount
+      ? loadEncryptionKey(profile.encryptionKeyAccount)
+      : null;
+    if (!storedEncryptionKey && profile.encryptionKey) {
+      const encryptionKeyAccount =
+        profile.encryptionKeyAccount ?? encryptionKeyAccountForProfile(profileName);
+      saveEncryptionKey(encryptionKeyAccount, profile.encryptionKey);
+      delete profile.encryptionKey;
+      profile.encryptionKeyAccount = encryptionKeyAccount;
+      saveProfile(profileName, profile);
+      storedEncryptionKey = loadEncryptionKey(encryptionKeyAccount);
+    }
+    return storedEncryptionKey;
+  };
+
+  const machineToken = process.env.CLOUDCRUISE_TOKEN;
+  if (machineToken) {
+    const storedEncryptionKey =
+      options.requireEncryptionKey &&
+      !options.encryptionKey &&
+      !process.env.CLOUDCRUISE_ENCRYPTION_KEY
+        ? loadStoredEncryptionKey()
+        : null;
+    return {
+      token: machineToken,
+      authScheme: "bearer",
+      baseUrl: resolveBaseUrl(options, profile),
+      workspaceId,
+      encryptionKey:
+        options.encryptionKey ||
+        process.env.CLOUDCRUISE_ENCRYPTION_KEY ||
+        storedEncryptionKey ||
+        undefined,
+    };
+  }
+
+  const storedEncryptionKey = loadStoredEncryptionKey();
+
+  if (profile.authType === "oauth") {
+    const account = profile.tokenAccount ?? tokenAccountForProfile(profileName);
+    const tokens = loadOAuthTokens(account);
+    if (!tokens) {
+      throw new Error(
+        `No OAuth tokens found for profile "${profileName}". Run: cloudcruise login --profile ${profileName}`,
+      );
+    }
+
+    let accessToken = tokens.accessToken;
+    const refreshSkewMs = 60_000;
+    if (
+      tokens.refreshToken &&
+      tokens.expiresAt !== undefined &&
+      tokens.expiresAt <= Date.now() + refreshSkewMs
+    ) {
+      if (!profile.issuer || !profile.clientId) {
+        throw new Error(
+          `OAuth profile "${profileName}" is missing issuer or client ID. Run cloudcruise login again.`,
+        );
+      }
+      const method = profile.tokenEndpointAuthMethod ?? "none";
+      let refreshedResponse;
+      let refreshedMethod = method;
+      try {
+        refreshedResponse = await refreshOAuthToken(
+          oauthRefreshSettings(profile, method),
+          tokens.refreshToken,
+        );
+      } catch (err: unknown) {
+        if (
+          !profile.tokenEndpointAuthMethod &&
+          method === "none" &&
+          process.env.CLOUDCRUISE_OAUTH_CLIENT_SECRET
+        ) {
+          refreshedMethod = "client_secret_basic";
+          try {
+            refreshedResponse = await refreshOAuthToken(
+              oauthRefreshSettings(profile, refreshedMethod),
+              tokens.refreshToken,
+            );
+          } catch (fallbackErr: unknown) {
+            if (oauthAuthMethodMismatch(fallbackErr, refreshedMethod)) {
+              throw err;
+            }
+            throw fallbackErr;
+          }
+        } else {
+          throw err;
+        }
+      }
+      const refreshed = tokenResponseToStoredTokens(refreshedResponse);
+      const merged = {
+        ...tokens,
+        ...refreshed,
+        refreshToken: refreshed.refreshToken ?? tokens.refreshToken,
+      };
+      saveOAuthTokens(account, merged);
+      if (profile.tokenEndpointAuthMethod !== refreshedMethod) {
+        profile.tokenEndpointAuthMethod = refreshedMethod;
+        saveProfile(profileName, profile);
+      }
+      accessToken = merged.accessToken;
+    } else if (
+      !tokens.refreshToken &&
+      tokens.expiresAt !== undefined &&
+      tokens.expiresAt <= Date.now()
+    ) {
+      throw new Error(
+        `OAuth access token for profile "${profileName}" has expired. Run: cloudcruise login --profile ${profileName}`,
+      );
+    }
+
+    return {
+      token: accessToken,
+      authScheme: "bearer",
+      baseUrl: resolveBaseUrl(options, profile),
+      workspaceId,
+      encryptionKey:
+        options.encryptionKey ||
+        process.env.CLOUDCRUISE_ENCRYPTION_KEY ||
+        storedEncryptionKey ||
+        undefined,
+    };
+  }
+
+  let storedApiKey =
+    profile.authType === "api_key"
+      ? loadApiKey(profile.apiKeyAccount ?? apiKeyAccountForProfile(profileName))
+      : null;
+
+  if (!storedApiKey && profile.apiKey) {
+    const apiKeyAccount = profile.apiKeyAccount ?? apiKeyAccountForProfile(profileName);
+    saveApiKey(apiKeyAccount, profile.apiKey);
+    delete profile.apiKey;
+    profile.apiKeyAccount = apiKeyAccount;
+    profile.authType = "api_key";
+    saveProfile(profileName, profile);
+    storedApiKey = loadApiKey(apiKeyAccount);
+  }
 
   const apiKey =
-    options.apiKey || process.env.CLOUDCRUISE_API_KEY || profile.apiKey;
+    options.apiKey || process.env.CLOUDCRUISE_API_KEY || storedApiKey;
   if (!apiKey) {
     throw new Error(
-      `No API key found for profile "${profileName}". Set CLOUDCRUISE_API_KEY, use --api-key, or run: cloudcruise auth login --api-key <key> --profile ${profileName}`,
+      `No authentication found for profile "${profileName}". Run: cloudcruise login --profile ${profileName}. For CI, set CLOUDCRUISE_TOKEN.`,
     );
   }
 
-  const baseUrl =
-    options.baseUrl ||
-    process.env.CLOUDCRUISE_BASE_URL ||
-    profile.baseUrl ||
-    DEFAULT_BASE_URL;
+  const baseUrl = resolveBaseUrl(options, profile);
 
   const encryptionKey =
     options.encryptionKey ||
     process.env.CLOUDCRUISE_ENCRYPTION_KEY ||
-    profile.encryptionKey ||
+    storedEncryptionKey ||
     undefined;
 
-  return { apiKey, baseUrl, encryptionKey };
+  return { token: apiKey, authScheme: "api-key", baseUrl, workspaceId, encryptionKey };
 }
 
 export function requireEncryptionKey(auth: ResolvedAuth): string {
   if (!auth.encryptionKey) {
     throw new Error(
-      "No encryption key found. Set CLOUDCRUISE_ENCRYPTION_KEY, use --encryption-key, or run: cloudcruise auth login --api-key <key> --encryption-key <hex>",
+      "No encryption key found. Set CLOUDCRUISE_ENCRYPTION_KEY or configure an encryption key for this profile.",
     );
   }
   return auth.encryptionKey;

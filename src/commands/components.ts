@@ -122,7 +122,7 @@ Examples:
     )
     .action(async (opts: { full?: boolean } & AuthOptions) => {
       try {
-        const auth = resolveAuth(opts)
+        const auth = await resolveAuth(opts)
         const client = new ApiClient(auth)
         const data = await client.get<Record<string, unknown>[]>(
           "/workflow-components"
@@ -169,7 +169,7 @@ Examples:
     .action(
       async (id: string, opts: { versionNumber?: number } & AuthOptions) => {
         try {
-          const auth = resolveAuth(opts)
+          const auth = await resolveAuth(opts)
           const client = new ApiClient(auth)
           const path =
             opts.versionNumber !== undefined
@@ -205,7 +205,7 @@ Examples:
     )
     .action(async (id: string, opts: { limit?: number } & AuthOptions) => {
       try {
-        const auth = resolveAuth(opts)
+        const auth = await resolveAuth(opts)
         const client = new ApiClient(auth)
         const data = await client.get<Record<string, unknown>[]>(
           `/workflow-components/${id}/versions`
@@ -234,7 +234,7 @@ Examples:
     )
     .action(async (id: string, opts: AuthOptions) => {
       try {
-        const auth = resolveAuth(opts)
+        const auth = await resolveAuth(opts)
         const client = new ApiClient(auth)
         const data = await client.get(`/workflow-components/${id}/usage`)
         outputJson(data)
@@ -272,7 +272,7 @@ Examples:
           const raw = await readPayload(opts)
           const componentData = extractComponentData(raw)
           const body: CreateComponentBody = { name: opts.name, componentData }
-          const auth = resolveAuth(opts)
+          const auth = await resolveAuth(opts)
           const client = new ApiClient(auth)
           const data = await client.post(`/workflow-components`, body)
           outputJson(data)
@@ -299,7 +299,7 @@ Examples:
     )
     .action(async (id: string, opts: { name: string } & AuthOptions) => {
       try {
-        const auth = resolveAuth(opts)
+        const auth = await resolveAuth(opts)
         const client = new ApiClient(auth)
         const data = await client.patch(`/workflow-components/${id}`, {
           name: opts.name
@@ -364,7 +364,7 @@ Examples:
             body.sourceWorkflowId = opts.sourceWorkflowId
           }
 
-          const auth = resolveAuth(opts)
+          const auth = await resolveAuth(opts)
           const client = new ApiClient(auth)
           const data = await client.put(`/workflow-components/${id}`, body)
           outputJson(data)
@@ -390,7 +390,7 @@ Examples:
     )
     .action(async (id: string, opts: AuthOptions) => {
       try {
-        const auth = resolveAuth(opts)
+        const auth = await resolveAuth(opts)
         const client = new ApiClient(auth)
         try {
           await client.delete(`/workflow-components/${id}`)

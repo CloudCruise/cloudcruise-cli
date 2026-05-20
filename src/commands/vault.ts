@@ -5,6 +5,7 @@ import { ApiClient } from "../core/api-client.js"
 import { encrypt, decrypt, validateHexKey } from "../core/crypto.js"
 import { outputJson, outputError } from "../core/output.js"
 import { addAuthOptions, type AuthOptions } from "../core/auth-options.js"
+import { enforceNoArgSecrets } from "../core/secret-args.js"
 import type { VaultEntry, VaultEntryPayload } from "../types/vault.js"
 
 const ENCRYPTED_FIELDS = ["user_name", "password", "tfa_secret"] as const
@@ -71,6 +72,28 @@ function buildPayloadFromFlags(opts: {
   return payload
 }
 
+async function applySecretStdinOptions(opts: {
+  password?: string
+  passwordStdin?: boolean
+  tfaSecret?: string
+  tfaSecretStdin?: boolean
+}): Promise<void> {
+  enforceNoArgSecrets(
+    { "--password": opts.password, "--tfa-secret": opts.tfaSecret },
+    "vault credential fields"
+  )
+
+  if (opts.passwordStdin && opts.tfaSecretStdin) {
+    throw new Error("Use only one of --password-stdin or --tfa-secret-stdin")
+  }
+  if (opts.passwordStdin) {
+    opts.password = (await readStdin()).trimEnd()
+  }
+  if (opts.tfaSecretStdin) {
+    opts.tfaSecret = (await readStdin()).trimEnd()
+  }
+}
+
 async function readStdin(): Promise<string> {
   const chunks: Buffer[] = []
   for await (const chunk of process.stdin) {
@@ -94,7 +117,7 @@ Examples:
   $ cloudcruise vault list --full
 `).action(async (opts: { full?: boolean } & AuthOptions) => {
     try {
-      const auth = resolveAuth(opts)
+      const auth = await resolveAuth(opts)
       const client = new ApiClient(auth)
       const data = await client.get<VaultEntry[]>("/vault")
       if (opts.full) {
@@ -136,7 +159,10 @@ Examples:
       } & AuthOptions
     ) => {
       try {
-        const auth = resolveAuth(opts)
+        const auth = await resolveAuth({
+          ...opts,
+          requireEncryptionKey: Boolean(opts.decrypt),
+        })
         const client = new ApiClient(auth)
         const params = new URLSearchParams({
           permissioned_user_id: opts.userId,
@@ -165,9 +191,11 @@ Examples:
       .option("--user-id <id>", "Permissioned user ID")
       .option("--domain <domain>", "Target domain (valid URI)")
       .option("--user-name <name>", "Username (plaintext, will be encrypted)")
-      .option("--password <pass>", "Password (plaintext, will be encrypted). Visible in ps output — prefer --stdin for sensitive values")
+      .option("--password <pass>", "Password (plaintext, will be encrypted). Visible in ps output; prefer --password-stdin")
+      .option("--password-stdin", "Read plaintext password from stdin")
       .option("--user-alias <alias>", "Human-readable alias")
-      .option("--tfa-secret <secret>", "TOTP secret in base32 (plaintext, will be encrypted)")
+      .option("--tfa-secret <secret>", "TOTP secret in base32 (plaintext, will be encrypted). Visible in ps output; prefer --tfa-secret-stdin")
+      .option("--tfa-secret-stdin", "Read plaintext TOTP secret from stdin")
       .option("--tfa-method <method>", "TFA method: AUTHENTICATOR, EMAIL, or SMS")
       .option("--proxy-enable", "Enable proxy for this entry")
       .option("--proxy-ip <ip>", "Target IP for proxy assignment")
@@ -185,8 +213,10 @@ Examples:
         domain?: string
         userName?: string
         password?: string
+        passwordStdin?: boolean
         userAlias?: string
         tfaSecret?: string
+        tfaSecretStdin?: boolean
         tfaMethod?: string
         proxyEnable?: boolean
         proxyIp?: string
@@ -195,7 +225,13 @@ Examples:
       } & AuthOptions
     ) => {
       try {
-        const auth = resolveAuth(opts)
+        if (!opts.stdin && !opts.file) {
+          await applySecretStdinOptions(opts)
+        }
+        const auth = await resolveAuth({
+          ...opts,
+          requireEncryptionKey: !opts.stdin && !opts.file,
+        })
         const client = new ApiClient(auth)
         let payload: Record<string, unknown>
 
@@ -237,9 +273,11 @@ Examples:
       .option("--user-id <id>", "Permissioned user ID")
       .option("--domain <domain>", "Target domain")
       .option("--user-name <name>", "Username (plaintext, will be encrypted)")
-      .option("--password <pass>", "Password (plaintext, will be encrypted). Visible in ps output — prefer --stdin for sensitive values")
+      .option("--password <pass>", "Password (plaintext, will be encrypted). Visible in ps output; prefer --password-stdin")
+      .option("--password-stdin", "Read plaintext password from stdin")
       .option("--user-alias <alias>", "Human-readable alias")
-      .option("--tfa-secret <secret>", "TOTP secret in base32 (plaintext, will be encrypted)")
+      .option("--tfa-secret <secret>", "TOTP secret in base32 (plaintext, will be encrypted). Visible in ps output; prefer --tfa-secret-stdin")
+      .option("--tfa-secret-stdin", "Read plaintext TOTP secret from stdin")
       .option("--tfa-method <method>", "TFA method: AUTHENTICATOR, EMAIL, or SMS")
       .option("--proxy-enable", "Enable proxy for this entry")
       .option("--proxy-ip <ip>", "Target IP for proxy assignment")
@@ -257,8 +295,10 @@ Examples:
         domain?: string
         userName?: string
         password?: string
+        passwordStdin?: boolean
         userAlias?: string
         tfaSecret?: string
+        tfaSecretStdin?: boolean
         tfaMethod?: string
         proxyEnable?: boolean
         proxyIp?: string
@@ -267,7 +307,13 @@ Examples:
       } & AuthOptions
     ) => {
       try {
-        const auth = resolveAuth(opts)
+        if (!opts.stdin && !opts.file) {
+          await applySecretStdinOptions(opts)
+        }
+        const auth = await resolveAuth({
+          ...opts,
+          requireEncryptionKey: !opts.stdin && !opts.file,
+        })
         const client = new ApiClient(auth)
         let payload: Record<string, unknown>
 
@@ -314,7 +360,7 @@ Examples:
 `).action(
     async (opts: { userId: string; domain: string } & AuthOptions) => {
       try {
-        const auth = resolveAuth(opts)
+        const auth = await resolveAuth(opts)
         const client = new ApiClient(auth)
         const data = await client.patch<{ success: boolean }>(
           "/vault/clear-browser-state",
@@ -348,7 +394,10 @@ Examples:
       opts: { stdin?: boolean; raw?: boolean } & AuthOptions
     ) => {
       try {
-        const auth = resolveAuth(opts)
+        if (!opts.stdin && plaintext !== undefined) {
+          enforceNoArgSecrets({ plaintext }, "vault encrypt")
+        }
+        const auth = await resolveAuth({ ...opts, requireEncryptionKey: true })
         const key = requireEncryptionKey(auth)
         validateHexKey(key)
 
@@ -387,7 +436,7 @@ Examples:
       opts: { stdin?: boolean; raw?: boolean } & AuthOptions
     ) => {
       try {
-        const auth = resolveAuth(opts)
+        const auth = await resolveAuth({ ...opts, requireEncryptionKey: true })
         const key = requireEncryptionKey(auth)
         validateHexKey(key)
 

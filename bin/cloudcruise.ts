@@ -12,6 +12,7 @@ import { registerUtilsCommands } from "../src/commands/utils.js"
 import { registerSnapshotCommands } from "../src/commands/snapshot.js"
 import { registerVaultCommands } from "../src/commands/vault.js"
 import { registerBuilderCommands } from "../src/commands/builder.js"
+import { registerWorkspaceCommands } from "../src/commands/workspaces.js"
 
 const require = createRequire(import.meta.url)
 const pkg = require("../../package.json") as { name: string; version: string }
@@ -27,6 +28,7 @@ program
 
 registerAuthCommands(program)
 registerWorkflowCommands(program)
+registerWorkspaceCommands(program)
 registerComponentCommands(program)
 registerRunCommands(program)
 registerBuilderCommands(program)
