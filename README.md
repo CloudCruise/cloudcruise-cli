@@ -9,7 +9,7 @@ npm install -g @cloudcruise/cli
 
 ## Setup
 
-Copy [.env.example](./.env.example) to `.env`, fill in the environment you want, then source it before running `cloudcruise login`.
+Copy [.env.example](./.env.example) to `.env`, fill in the environment you want, then run `cloudcruise login`.
 
 
 ## Coding Agent Integration
