@@ -5,6 +5,7 @@ import { createRequire } from "module"
 import updateNotifier from "update-notifier"
 import { registerAuthCommands } from "../src/commands/auth.js"
 import { registerWorkflowCommands } from "../src/commands/workflows.js"
+import { registerComponentCommands } from "../src/commands/components.js"
 import { registerRunCommands } from "../src/commands/run.js"
 import { registerInstallCommands } from "../src/commands/install.js"
 import { registerUtilsCommands } from "../src/commands/utils.js"
@@ -28,6 +29,7 @@ program
 registerAuthCommands(program)
 registerWorkflowCommands(program)
 registerWorkspaceCommands(program)
+registerComponentCommands(program)
 registerRunCommands(program)
 registerBuilderCommands(program)
 registerInstallCommands(program)

@@ -65,47 +65,60 @@ cloudcruise snapshot test '//input[@name="email"]' --file ./snapshots/page.html
 
 ## All Commands
 
-| Command                                          | Description                                |
-| ------------------------------------------------ | ------------------------------------------ |
-| `login`                                          | Browser OAuth + PKCE login                 |
-| `auth login`                                     | Browser OAuth + PKCE login                 |
-| `auth status`                                    | Check authentication (`--profile <name>`)  |
-| `auth logout`                                    | Remove credentials (`--profile`, `--all`)  |
-| `auth switch <name>`                             | Set the active profile                     |
-| `auth profiles`                                  | List all profiles                          |
-| `auth workspace use <id>`                        | Set the active workspace for a profile     |
-| `workspaces list`                                | List workspaces for the active auth        |
-| `workflows list`                                 | List all workflows in your workspace       |
-| `workflows get <id>`                             | Get workflow definition                    |
-| `workflows versions <id>`                        | List workflow version history              |
-| `workflows update <id>`                          | Update workflow (new version)              |
-| `run start <id>`                                 | Start a run (`--wait`, `--debug`)          |
-| `run get <id>`                                   | Get run status and results                 |
-| `run list`                                       | List runs with filters                     |
-| `run interrupt <id>`                             | Stop a running session                     |
-| `run errors <id>`                                | Error analytics                            |
-| `run snapshots <id> <node_id>`                   | Get debug snapshot metadata                |
-| `snapshot fetch <session_id> <node_id>`          | Download HTML, screenshots, and metadata   |
-| `snapshot suggest [session_id] [node_id]`        | Suggest unique XPath selectors             |
-| `snapshot test <xpath> [session_id] [node_id]`   | Test an XPath selector against a snapshot  |
-| `vault list`                                     | List vault entries                         |
-| `vault get`                                      | Get vault entry                            |
-| `vault create`                                   | Create vault entry with stdin secrets      |
-| `vault update`                                   | Update vault entry fields                  |
-| `vault clear-state`                              | Clear browser state for a credential       |
-| `vault encrypt` / `vault decrypt`                | Encrypt or decrypt values locally          |
-| `builder start`                                  | Start builder session                      |
-| `builder send <message>`                         | Send instruction to builder agent          |
-| `builder poll`                                   | Check agent status and new messages        |
-| `builder respond`                                | Reply to input requests with stdin values  |
-| `builder status`                                 | Check builder session status               |
-| `builder workflow`                               | Get current workflow definition            |
-| `builder messages`                               | Get conversation history                   |
-| `builder save`                                   | Persist workflow to database               |
-| `builder interrupt`                              | Stop agent processing                      |
-| `builder end`                                    | End session and clean up                   |
-| `utils uuid`                                     | Generate UUIDs for node IDs                |
-| `install --skills`                               | Install skill files for coding agents      |
+| Command | Description |
+| --- | --- |
+| `login` | Browser OAuth + PKCE login |
+| `logout` | Remove credentials for the active profile |
+| `whoami` | Show the authenticated account |
+| `auth login` | Browser OAuth + PKCE login |
+| `auth status` | Check authentication (`--profile`) |
+| `auth logout` | Remove credentials (`--profile`, `--all`) |
+| `auth switch <name>` | Set the active profile |
+| `auth profiles` | List all profiles |
+| `auth workspace use <id>` | Set the active workspace for a profile |
+| `workspaces list` | List workspaces for the active auth |
+| `workspaces show` | Show the active workspace for a profile |
+| `workspaces use <id>` | Set the active workspace for a profile |
+| `workspaces clear` | Clear the active workspace for a profile |
+| `workflows list` | List workflows (`--full` for details) |
+| `workflows get <id>` | Get workflow definition |
+| `workflows versions <id>` | List workflow version history |
+| `workflows update <id>` | Update workflow (`--file`, `--stdin`, `--version-note`) |
+| `components list` | List workflow components (`--full`) |
+| `components get <id>` | Get component (`--version-number`) |
+| `components versions <id>` | List component versions (`--limit`) |
+| `components usage <id>` | List workflows using this component |
+| `components create` | Create component (`--name`, `--file`, `--stdin`) |
+| `components rename <id>` | Rename a component (`--name`) |
+| `components update <id>` | Update component (`--file`, `--stdin`, `--version-note`, `--no-propagate`, `--source-workflow-id`) |
+| `components delete <id>` | Delete a component |
+| `run start <id>` | Start a run (`--wait`, `--debug`, `--input`) |
+| `run get <id>` | Get run status and results |
+| `run list` | List runs (`--workflow`, `--status`, `--limit`, `--since`) |
+| `run interrupt <id>` | Stop a running session |
+| `run errors <id>` | Error analytics (`--since`, `--limit`) |
+| `run snapshots <id> <node_id>` | Get debug snapshot metadata |
+| `snapshot fetch <sid> <nid>` | Download HTML, screenshots, metadata (`--html`, `--image`) |
+| `snapshot suggest [sid] [nid]` | Suggest XPath selectors (`--file`, `--filter`) |
+| `snapshot test <xpath> [sid] [nid]` | Test XPath against snapshot (`--file`, `--count`) |
+| `vault list` | List vault entries (`--full`) |
+| `vault get` | Get vault entry (`--user-id`, `--domain`, `--decrypt`) |
+| `vault create` | Create vault entry (`--user-id`, `--domain`, `--user-name`, `--password`) |
+| `vault update` | Update vault entry fields |
+| `vault clear-state` | Clear browser state for a credential |
+| `vault encrypt` / `decrypt` | Encrypt or decrypt values locally |
+| `builder start` | Start builder session (`--start-url`, `--name`, `--vault-user-id`) |
+| `builder send <message>` | Send instruction to builder agent |
+| `builder poll` | Check agent status and new messages |
+| `builder respond` | Reply to agent input requests (`--message-id`, `--value-stdin`) |
+| `builder status` | Check session status |
+| `builder workflow` | Get current workflow definition |
+| `builder messages` | Get conversation history (`--limit`) |
+| `builder save` | Persist workflow to database |
+| `builder interrupt` | Stop agent processing |
+| `builder end` | End session and clean up |
+| `utils uuid` | Generate UUIDs for node IDs (`--count`) |
+| `install --skills` | Install skill files for coding agents (`--target`) |
 
 The CLI uses a loopback redirect on `http://127.0.0.1` during login and stores reusable credentials in the OS keychain.
 `run list` defaults to the last 24 hours when `--since` is omitted. Use values like `24h`, `7d`, or `30m` to adjust the time window.
