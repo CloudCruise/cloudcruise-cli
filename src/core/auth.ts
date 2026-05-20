@@ -39,9 +39,8 @@ function resolveBaseUrl(options: { baseUrl?: string }, profile: { baseUrl?: stri
 function oauthAuthMethodMismatch(err: unknown, method: OAuthTokenEndpointAuthMethod): boolean {
   const message = err instanceof Error ? err.message : String(err);
   return (
-    method === "none" &&
     message.includes("invalid authentication method") &&
-    message.includes("client_secret_basic")
+    message.includes(method === "none" ? "client_secret_basic" : "'none'")
   );
 }
 
@@ -161,12 +160,23 @@ export async function resolveAuth(options: {
           tokens.refreshToken,
         );
       } catch (err: unknown) {
-        if (!profile.tokenEndpointAuthMethod && oauthAuthMethodMismatch(err, method)) {
+        if (
+          !profile.tokenEndpointAuthMethod &&
+          method === "none" &&
+          process.env.CLOUDCRUISE_OAUTH_CLIENT_SECRET
+        ) {
           refreshedMethod = "client_secret_basic";
-          refreshedResponse = await refreshOAuthToken(
-            oauthRefreshSettings(profile, refreshedMethod),
-            tokens.refreshToken,
-          );
+          try {
+            refreshedResponse = await refreshOAuthToken(
+              oauthRefreshSettings(profile, refreshedMethod),
+              tokens.refreshToken,
+            );
+          } catch (fallbackErr: unknown) {
+            if (oauthAuthMethodMismatch(fallbackErr, refreshedMethod)) {
+              throw err;
+            }
+            throw fallbackErr;
+          }
         } else {
           throw err;
         }
