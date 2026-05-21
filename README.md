@@ -1,5 +1,11 @@
 # CloudCruise CLI
 
+[![MIT License](https://img.shields.io/badge/License-MIT-red.svg?style=flat-square)](https://opensource.org/licenses/MIT)
+![NPM Downloads](https://img.shields.io/npm/dw/@cloudcruise/cli)
+[![GitHub Repo stars](https://img.shields.io/github/stars/CloudCruise/cloudcruise-cli?style=flat-square&logo=GitHub&label=cloudcruise-cli)](https://github.com/CloudCruise/cloudcruise-cli)
+[![Discord](https://img.shields.io/discord/1227480834945318933?style=flat-square&logo=Discord&logoColor=white&label=Discord&color=%23434EE4)](https://discord.com/invite/MHjbUqedZF)
+[![YC W24](https://img.shields.io/badge/Y%20Combinator-W24-orange?style=flat-square)](https://www.ycombinator.com/companies/cloudcruise)
+
 CLI for managing [CloudCruise](https://cloudcruise.com) browser automation workflows and runs. Designed for coding agents to fix and edit CloudCruise workflows.
 ## Install
 
