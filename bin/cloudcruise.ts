@@ -3,6 +3,7 @@
 import { program } from "commander"
 import { createRequire } from "module"
 import updateNotifier from "update-notifier"
+import { loadDotEnv } from "../src/core/env.js"
 import { registerAuthCommands } from "../src/commands/auth.js"
 import { registerWorkflowCommands } from "../src/commands/workflows.js"
 import { registerComponentCommands } from "../src/commands/components.js"
@@ -16,6 +17,8 @@ import { registerWorkspaceCommands } from "../src/commands/workspaces.js"
 
 const require = createRequire(import.meta.url)
 const pkg = require("../../package.json") as { name: string; version: string }
+
+loadDotEnv()
 
 if (process.stderr.isTTY) {
   updateNotifier({ pkg }).notify()
