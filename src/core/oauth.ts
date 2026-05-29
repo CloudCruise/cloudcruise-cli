@@ -534,7 +534,7 @@ function callbackPage(status: "success" | "error"): string {
 // just-issued (aal1) session needs an MFA step-up. The user types the code
 // here; it POSTs to /mfa-verify on the same local server, which holds the
 // access token and performs the challenge/verify.
-function mfaPage(friendlyName?: string): string {
+function mfaPage(friendlyName: string | undefined, nonce: string): string {
   const labelSuffix = friendlyName
     ? ` (${friendlyName.replace(/[<>&"]/g, "")})`
     : "";
@@ -584,7 +584,7 @@ function mfaPage(friendlyName?: string): string {
             var res = await fetch("/mfa-verify", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ code: code }),
+              body: JSON.stringify({ code: code, nonce: ${JSON.stringify(nonce)} }),
             });
             if (res.ok) { showSuccess(); return; }
             var body = await res.json().catch(function () { return {}; });
@@ -633,7 +633,8 @@ export async function runBrowserAuthFlow(
   const callback = new URL(settings.redirectUri);
 
   return new Promise((resolve, reject) => {
-    let pending: { factorId: string; accessToken: string } | null = null;
+    let pending: { factorId: string; accessToken: string; nonce: string } | null =
+      null;
     let settled = false;
 
     const finish = (
@@ -672,10 +673,26 @@ export async function runBrowserAuthFlow(
             let raw = "";
             for await (const chunk of req) raw += chunk;
             let code = "";
+            let nonce = "";
             try {
-              code = String((JSON.parse(raw) as { code?: unknown }).code ?? "").trim();
+              const body = JSON.parse(raw) as { code?: unknown; nonce?: unknown };
+              code = String(body.code ?? "").trim();
+              nonce = String(body.nonce ?? "");
             } catch {
               /* fall through to validation below */
+            }
+            // Flow-bound nonce: the OTP page embeds a per-flow secret that a
+            // cross-site or unrelated local caller can't read (cross-origin
+            // reads of the callback page are blocked), so it can't blindly POST
+            // codes to the loopback server. Timing-safe compare.
+            const nonceBytes = Buffer.from(nonce);
+            const expectedNonceBytes = Buffer.from(pending.nonce);
+            if (
+              nonceBytes.length !== expectedNonceBytes.length ||
+              !timingSafeEqual(nonceBytes, expectedNonceBytes)
+            ) {
+              sendJson(res, 403, { error: "Invalid request." });
+              return;
             }
             if (!/^\d{6}$/.test(code)) {
               sendJson(res, 422, { error: "Enter a 6-digit code." });
@@ -743,14 +760,18 @@ export async function runBrowserAuthFlow(
           // the anon key for GoTrue's /factors endpoints; without it (unknown
           // issuer, no override) we fall through to the aal1 token.
           if (claims.aal !== "aal2" && settings.anonKey) {
-            let factors: MfaFactor[] = [];
+            // Fail closed: if we can't determine MFA status we must not silently
+            // persist an aal1 token — an MFA-enrolled user would get a session
+            // that's rejected by every RLS-gated call with no visible cause.
+            // Abort the login so the user can retry instead.
+            let factors: MfaFactor[];
             try {
               factors = await fetchMfaFactors(settings, tokenResponse.access_token);
             } catch (err: unknown) {
-              process.stderr.write(
-                `MFA factor lookup skipped: ${
+              throw new Error(
+                `Could not verify MFA status (${
                   err instanceof Error ? err.message : String(err)
-                }\n`,
+                }). Login aborted to avoid saving a limited session — please try again.`,
               );
             }
             const totp = factors.find(
@@ -779,13 +800,16 @@ export async function runBrowserAuthFlow(
                 return;
               }
               // Interactive: serve the OTP page and keep the server open for
-              // the POST /mfa-verify that follows.
+              // the POST /mfa-verify that follows. The nonce binds that POST to
+              // this page so a cross-site/unrelated caller can't submit codes.
+              const nonce = base64Url(randomBytes(32));
               pending = {
                 factorId: totp.id,
                 accessToken: tokenResponse.access_token,
+                nonce,
               };
               res.writeHead(200, htmlHeaders(true));
-              res.end(mfaPage(totp.friendly_name));
+              res.end(mfaPage(totp.friendly_name, nonce));
               return;
             }
           }

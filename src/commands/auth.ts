@@ -165,13 +165,19 @@ function addOAuthLoginOptions(cmd: Command): Command {
 
 function isProfileUpdateOnly(opts: LoginOptions): boolean {
   return Boolean(
-    (opts.encryptionKey || opts.encryptionKeyStdin || opts.workspaceId) &&
+    (opts.encryptionKey ||
+      opts.encryptionKeyStdin ||
+      opts.workspaceId ||
+      opts.anonKey) &&
       !opts.apiKey &&
       !opts.apiKeyStdin &&
       !opts.baseUrl &&
       !opts.issuer &&
       !opts.clientId &&
       !opts.redirectUri &&
+      // --mfa-code only makes sense mid-login, so its presence forces a full
+      // OAuth login rather than a profile-only update.
+      !opts.mfaCode &&
       opts.browser !== false
   )
 }
@@ -194,7 +200,7 @@ async function performOAuthLogin(opts: LoginOptions): Promise<void> {
 
   const profileName = resolveProfileName(opts.profile)
   const existing = loadProfile(profileName)
-  const settings = resolveOAuthSettings({
+  let settings = resolveOAuthSettings({
     environment: opts.env ?? opts.environment,
     issuer: opts.issuer,
     clientId: opts.clientId,
@@ -202,8 +208,15 @@ async function performOAuthLogin(opts: LoginOptions): Promise<void> {
     redirectUri: opts.redirectUri,
     redirectPort: opts.redirectPort,
     scope: opts.scope,
-    anonKey: opts.anonKey ?? existing.anonKey,
+    anonKey: opts.anonKey,
   })
+  // Fall back to the profile's stored anon key only when logging into the SAME
+  // issuer it was saved for — a key is project-specific, so reusing it against a
+  // different issuer would fail. (Built-in/env keys resolved above are already
+  // issuer-correct, so this only matters for a custom/self-hosted issuer.)
+  if (!settings.anonKey && existing.anonKey && existing.issuer === settings.issuer) {
+    settings = { ...settings, anonKey: existing.anonKey }
+  }
   const { codeVerifier, codeChallenge } = generatePkce()
   const state = randomState()
   const authorizeUrl = buildAuthorizeUrl(settings, codeChallenge, state)
@@ -310,6 +323,7 @@ async function saveProfileUpdates(opts: LoginOptions): Promise<void> {
   const envEncryptionKey = process.env.CLOUDCRUISE_ENCRYPTION_KEY
 
   if (opts.workspaceId) profile.currentWorkspaceId = opts.workspaceId
+  if (opts.anonKey) profile.anonKey = opts.anonKey
   if (opts.encryptionKey || envEncryptionKey) {
     profile = saveProfileEncryptionKey(
       profileName,
