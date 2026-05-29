@@ -13,6 +13,7 @@ export interface OAuthSettings {
   baseUrl: string;
   redirectUri: string;
   scope: string;
+  anonKey?: string;
 }
 
 export interface OAuthTokenResponse {
@@ -37,6 +38,30 @@ const CLOUDCRUISE_LOGO_SVG = readFileSync(
 const CLOUDCRUISE_LOGO_DATA_URL = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(
   CLOUDCRUISE_LOGO_SVG,
 )}`;
+
+// Public Supabase anon/publishable keys for CloudCruise's known environments,
+// keyed by the issuer's project origin. These are *public* by design (they ship
+// in the web frontend bundle and appear in every OAuth consent flow), so
+// baking them into the CLI exposes nothing — it just lets the MFA step-up work
+// out of the box without a --anon-key flag. A custom/self-hosted issuer falls
+// back to --anon-key or CLOUDCRUISE_OAUTH_ANON_KEY.
+const DEFAULT_ANON_KEYS: Record<string, string> = {
+  // Production (hrcczpkvvknatvtuwksw)
+  "https://hrcczpkvvknatvtuwksw.supabase.co":
+    "sb_publishable_KhdyLTPNx1GZjxjmh--VBg_kUaADMek",
+  // Staging (pzxtgorsekxsydltstsb)
+  "https://pzxtgorsekxsydltstsb.supabase.co":
+    "sb_publishable_YkTsnwUXuylAHRfk6hZuGw_rs8Kz1zB",
+}
+
+// Resolves the built-in anon key for an issuer by its project origin, if known.
+function defaultAnonKeyForIssuer(issuer: string): string | undefined {
+  try {
+    return DEFAULT_ANON_KEYS[new URL(issuer).origin];
+  } catch {
+    return undefined;
+  }
+}
 
 export function base64Url(input: Buffer): string {
   return input
@@ -104,6 +129,7 @@ export function resolveOAuthSettings(opts: {
   redirectUri?: string;
   redirectPort?: string;
   scope?: string;
+  anonKey?: string;
 }): OAuthSettings {
   const environment =
     opts.environment ?? process.env.CLOUDCRUISE_ENV ?? "production";
@@ -163,6 +189,10 @@ export function resolveOAuthSettings(opts: {
     baseUrl,
     redirectUri,
     scope: opts.scope ?? process.env.CLOUDCRUISE_OAUTH_SCOPE ?? "email",
+    anonKey:
+      opts.anonKey ??
+      process.env.CLOUDCRUISE_OAUTH_ANON_KEY ??
+      defaultAnonKeyForIssuer(issuer),
   };
 }
 
@@ -197,21 +227,7 @@ export function openBrowser(url: string): void {
   child.unref();
 }
 
-function callbackPage(status: "success" | "error"): string {
-  const isSuccess = status === "success";
-  const message = isSuccess
-    ? "Login complete. Tab auto closes in 3s"
-    : "Return to the terminal to see the error details and try again.";
-  const toneClass = isSuccess ? "success" : "error";
-
-  return `<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="referrer" content="no-referrer">
-  <title>CloudCruise Login</title>
-  <style>
+const PAGE_STYLES = `<style>
     :root {
       color-scheme: light dark;
       --background: 0 0% 100%;
@@ -357,6 +373,59 @@ function callbackPage(status: "success" | "error"): string {
       color: hsl(var(--error));
     }
 
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    label.lbl {
+      font-size: 13px;
+      color: hsl(var(--muted-foreground));
+    }
+
+    input.otp {
+      width: 100%;
+      padding: 12px;
+      font-size: 20px;
+      letter-spacing: 8px;
+      text-align: center;
+      border: 1px solid hsl(var(--border));
+      border-radius: 8px;
+      background: hsl(var(--background));
+      color: hsl(var(--foreground));
+    }
+
+    button.btn {
+      width: 100%;
+      padding: 10px;
+      border: 1px solid hsl(var(--border));
+      border-radius: 8px;
+      background: hsl(var(--btn-background));
+      color: hsl(var(--foreground));
+      font-size: 14px;
+      cursor: pointer;
+    }
+
+    button.btn:hover {
+      background: hsl(var(--btn-background-hover));
+    }
+
+    button.btn:disabled {
+      opacity: 0.6;
+      cursor: default;
+    }
+
+    .error-text {
+      color: hsl(var(--error));
+      font-size: 13px;
+      min-height: 18px;
+    }
+
+    .hidden {
+      display: none;
+    }
+
     .footer {
       color: hsl(var(--muted-foreground));
       text-align: center;
@@ -374,7 +443,25 @@ function callbackPage(status: "success" | "error"): string {
         padding: 24px;
       }
     }
-  </style>
+  </style>`;
+
+const FOOTER_HTML = `<div class="footer">
+      With signing in you accept our
+      <a href="https://github.com/CloudCruise/terms/blob/main/terms-of-service.md" target="_blank" rel="noopener noreferrer">terms and conditions</a>
+      and confirm that you have taken note of our
+      <a href="https://github.com/CloudCruise/terms/blob/main/privacy-policy.md" target="_blank" rel="noopener noreferrer">privacy policy</a>.
+    </div>`;
+
+// Wraps card content + page script in the shared CloudCruise login shell.
+function pageShell(mainHtml: string, scriptHtml: string): string {
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>CloudCruise Login</title>
+  ${PAGE_STYLES}
 </head>
 <body>
   <div class="page">
@@ -387,26 +474,41 @@ function callbackPage(status: "success" | "error"): string {
           </div>
           <h1>CloudCruise</h1>
         </div>
-        <div class="message ${toneClass}">
-          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            ${isSuccess ? '<path d="M20 6 9 17l-5-5"></path>' : '<circle cx="12" cy="12" r="10"></circle><path d="m15 9-6 6"></path><path d="m9 9 6 6"></path>'}
-          </svg>
-          <span id="status-message">${message}</span>
-        </div>
+        ${mainHtml}
       </main>
     </div>
-    <div class="footer">
-      With signing in you accept our
-      <a href="https://github.com/CloudCruise/terms/blob/main/terms-of-service.md" target="_blank" rel="noopener noreferrer">terms and conditions</a>
-      and confirm that you have taken note of our
-      <a href="https://github.com/CloudCruise/terms/blob/main/privacy-policy.md" target="_blank" rel="noopener noreferrer">privacy policy</a>.
-    </div>
+    ${FOOTER_HTML}
   </div>
   <script>
     history.replaceState(null, "", window.location.origin + window.location.pathname);
-    ${
-      isSuccess
-        ? `
+    ${scriptHtml}
+  </script>
+</body>
+</html>`;
+}
+
+const SUCCESS_ICON = '<path d="M20 6 9 17l-5-5"></path>';
+const ERROR_ICON =
+  '<circle cx="12" cy="12" r="10"></circle><path d="m15 9-6 6"></path><path d="m9 9 6 6"></path>';
+
+function messageBlock(tone: "success" | "error", message: string): string {
+  const icon = tone === "success" ? SUCCESS_ICON : ERROR_ICON;
+  return `<div class="message ${tone}">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            ${icon}
+          </svg>
+          <span id="status-message">${message}</span>
+        </div>`;
+}
+
+function callbackPage(status: "success" | "error"): string {
+  const isSuccess = status === "success";
+  const message = isSuccess
+    ? "Login complete. Tab auto closes in 3s"
+    : "Return to the terminal to see the error details and try again.";
+
+  const script = isSuccess
+    ? `
       (function () {
         var remaining = 3;
         var el = document.getElementById("status-message");
@@ -423,75 +525,286 @@ function callbackPage(status: "success" | "error"): string {
         tick();
       })();
     `
-        : ""
-    }
-  </script>
-</body>
-</html>`;
+    : "";
+
+  return pageShell(messageBlock(isSuccess ? "success" : "error", message), script);
 }
 
-export async function waitForAuthorizationCode(
-  redirectUri: string,
+// The OTP-entry page served on the CLI's local callback server when the
+// just-issued (aal1) session needs an MFA step-up. The user types the code
+// here; it POSTs to /mfa-verify on the same local server, which holds the
+// access token and performs the challenge/verify.
+function mfaPage(friendlyName?: string): string {
+  const labelSuffix = friendlyName
+    ? ` (${friendlyName.replace(/[<>&"]/g, "")})`
+    : "";
+  const main = `
+        <div class="message">
+          <span>Enter the 6-digit code from your authenticator app to finish signing in.</span>
+        </div>
+        <form id="mfa-form" class="field">
+          <label class="lbl" for="code">Authentication code${labelSuffix}</label>
+          <input id="code" class="otp" inputmode="numeric" autocomplete="one-time-code"
+                 maxlength="6" pattern="[0-9]{6}" placeholder="000000" aria-label="Authentication code" />
+          <div id="err" class="error-text"></div>
+          <button id="submit" class="btn" type="submit">Verify</button>
+        </form>
+        ${messageBlock("success", "Login complete. Tab auto closes in 3s").replace(
+          'class="message success"',
+          'class="message success hidden" id="success-block"',
+        )}`;
+
+  const script = `
+      (function () {
+        var form = document.getElementById("mfa-form");
+        var input = document.getElementById("code");
+        var err = document.getElementById("err");
+        var btn = document.getElementById("submit");
+        var successBlock = document.getElementById("success-block");
+        var statusMessage = document.getElementById("status-message");
+        function setErr(m) { err.textContent = m || ""; }
+        function showSuccess() {
+          form.classList.add("hidden");
+          successBlock.classList.remove("hidden");
+          var remaining = 3;
+          function tick() {
+            statusMessage.textContent = "Login complete. Tab auto closes in " + remaining + "s";
+            if (remaining <= 0) { window.close(); return; }
+            remaining -= 1;
+            window.setTimeout(tick, 1000);
+          }
+          tick();
+        }
+        async function submit(e) {
+          if (e) e.preventDefault();
+          var code = (input.value || "").trim();
+          if (!/^[0-9]{6}$/.test(code)) { setErr("Enter 6 digits."); return; }
+          btn.disabled = true; setErr("");
+          try {
+            var res = await fetch("/mfa-verify", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ code: code }),
+            });
+            if (res.ok) { showSuccess(); return; }
+            var body = await res.json().catch(function () { return {}; });
+            setErr(body.error || "Invalid code, try again.");
+            input.value = ""; input.focus();
+          } catch (_) {
+            setErr("Network error, try again.");
+          }
+          btn.disabled = false;
+        }
+        form.addEventListener("submit", submit);
+        input.addEventListener("input", function () {
+          if (input.value.length === 6) submit();
+        });
+        input.focus();
+      })();
+    `;
+
+  return pageShell(main, script);
+}
+
+function htmlHeaders(allowConnectSelf = false): Record<string, string> {
+  return {
+    "Content-Type": "text/html; charset=utf-8",
+    "Cache-Control": "no-store",
+    "Referrer-Policy": "no-referrer",
+    "Content-Security-Policy":
+      "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:;" +
+      (allowConnectSelf ? " connect-src 'self';" : "") +
+      " base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+  };
+}
+
+// Runs the full browser login on the local callback server and returns the
+// final token response. The server stays alive across the OAuth callback AND
+// (when the issued aal1 session belongs to an MFA-enrolled user) an MFA
+// step-up: it serves an OTP page, accepts the code via POST /mfa-verify, and
+// performs the challenge/verify against GoTrue using the token it just minted.
+// Yields a genuine aal2 token for MFA users; an unchanged aal1 token otherwise.
+export async function runBrowserAuthFlow(
+  settings: OAuthSettings,
+  codeVerifier: string,
   expectedState: string,
-): Promise<string> {
-  const callback = new URL(redirectUri);
+  options: { explicitMfaCode?: string } = {},
+): Promise<OAuthTokenResponse> {
+  const callback = new URL(settings.redirectUri);
 
   return new Promise((resolve, reject) => {
+    let pending: { factorId: string; accessToken: string } | null = null;
+    let settled = false;
+
+    const finish = (
+      result: { ok: true; value: OAuthTokenResponse } | { ok: false; err: unknown },
+    ): void => {
+      if (settled) return;
+      settled = true;
+      server.close();
+      if (result.ok) resolve(result.value);
+      else reject(result.err);
+    };
+
+    const sendJson = (
+      res: import("http").ServerResponse,
+      status: number,
+      body: unknown,
+    ): void => {
+      res.writeHead(status, {
+        "Content-Type": "application/json",
+        "Cache-Control": "no-store",
+      });
+      res.end(JSON.stringify(body));
+    };
+
     const server = createServer((req, res) => {
-      try {
-        const requestUrl = new URL(req.url ?? "/", redirectUri);
-        if (requestUrl.pathname !== callback.pathname) {
-          res.writeHead(404);
-          res.end("Not found");
-          return;
-        }
+      void (async () => {
+        try {
+          const requestUrl = new URL(req.url ?? "/", settings.redirectUri);
 
-        const code = requestUrl.searchParams.get("code");
-        const state = requestUrl.searchParams.get("state");
-        const error = requestUrl.searchParams.get("error");
-        const errorDescription =
-          requestUrl.searchParams.get("error_description");
+          // OTP code submitted from the hosted MFA page.
+          if (req.method === "POST" && requestUrl.pathname === "/mfa-verify") {
+            if (!pending) {
+              sendJson(res, 409, { error: "No pending MFA challenge." });
+              return;
+            }
+            let raw = "";
+            for await (const chunk of req) raw += chunk;
+            let code = "";
+            try {
+              code = String((JSON.parse(raw) as { code?: unknown }).code ?? "").trim();
+            } catch {
+              /* fall through to validation below */
+            }
+            if (!/^\d{6}$/.test(code)) {
+              sendJson(res, 422, { error: "Enter a 6-digit code." });
+              return;
+            }
+            try {
+              const challengeId = await challengeMfaFactor(
+                settings,
+                pending.accessToken,
+                pending.factorId,
+              );
+              const elevated = await verifyMfaChallenge(
+                settings,
+                pending.accessToken,
+                pending.factorId,
+                challengeId,
+                code,
+              );
+              sendJson(res, 200, { ok: true });
+              finish({ ok: true, value: elevated });
+            } catch (err: unknown) {
+              // Wrong/expired code — let the user retry; keep the server open.
+              sendJson(res, 422, {
+                error:
+                  err instanceof Error ? err.message : "Verification failed.",
+              });
+            }
+            return;
+          }
 
-        if (error) {
-          throw new Error(errorDescription ?? error);
-        }
-        if (!code || !state) {
-          throw new Error("OAuth callback was missing code or state.");
-        }
-        const stateBytes = Buffer.from(state);
-        const expectedStateBytes = Buffer.from(expectedState);
-        if (
-          stateBytes.length !== expectedStateBytes.length ||
-          !timingSafeEqual(stateBytes, expectedStateBytes)
-        ) {
-          throw new Error("OAuth callback state did not match.");
-        }
+          // OAuth redirect callback.
+          if (requestUrl.pathname !== callback.pathname) {
+            res.writeHead(404);
+            res.end("Not found");
+            return;
+          }
 
-        res.writeHead(200, {
-          "Content-Type": "text/html; charset=utf-8",
-          "Cache-Control": "no-store",
-          "Referrer-Policy": "no-referrer",
-          "Content-Security-Policy":
-            "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
-        });
-        res.end(callbackPage("success"));
-        server.close();
-        resolve(code);
-      } catch (err: unknown) {
-        res.writeHead(400, {
-          "Content-Type": "text/html; charset=utf-8",
-          "Cache-Control": "no-store",
-          "Referrer-Policy": "no-referrer",
-          "Content-Security-Policy":
-            "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
-        });
-        res.end(callbackPage("error"));
-        server.close();
-        reject(err);
-      }
+          const code = requestUrl.searchParams.get("code");
+          const state = requestUrl.searchParams.get("state");
+          const error = requestUrl.searchParams.get("error");
+          const errorDescription =
+            requestUrl.searchParams.get("error_description");
+
+          if (error) throw new Error(errorDescription ?? error);
+          if (!code || !state) {
+            throw new Error("OAuth callback was missing code or state.");
+          }
+          const stateBytes = Buffer.from(state);
+          const expectedStateBytes = Buffer.from(expectedState);
+          if (
+            stateBytes.length !== expectedStateBytes.length ||
+            !timingSafeEqual(stateBytes, expectedStateBytes)
+          ) {
+            throw new Error("OAuth callback state did not match.");
+          }
+
+          const tokenResponse = await exchangeAuthorizationCode(
+            settings,
+            code,
+            codeVerifier,
+          );
+          const claims = decodeAccessToken(tokenResponse.access_token);
+
+          // Step up to aal2 if the user has a verified TOTP factor. Requires
+          // the anon key for GoTrue's /factors endpoints; without it (unknown
+          // issuer, no override) we fall through to the aal1 token.
+          if (claims.aal !== "aal2" && settings.anonKey) {
+            let factors: MfaFactor[] = [];
+            try {
+              factors = await fetchMfaFactors(settings, tokenResponse.access_token);
+            } catch (err: unknown) {
+              process.stderr.write(
+                `MFA factor lookup skipped: ${
+                  err instanceof Error ? err.message : String(err)
+                }\n`,
+              );
+            }
+            const totp = factors.find(
+              (f) => f.factor_type === "totp" && f.status === "verified",
+            );
+            if (totp) {
+              if (options.explicitMfaCode) {
+                if (!/^\d{6}$/.test(options.explicitMfaCode)) {
+                  throw new Error("--mfa-code must be a 6-digit TOTP code.");
+                }
+                const challengeId = await challengeMfaFactor(
+                  settings,
+                  tokenResponse.access_token,
+                  totp.id,
+                );
+                const elevated = await verifyMfaChallenge(
+                  settings,
+                  tokenResponse.access_token,
+                  totp.id,
+                  challengeId,
+                  options.explicitMfaCode,
+                );
+                res.writeHead(200, htmlHeaders());
+                res.end(callbackPage("success"));
+                finish({ ok: true, value: elevated });
+                return;
+              }
+              // Interactive: serve the OTP page and keep the server open for
+              // the POST /mfa-verify that follows.
+              pending = {
+                factorId: totp.id,
+                accessToken: tokenResponse.access_token,
+              };
+              res.writeHead(200, htmlHeaders(true));
+              res.end(mfaPage(totp.friendly_name));
+              return;
+            }
+          }
+
+          // No MFA step-up needed.
+          res.writeHead(200, htmlHeaders());
+          res.end(callbackPage("success"));
+          finish({ ok: true, value: tokenResponse });
+        } catch (err: unknown) {
+          if (!res.headersSent) {
+            res.writeHead(400, htmlHeaders());
+            res.end(callbackPage("error"));
+          }
+          finish({ ok: false, err });
+        }
+      })();
     });
 
-    server.on("error", reject);
+    server.on("error", (err) => finish({ ok: false, err }));
     server.listen(Number(callback.port), callback.hostname);
   });
 }
@@ -508,6 +821,128 @@ export async function exchangeAuthorizationCode(
     code_verifier: codeVerifier,
   });
   return tokenRequest(settings, body);
+}
+
+export interface MfaFactor {
+  id: string;
+  status: string;
+  factor_type: string;
+  friendly_name?: string;
+}
+
+// GoTrue's REST endpoints (unlike the /oauth/* family) require an `apikey`
+// header carrying the project's public anon key. supabase-js attaches it
+// transparently in the browser; the CLI must supply it here. Without
+// settings.anonKey these calls 401 with "No API key found in request".
+function gotrueHeaders(
+  settings: { anonKey?: string },
+  accessToken: string,
+): Record<string, string> {
+  if (!settings.anonKey) {
+    throw new Error(
+      "MFA step-up requires the Supabase anon key. Pass --anon-key or set CLOUDCRUISE_OAUTH_ANON_KEY.",
+    );
+  }
+  return {
+    apikey: settings.anonKey,
+    Authorization: `Bearer ${accessToken}`,
+    "Content-Type": "application/json",
+  };
+}
+
+// Returns the user's enrolled MFA factors (empty if none). Used to decide
+// whether a step-up TOTP challenge is needed after an aal1 OAuth login.
+export async function fetchMfaFactors(
+  settings: { issuer: string; anonKey?: string },
+  accessToken: string,
+): Promise<MfaFactor[]> {
+  const res = await fetch(`${settings.issuer}/user`, {
+    headers: gotrueHeaders(settings, accessToken),
+  });
+  const text = await res.text();
+  if (!res.ok) {
+    throw new Error(`Fetching MFA factors failed (${res.status}): ${text}`);
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new Error("MFA factor lookup returned invalid JSON.");
+  }
+  const factors = (parsed as { factors?: unknown }).factors;
+  return Array.isArray(factors) ? (factors as MfaFactor[]) : [];
+}
+
+// Begins an MFA challenge for a factor; returns the challenge id needed by
+// verifyMfaChallenge. Calls the same GoTrue endpoint as supabase-js
+// mfa.challenge().
+export async function challengeMfaFactor(
+  settings: { issuer: string; anonKey?: string },
+  accessToken: string,
+  factorId: string,
+): Promise<string> {
+  const res = await fetch(
+    `${settings.issuer}/factors/${encodeURIComponent(factorId)}/challenge`,
+    {
+      method: "POST",
+      headers: gotrueHeaders(settings, accessToken),
+      body: "{}",
+    },
+  );
+  const text = await res.text();
+  if (!res.ok) {
+    throw new Error(`MFA challenge failed (${res.status}): ${text}`);
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new Error("MFA challenge returned invalid JSON.");
+  }
+  const id = (parsed as { id?: unknown }).id;
+  if (typeof id !== "string" || !id) {
+    throw new Error("MFA challenge response was missing a challenge id.");
+  }
+  return id;
+}
+
+// Verifies a TOTP code against a challenge. On success GoTrue upgrades the
+// caller's session to aal2 and returns a fresh access/refresh token pair for
+// that same session — same endpoint as supabase-js mfa.verify().
+export async function verifyMfaChallenge(
+  settings: { issuer: string; anonKey?: string },
+  accessToken: string,
+  factorId: string,
+  challengeId: string,
+  code: string,
+): Promise<OAuthTokenResponse> {
+  const res = await fetch(
+    `${settings.issuer}/factors/${encodeURIComponent(factorId)}/verify`,
+    {
+      method: "POST",
+      headers: gotrueHeaders(settings, accessToken),
+      body: JSON.stringify({ challenge_id: challengeId, code }),
+    },
+  );
+  const text = await res.text();
+  if (!res.ok) {
+    throw new Error(`MFA verification failed (${res.status}): ${text}`);
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new Error("MFA verification returned invalid JSON.");
+  }
+  if (
+    !parsed ||
+    typeof parsed !== "object" ||
+    typeof (parsed as OAuthTokenResponse).access_token !== "string" ||
+    !(parsed as OAuthTokenResponse).access_token
+  ) {
+    throw new Error("MFA verification response was missing access_token.");
+  }
+  return parsed as OAuthTokenResponse;
 }
 
 export async function refreshOAuthToken(
