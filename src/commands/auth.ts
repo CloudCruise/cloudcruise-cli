@@ -251,7 +251,11 @@ async function performOAuthLogin(opts: LoginOptions): Promise<void> {
     environment: settings.environment,
     issuer: settings.issuer,
     clientId: settings.clientId,
-    anonKey: settings.anonKey ?? existing.anonKey,
+    // Persist exactly the key resolved for THIS issuer. settings.anonKey
+    // already carries the same-issuer fallback (see resolution above), so we
+    // must not `?? existing.anonKey` here — that would copy a previous
+    // issuer's key onto a new-issuer profile and break its later MFA logins.
+    anonKey: settings.anonKey,
     tokenEndpointAuthMethod: settings.tokenEndpointAuthMethod,
     baseUrl: settings.baseUrl,
     scope: tokenResponse.scope ?? settings.scope,
