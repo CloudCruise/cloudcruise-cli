@@ -4,3 +4,6 @@ dist/
 .cloudcruise/
 .claude/
 .cursor/
+
+# npm pack artifacts
+*.tgz

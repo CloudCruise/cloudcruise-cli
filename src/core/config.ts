@@ -19,6 +19,11 @@ export interface ProfileConfig {
   environment?: string
   issuer?: string
   clientId?: string
+  // Public Supabase anon key for the issuer's project. Needed for the MFA
+  // step-up calls (GoTrue's /factors endpoints require an `apikey` header that
+  // supabase-js attaches automatically in the browser but the CLI must supply
+  // itself). Pairs 1:1 with `issuer`; safe to persist (it's a public key).
+  anonKey?: string
   tokenEndpointAuthMethod?: "none" | "client_secret_basic"
   scope?: string
   tokenAccount?: string

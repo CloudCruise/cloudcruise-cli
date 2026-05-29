@@ -26,13 +26,12 @@ import {
 import {
   buildAuthorizeUrl,
   decodeAccessToken,
-  exchangeAuthorizationCode,
   generatePkce,
   openBrowser,
   randomState,
   resolveOAuthSettings,
+  runBrowserAuthFlow,
   saveTokenResponse,
-  waitForAuthorizationCode,
 } from "../core/oauth.js"
 import { ApiClient } from "../core/api-client.js"
 import {
@@ -60,10 +59,13 @@ interface LoginOptions {
   environment?: string
   issuer?: string
   clientId?: string
+  anonKey?: string
+  mfaCode?: string
   redirectUri?: string
   redirectPort?: string
   scope?: string
   browser?: boolean
+  open?: boolean
 }
 
 function maskKey(key: string): string {
@@ -151,22 +153,31 @@ function addOAuthLoginOptions(cmd: Command): Command {
     .option("--env <name>", "OAuth environment", "production")
     .option("--issuer <url>", "Supabase Auth issuer URL")
     .option("--client-id <id>", "OAuth client ID")
+    .option("--anon-key <key>", "Supabase anon key (public) for MFA step-up")
+    .option("--mfa-code <code>", "TOTP code for non-interactive MFA step-up (skips the prompt)")
     .option("--base-url <url>", "Base URL for CloudCruise API")
     .option("--redirect-uri <uri>", "OAuth redirect URI")
     .option("--redirect-port <port>", "Local callback port", "9999")
     .option("--scope <scope>", "OAuth scope", "email")
+    .option("--no-open", "Print the login URL without auto-opening a browser")
     .option("--no-browser", "Use headless login relay (not implemented yet)")
 }
 
 function isProfileUpdateOnly(opts: LoginOptions): boolean {
   return Boolean(
-    (opts.encryptionKey || opts.encryptionKeyStdin || opts.workspaceId) &&
+    (opts.encryptionKey ||
+      opts.encryptionKeyStdin ||
+      opts.workspaceId ||
+      opts.anonKey) &&
       !opts.apiKey &&
       !opts.apiKeyStdin &&
       !opts.baseUrl &&
       !opts.issuer &&
       !opts.clientId &&
       !opts.redirectUri &&
+      // --mfa-code only makes sense mid-login, so its presence forces a full
+      // OAuth login rather than a profile-only update.
+      !opts.mfaCode &&
       opts.browser !== false
   )
 }
@@ -188,7 +199,8 @@ async function performOAuthLogin(opts: LoginOptions): Promise<void> {
   )
 
   const profileName = resolveProfileName(opts.profile)
-  const settings = resolveOAuthSettings({
+  const existing = loadProfile(profileName)
+  let settings = resolveOAuthSettings({
     environment: opts.env ?? opts.environment,
     issuer: opts.issuer,
     clientId: opts.clientId,
@@ -196,23 +208,35 @@ async function performOAuthLogin(opts: LoginOptions): Promise<void> {
     redirectUri: opts.redirectUri,
     redirectPort: opts.redirectPort,
     scope: opts.scope,
+    anonKey: opts.anonKey,
   })
+  // Fall back to the profile's stored anon key only when logging into the SAME
+  // issuer it was saved for — a key is project-specific, so reusing it against a
+  // different issuer would fail. (Built-in/env keys resolved above are already
+  // issuer-correct, so this only matters for a custom/self-hosted issuer.)
+  if (!settings.anonKey && existing.anonKey && existing.issuer === settings.issuer) {
+    settings = { ...settings, anonKey: existing.anonKey }
+  }
   const { codeVerifier, codeChallenge } = generatePkce()
   const state = randomState()
   const authorizeUrl = buildAuthorizeUrl(settings, codeChallenge, state)
 
-  process.stderr.write(`Opening browser for CloudCruise login: ${authorizeUrl}\n`)
+  const willOpen = opts.open !== false
+  process.stderr.write(
+    `${willOpen ? "Opening browser for" : "Open this URL to complete"} CloudCruise login: ${authorizeUrl}\n`
+  )
   process.stderr.write(`Waiting for OAuth callback on ${settings.redirectUri}\n`)
 
-  const codePromise = waitForAuthorizationCode(settings.redirectUri, state)
-  openBrowser(authorizeUrl)
-  const code = await codePromise
-
-  const tokenResponse = await exchangeAuthorizationCode(
-    settings,
-    code,
-    codeVerifier
-  )
+  // The local callback server handles the whole browser flow: it receives the
+  // OAuth code, exchanges it, and — because the OAuth grant always mints an
+  // aal1 session — if the user has a verified TOTP factor it serves an OTP page
+  // on the same localhost port and steps the session up to aal2 (the same
+  // GoTrue /factors endpoints the web login uses). No-op for non-MFA users.
+  const flowPromise = runBrowserAuthFlow(settings, codeVerifier, state, {
+    explicitMfaCode: opts.mfaCode,
+  })
+  if (willOpen) openBrowser(authorizeUrl)
+  const tokenResponse = await flowPromise
   const tokenAccount = tokenAccountForProfile(profileName)
   const tokens = saveTokenResponse(tokenAccount, tokenResponse)
   const claims = decodeAccessToken(tokens.accessToken)
@@ -221,13 +245,17 @@ async function performOAuthLogin(opts: LoginOptions): Promise<void> {
       ? new Date(tokens.expiresAt).toISOString()
       : undefined
 
-  const existing = loadProfile(profileName)
   let profile: ProfileConfig = {
     ...existing,
     authType: "oauth",
     environment: settings.environment,
     issuer: settings.issuer,
     clientId: settings.clientId,
+    // Persist exactly the key resolved for THIS issuer. settings.anonKey
+    // already carries the same-issuer fallback (see resolution above), so we
+    // must not `?? existing.anonKey` here — that would copy a previous
+    // issuer's key onto a new-issuer profile and break its later MFA logins.
+    anonKey: settings.anonKey,
     tokenEndpointAuthMethod: settings.tokenEndpointAuthMethod,
     baseUrl: settings.baseUrl,
     scope: tokenResponse.scope ?? settings.scope,
@@ -299,6 +327,7 @@ async function saveProfileUpdates(opts: LoginOptions): Promise<void> {
   const envEncryptionKey = process.env.CLOUDCRUISE_ENCRYPTION_KEY
 
   if (opts.workspaceId) profile.currentWorkspaceId = opts.workspaceId
+  if (opts.anonKey) profile.anonKey = opts.anonKey
   if (opts.encryptionKey || envEncryptionKey) {
     profile = saveProfileEncryptionKey(
       profileName,
