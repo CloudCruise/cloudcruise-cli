@@ -150,7 +150,10 @@ function addOAuthLoginOptions(cmd: Command): Command {
   return cmd
     .option("--profile <name>", "Profile name (default: active profile or \"default\")")
     .option("--workspace-id <id>", "Workspace ID to save on the profile")
-    .option("--env <name>", "OAuth environment", "production")
+    .option(
+      "--env <name>",
+      "OAuth environment (default: CLOUDCRUISE_ENV, else production)",
+    )
     .option("--issuer <url>", "Supabase Auth issuer URL")
     .option("--client-id <id>", "OAuth client ID")
     .option("--anon-key <key>", "Supabase anon key (public) for MFA step-up")

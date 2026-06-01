@@ -171,6 +171,20 @@ test("--env staging resolves a coherent staging stack, not production", () => {
   assert.equal(s.anonKey, STAGING_KEY)
 })
 
+test("CLOUDCRUISE_ENV is honored when no environment is passed", () => {
+  process.env.CLOUDCRUISE_ENV = "staging"
+  const s = resolveOAuthSettings({})
+  assert.equal(s.issuer, STAGING_ISSUER)
+  assert.equal(s.baseUrl, "https://staging-api.cloudcruise.app")
+})
+
+test("an explicit environment overrides CLOUDCRUISE_ENV", () => {
+  process.env.CLOUDCRUISE_ENV = "staging"
+  const s = resolveOAuthSettings({ environment: "production" })
+  assert.equal(s.issuer, PROD_ISSUER)
+  assert.equal(s.baseUrl, "https://api.cloudcruise.com")
+})
+
 test("an unknown --env without an explicit issuer is rejected", () => {
   assert.throws(
     () => resolveOAuthSettings({ environment: "dev" }),
