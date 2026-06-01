@@ -163,6 +163,21 @@ test("CLOUDCRUISE_OAUTH_* env vars override the bundled defaults", () => {
   assert.equal(s.clientId, "env-client")
 })
 
+test("--env staging resolves a coherent staging stack, not production", () => {
+  const s = resolveOAuthSettings({ environment: "staging" })
+  assert.equal(s.issuer, STAGING_ISSUER)
+  assert.equal(s.clientId, "5fe2357b-6e19-44e5-bd5d-88059f9776e7")
+  assert.equal(s.baseUrl, "https://staging-api.cloudcruise.app")
+  assert.equal(s.anonKey, STAGING_KEY)
+})
+
+test("an unknown --env without an explicit issuer is rejected", () => {
+  assert.throws(
+    () => resolveOAuthSettings({ environment: "dev" }),
+    /requires --issuer and --client-id/,
+  )
+})
+
 test("an overridden issuer derives its own clientId/baseUrl, never production's", () => {
   const s = resolveOAuthSettings({ issuer: STAGING_ISSUER })
   assert.equal(s.issuer, STAGING_ISSUER)

@@ -63,10 +63,16 @@ function defaultAnonKeyForIssuer(issuer: string): string | undefined {
   }
 }
 
-// The issuer used when no --issuer / CLOUDCRUISE_OAUTH_ISSUER is supplied at all.
-// Defaults the CLI to CloudCruise production so `cloudcruise auth login` works out
+// Default issuer per --env / CLOUDCRUISE_ENV selector, used when no explicit
+// --issuer / CLOUDCRUISE_OAUTH_ISSUER is supplied. clientId, baseUrl, and anonKey
+// then derive from that issuer's origin (DEFAULT_DEPLOYMENTS / DEFAULT_ANON_KEYS),
+// so `--env staging` resolves a coherent staging stack rather than production, and
+// plain `cloudcruise auth login` (environment defaults to "production") works out
 // of the box without flags, env vars, or a repo-local .env.
-const DEFAULT_ISSUER = "https://hrcczpkvvknatvtuwksw.supabase.co/auth/v1";
+const DEFAULT_ISSUER_BY_ENV: Record<string, string> = {
+  production: "https://hrcczpkvvknatvtuwksw.supabase.co/auth/v1",
+  staging: "https://pzxtgorsekxsydltstsb.supabase.co/auth/v1",
+};
 
 // Built-in deployment defaults keyed by issuer origin. clientId is registered per
 // auth project and baseUrl belongs to that same deployment, so they must resolve
@@ -177,7 +183,9 @@ export function resolveOAuthSettings(opts: {
     `http://127.0.0.1:${opts.redirectPort ?? "9999"}/callback`;
 
   const issuer =
-    opts.issuer ?? process.env.CLOUDCRUISE_OAUTH_ISSUER ?? DEFAULT_ISSUER;
+    opts.issuer ??
+    process.env.CLOUDCRUISE_OAUTH_ISSUER ??
+    DEFAULT_ISSUER_BY_ENV[environment];
   // clientId and baseUrl default from the *resolved issuer's* deployment, so an
   // overridden (staging/custom) issuer never inherits production's clientId or
   // baseUrl. Explicit flags / env vars still win over the bundled defaults.
