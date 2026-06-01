@@ -134,6 +134,86 @@ test("CLOUDCRUISE_OAUTH_ANON_KEY overrides the built-in key, opts overrides env"
   )
 })
 
+// ---- resolveOAuthSettings: built-in endpoint defaults ----------------------
+
+test("resolveOAuthSettings defaults to the bundled prod endpoints with no opts/env", () => {
+  const s = resolveOAuthSettings({})
+  assert.equal(s.issuer, PROD_ISSUER)
+  assert.equal(s.clientId, "9bc36be8-60c1-4138-94d7-e5d9a9659e2b")
+  assert.equal(s.baseUrl, "https://api.cloudcruise.com")
+  assert.equal(s.anonKey, PROD_KEY)
+})
+
+test("explicit --issuer/--client-id/--base-url override the bundled defaults", () => {
+  const s = resolveOAuthSettings({
+    issuer: STAGING_ISSUER,
+    clientId: "custom-client",
+    baseUrl: "https://staging-api.cloudcruise.app",
+  })
+  assert.equal(s.issuer, STAGING_ISSUER)
+  assert.equal(s.clientId, "custom-client")
+  assert.equal(s.baseUrl, "https://staging-api.cloudcruise.app")
+})
+
+test("CLOUDCRUISE_OAUTH_* env vars override the bundled defaults", () => {
+  process.env.CLOUDCRUISE_OAUTH_ISSUER = STAGING_ISSUER
+  process.env.CLOUDCRUISE_OAUTH_CLIENT_ID = "env-client"
+  process.env.CLOUDCRUISE_BASE_URL = "https://env.example.com"
+  const s = resolveOAuthSettings({})
+  assert.equal(s.issuer, STAGING_ISSUER)
+  assert.equal(s.clientId, "env-client")
+  assert.equal(s.baseUrl, "https://env.example.com")
+})
+
+test("non-production --env is not bundled and requires explicit endpoints", () => {
+  // Only production is baked into the open-source CLI; --env staging must not
+  // silently fall back to production, it must demand explicit configuration.
+  assert.throws(
+    () => resolveOAuthSettings({ environment: "staging" }),
+    /requires --issuer and --client-id/,
+  )
+})
+
+test("CLOUDCRUISE_ENV is honored when no environment is passed", () => {
+  // A non-production CLOUDCRUISE_ENV changes the outcome (prod default would
+  // resolve cleanly), proving the env var reaches the resolver.
+  process.env.CLOUDCRUISE_ENV = "staging"
+  assert.throws(
+    () => resolveOAuthSettings({}),
+    /requires --issuer and --client-id/,
+  )
+})
+
+test("an explicit environment overrides CLOUDCRUISE_ENV", () => {
+  process.env.CLOUDCRUISE_ENV = "staging"
+  const s = resolveOAuthSettings({ environment: "production" })
+  assert.equal(s.issuer, PROD_ISSUER)
+  assert.equal(s.baseUrl, "https://api.cloudcruise.com")
+})
+
+test("an unknown --env without an explicit issuer is rejected", () => {
+  assert.throws(
+    () => resolveOAuthSettings({ environment: "dev" }),
+    /requires --issuer and --client-id/,
+  )
+})
+
+test("an overridden issuer never inherits production's clientId/baseUrl", () => {
+  // The staging issuer's anon key is bundled (pre-existing), but its clientId and
+  // baseUrl are NOT — so it must error rather than graft production's onto it.
+  assert.throws(
+    () => resolveOAuthSettings({ issuer: STAGING_ISSUER }),
+    /requires --issuer and --client-id|requires --base-url/,
+  )
+})
+
+test("a custom issuer requires explicit client-id/base-url (no prod grafting)", () => {
+  assert.throws(
+    () => resolveOAuthSettings({ issuer: "https://custom.example.com/auth/v1" }),
+    /requires --issuer and --client-id|requires --base-url/,
+  )
+})
+
 // ---- GoTrue MFA helpers (mocked fetch) -------------------------------------
 
 const realFetch = globalThis.fetch
