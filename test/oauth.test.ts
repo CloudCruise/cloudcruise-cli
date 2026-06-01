@@ -158,24 +158,30 @@ test("explicit --issuer/--client-id/--base-url override the bundled defaults", (
 test("CLOUDCRUISE_OAUTH_* env vars override the bundled defaults", () => {
   process.env.CLOUDCRUISE_OAUTH_ISSUER = STAGING_ISSUER
   process.env.CLOUDCRUISE_OAUTH_CLIENT_ID = "env-client"
+  process.env.CLOUDCRUISE_BASE_URL = "https://env.example.com"
   const s = resolveOAuthSettings({})
   assert.equal(s.issuer, STAGING_ISSUER)
   assert.equal(s.clientId, "env-client")
+  assert.equal(s.baseUrl, "https://env.example.com")
 })
 
-test("--env staging resolves a coherent staging stack, not production", () => {
-  const s = resolveOAuthSettings({ environment: "staging" })
-  assert.equal(s.issuer, STAGING_ISSUER)
-  assert.equal(s.clientId, "5fe2357b-6e19-44e5-bd5d-88059f9776e7")
-  assert.equal(s.baseUrl, "https://staging-api.cloudcruise.app")
-  assert.equal(s.anonKey, STAGING_KEY)
+test("non-production --env is not bundled and requires explicit endpoints", () => {
+  // Only production is baked into the open-source CLI; --env staging must not
+  // silently fall back to production, it must demand explicit configuration.
+  assert.throws(
+    () => resolveOAuthSettings({ environment: "staging" }),
+    /requires --issuer and --client-id/,
+  )
 })
 
 test("CLOUDCRUISE_ENV is honored when no environment is passed", () => {
+  // A non-production CLOUDCRUISE_ENV changes the outcome (prod default would
+  // resolve cleanly), proving the env var reaches the resolver.
   process.env.CLOUDCRUISE_ENV = "staging"
-  const s = resolveOAuthSettings({})
-  assert.equal(s.issuer, STAGING_ISSUER)
-  assert.equal(s.baseUrl, "https://staging-api.cloudcruise.app")
+  assert.throws(
+    () => resolveOAuthSettings({}),
+    /requires --issuer and --client-id/,
+  )
 })
 
 test("an explicit environment overrides CLOUDCRUISE_ENV", () => {
@@ -192,12 +198,13 @@ test("an unknown --env without an explicit issuer is rejected", () => {
   )
 })
 
-test("an overridden issuer derives its own clientId/baseUrl, never production's", () => {
-  const s = resolveOAuthSettings({ issuer: STAGING_ISSUER })
-  assert.equal(s.issuer, STAGING_ISSUER)
-  assert.equal(s.clientId, "5fe2357b-6e19-44e5-bd5d-88059f9776e7")
-  assert.equal(s.baseUrl, "https://staging-api.cloudcruise.app")
-  assert.equal(s.anonKey, STAGING_KEY)
+test("an overridden issuer never inherits production's clientId/baseUrl", () => {
+  // The staging issuer's anon key is bundled (pre-existing), but its clientId and
+  // baseUrl are NOT — so it must error rather than graft production's onto it.
+  assert.throws(
+    () => resolveOAuthSettings({ issuer: STAGING_ISSUER }),
+    /requires --issuer and --client-id|requires --base-url/,
+  )
 })
 
 test("a custom issuer requires explicit client-id/base-url (no prod grafting)", () => {

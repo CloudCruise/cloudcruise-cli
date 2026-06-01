@@ -64,22 +64,24 @@ function defaultAnonKeyForIssuer(issuer: string): string | undefined {
 }
 
 // Default issuer per --env / CLOUDCRUISE_ENV selector, used when no explicit
-// --issuer / CLOUDCRUISE_OAUTH_ISSUER is supplied. clientId, baseUrl, and anonKey
-// then derive from that issuer's origin (DEFAULT_DEPLOYMENTS / DEFAULT_ANON_KEYS),
-// so `--env staging` resolves a coherent staging stack rather than production, and
-// plain `cloudcruise auth login` (environment defaults to "production") works out
-// of the box without flags, env vars, or a repo-local .env.
+// --issuer / CLOUDCRUISE_OAUTH_ISSUER is supplied. Only production is bundled —
+// it's CloudCruise's public hosted environment, so plain `cloudcruise auth login`
+// works out of the box. Non-production environments (staging, self-hosted) are
+// internal/deployment-specific and must be configured explicitly via
+// --issuer/--client-id/--base-url or the CLOUDCRUISE_OAUTH_* env vars (or a
+// repo-local .env); we deliberately do NOT bake their endpoints into this
+// open-source, npm-published CLI.
 const DEFAULT_ISSUER_BY_ENV: Record<string, string> = {
   production: "https://hrcczpkvvknatvtuwksw.supabase.co/auth/v1",
-  staging: "https://pzxtgorsekxsydltstsb.supabase.co/auth/v1",
 };
 
 // Built-in deployment defaults keyed by issuer origin. clientId is registered per
 // auth project and baseUrl belongs to that same deployment, so they must resolve
 // *together* from the chosen issuer — never graft one environment's clientId or
-// baseUrl onto another's issuer. A custom/self-hosted issuer (absent here) still
-// requires explicit --client-id and --base-url. These values are public by design
-// (they appear in every browser OAuth consent flow and the web frontend bundle).
+// baseUrl onto another's issuer. Any issuer absent here (staging, self-hosted)
+// requires explicit --client-id and --base-url. The bundled production values are
+// public by design (they appear in every browser OAuth consent flow and the web
+// frontend bundle).
 const DEFAULT_DEPLOYMENTS: Record<
   string,
   { clientId: string; baseUrl: string }
@@ -88,11 +90,6 @@ const DEFAULT_DEPLOYMENTS: Record<
   "https://hrcczpkvvknatvtuwksw.supabase.co": {
     clientId: "9bc36be8-60c1-4138-94d7-e5d9a9659e2b",
     baseUrl: "https://api.cloudcruise.com",
-  },
-  // Staging (pzxtgorsekxsydltstsb)
-  "https://pzxtgorsekxsydltstsb.supabase.co": {
-    clientId: "5fe2357b-6e19-44e5-bd5d-88059f9776e7",
-    baseUrl: "https://staging-api.cloudcruise.app",
   },
 };
 
