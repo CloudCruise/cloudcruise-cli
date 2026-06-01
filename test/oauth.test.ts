@@ -134,6 +134,35 @@ test("CLOUDCRUISE_OAUTH_ANON_KEY overrides the built-in key, opts overrides env"
   )
 })
 
+// ---- resolveOAuthSettings: built-in endpoint defaults ----------------------
+
+test("resolveOAuthSettings defaults to the bundled prod endpoints with no opts/env", () => {
+  const s = resolveOAuthSettings({})
+  assert.equal(s.issuer, PROD_ISSUER)
+  assert.equal(s.clientId, "9bc36be8-60c1-4138-94d7-e5d9a9659e2b")
+  assert.equal(s.baseUrl, "https://api.cloudcruise.com")
+  assert.equal(s.anonKey, PROD_KEY)
+})
+
+test("explicit --issuer/--client-id/--base-url override the bundled defaults", () => {
+  const s = resolveOAuthSettings({
+    issuer: STAGING_ISSUER,
+    clientId: "custom-client",
+    baseUrl: "https://staging-api.cloudcruise.app",
+  })
+  assert.equal(s.issuer, STAGING_ISSUER)
+  assert.equal(s.clientId, "custom-client")
+  assert.equal(s.baseUrl, "https://staging-api.cloudcruise.app")
+})
+
+test("CLOUDCRUISE_OAUTH_* env vars override the bundled defaults", () => {
+  process.env.CLOUDCRUISE_OAUTH_ISSUER = STAGING_ISSUER
+  process.env.CLOUDCRUISE_OAUTH_CLIENT_ID = "env-client"
+  const s = resolveOAuthSettings({})
+  assert.equal(s.issuer, STAGING_ISSUER)
+  assert.equal(s.clientId, "env-client")
+})
+
 // ---- GoTrue MFA helpers (mocked fetch) -------------------------------------
 
 const realFetch = globalThis.fetch

@@ -63,6 +63,23 @@ function defaultAnonKeyForIssuer(issuer: string): string | undefined {
   }
 }
 
+// Built-in OAuth endpoints for CloudCruise's hosted environments. The issuer and
+// clientId are *public* by design — they appear in every browser OAuth consent
+// flow and in the web frontend bundle — so baking them in exposes nothing and
+// lets `cloudcruise auth login` work out of the box without flags, env vars, or a
+// repo-local .env. A custom/self-hosted deployment overrides any of these via
+// --issuer/--client-id/--base-url or the CLOUDCRUISE_OAUTH_* env vars.
+const DEFAULT_OAUTH_ENDPOINTS: Record<
+  string,
+  { issuer: string; clientId: string; baseUrl: string }
+> = {
+  production: {
+    issuer: "https://hrcczpkvvknatvtuwksw.supabase.co/auth/v1",
+    clientId: "9bc36be8-60c1-4138-94d7-e5d9a9659e2b",
+    baseUrl: "https://api.cloudcruise.com",
+  },
+};
+
 export function base64Url(input: Buffer): string {
   return input
     .toString("base64")
@@ -138,12 +155,15 @@ export function resolveOAuthSettings(opts: {
     process.env.CLOUDCRUISE_OAUTH_REDIRECT_URI ??
     `http://127.0.0.1:${opts.redirectPort ?? "9999"}/callback`;
 
-  const issuer = opts.issuer ?? process.env.CLOUDCRUISE_OAUTH_ISSUER;
-  const clientId = opts.clientId ?? process.env.CLOUDCRUISE_OAUTH_CLIENT_ID;
+  const defaults = DEFAULT_OAUTH_ENDPOINTS[environment];
+  const issuer =
+    opts.issuer ?? process.env.CLOUDCRUISE_OAUTH_ISSUER ?? defaults?.issuer;
+  const clientId =
+    opts.clientId ??
+    process.env.CLOUDCRUISE_OAUTH_CLIENT_ID ??
+    defaults?.clientId;
   const baseUrl =
-    opts.baseUrl ??
-    process.env.CLOUDCRUISE_BASE_URL ??
-    (environment === "production" ? "https://api.cloudcruise.com" : undefined);
+    opts.baseUrl ?? process.env.CLOUDCRUISE_BASE_URL ?? defaults?.baseUrl;
   const tokenEndpointAuthMethod =
     opts.tokenEndpointAuthMethod ??
     (process.env.CLOUDCRUISE_OAUTH_TOKEN_AUTH_METHOD as
