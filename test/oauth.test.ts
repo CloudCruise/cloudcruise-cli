@@ -163,6 +163,21 @@ test("CLOUDCRUISE_OAUTH_* env vars override the bundled defaults", () => {
   assert.equal(s.clientId, "env-client")
 })
 
+test("an overridden issuer derives its own clientId/baseUrl, never production's", () => {
+  const s = resolveOAuthSettings({ issuer: STAGING_ISSUER })
+  assert.equal(s.issuer, STAGING_ISSUER)
+  assert.equal(s.clientId, "5fe2357b-6e19-44e5-bd5d-88059f9776e7")
+  assert.equal(s.baseUrl, "https://staging-api.cloudcruise.app")
+  assert.equal(s.anonKey, STAGING_KEY)
+})
+
+test("a custom issuer requires explicit client-id/base-url (no prod grafting)", () => {
+  assert.throws(
+    () => resolveOAuthSettings({ issuer: "https://custom.example.com/auth/v1" }),
+    /requires --issuer and --client-id|requires --base-url/,
+  )
+})
+
 // ---- GoTrue MFA helpers (mocked fetch) -------------------------------------
 
 const realFetch = globalThis.fetch

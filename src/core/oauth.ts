@@ -63,22 +63,43 @@ function defaultAnonKeyForIssuer(issuer: string): string | undefined {
   }
 }
 
-// Built-in OAuth endpoints for CloudCruise's hosted environments. The issuer and
-// clientId are *public* by design — they appear in every browser OAuth consent
-// flow and in the web frontend bundle — so baking them in exposes nothing and
-// lets `cloudcruise auth login` work out of the box without flags, env vars, or a
-// repo-local .env. A custom/self-hosted deployment overrides any of these via
-// --issuer/--client-id/--base-url or the CLOUDCRUISE_OAUTH_* env vars.
-const DEFAULT_OAUTH_ENDPOINTS: Record<
+// The issuer used when no --issuer / CLOUDCRUISE_OAUTH_ISSUER is supplied at all.
+// Defaults the CLI to CloudCruise production so `cloudcruise auth login` works out
+// of the box without flags, env vars, or a repo-local .env.
+const DEFAULT_ISSUER = "https://hrcczpkvvknatvtuwksw.supabase.co/auth/v1";
+
+// Built-in deployment defaults keyed by issuer origin. clientId is registered per
+// auth project and baseUrl belongs to that same deployment, so they must resolve
+// *together* from the chosen issuer — never graft one environment's clientId or
+// baseUrl onto another's issuer. A custom/self-hosted issuer (absent here) still
+// requires explicit --client-id and --base-url. These values are public by design
+// (they appear in every browser OAuth consent flow and the web frontend bundle).
+const DEFAULT_DEPLOYMENTS: Record<
   string,
-  { issuer: string; clientId: string; baseUrl: string }
+  { clientId: string; baseUrl: string }
 > = {
-  production: {
-    issuer: "https://hrcczpkvvknatvtuwksw.supabase.co/auth/v1",
+  // Production (hrcczpkvvknatvtuwksw)
+  "https://hrcczpkvvknatvtuwksw.supabase.co": {
     clientId: "9bc36be8-60c1-4138-94d7-e5d9a9659e2b",
     baseUrl: "https://api.cloudcruise.com",
   },
+  // Staging (pzxtgorsekxsydltstsb)
+  "https://pzxtgorsekxsydltstsb.supabase.co": {
+    clientId: "5fe2357b-6e19-44e5-bd5d-88059f9776e7",
+    baseUrl: "https://staging-api.cloudcruise.app",
+  },
 };
+
+// Resolves the built-in deployment defaults for an issuer by its project origin.
+function defaultDeploymentForIssuer(
+  issuer: string,
+): { clientId: string; baseUrl: string } | undefined {
+  try {
+    return DEFAULT_DEPLOYMENTS[new URL(issuer).origin];
+  } catch {
+    return undefined;
+  }
+}
 
 export function base64Url(input: Buffer): string {
   return input
@@ -155,15 +176,18 @@ export function resolveOAuthSettings(opts: {
     process.env.CLOUDCRUISE_OAUTH_REDIRECT_URI ??
     `http://127.0.0.1:${opts.redirectPort ?? "9999"}/callback`;
 
-  const defaults = DEFAULT_OAUTH_ENDPOINTS[environment];
   const issuer =
-    opts.issuer ?? process.env.CLOUDCRUISE_OAUTH_ISSUER ?? defaults?.issuer;
+    opts.issuer ?? process.env.CLOUDCRUISE_OAUTH_ISSUER ?? DEFAULT_ISSUER;
+  // clientId and baseUrl default from the *resolved issuer's* deployment, so an
+  // overridden (staging/custom) issuer never inherits production's clientId or
+  // baseUrl. Explicit flags / env vars still win over the bundled defaults.
+  const deployment = defaultDeploymentForIssuer(issuer);
   const clientId =
     opts.clientId ??
     process.env.CLOUDCRUISE_OAUTH_CLIENT_ID ??
-    defaults?.clientId;
+    deployment?.clientId;
   const baseUrl =
-    opts.baseUrl ?? process.env.CLOUDCRUISE_BASE_URL ?? defaults?.baseUrl;
+    opts.baseUrl ?? process.env.CLOUDCRUISE_BASE_URL ?? deployment?.baseUrl;
   const tokenEndpointAuthMethod =
     opts.tokenEndpointAuthMethod ??
     (process.env.CLOUDCRUISE_OAUTH_TOKEN_AUTH_METHOD as
