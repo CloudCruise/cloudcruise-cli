@@ -21,6 +21,15 @@ function encryptFields(
       result[field] = encrypt(JSON.stringify(value), hexKey)
     }
   }
+  // proxy_value is the bring-your-own proxy URL only for the "custom" setting;
+  // for "static"/"country" it is a plaintext IP/country code and must not be
+  // encrypted. The backend decrypts it to SSRF-validate, then re-encrypts.
+  if (result.proxy_setting === "custom") {
+    const value = result.proxy_value
+    if (typeof value === "string" && value.length > 0) {
+      result.proxy_value = encrypt(JSON.stringify(value), hexKey)
+    }
+  }
   return result
 }
 
@@ -40,6 +49,16 @@ function decryptFields(
       }
     }
   }
+  if (result.proxy_setting === "custom") {
+    const value = result.proxy_value
+    if (typeof value === "string" && value.length > 0) {
+      try {
+        result.proxy_value = JSON.parse(decrypt(value, hexKey))
+      } catch {
+        // Leave as-is if decryption fails
+      }
+    }
+  }
   return result
 }
 
@@ -53,6 +72,8 @@ function buildPayloadFromFlags(opts: {
   tfaMethod?: string
   proxyEnable?: boolean
   proxyIp?: string
+  proxy?: string
+  proxyValue?: string
 }): Record<string, unknown> {
   const payload: Record<string, unknown> = {
     permissioned_user_id: opts.userId,
@@ -63,6 +84,8 @@ function buildPayloadFromFlags(opts: {
   if (opts.userAlias !== undefined) payload.user_alias = opts.userAlias
   if (opts.tfaSecret !== undefined) payload.tfa_secret = opts.tfaSecret
   if (opts.tfaMethod !== undefined) payload.tfa_method = opts.tfaMethod
+  if (opts.proxy !== undefined) payload.proxy_setting = opts.proxy
+  if (opts.proxyValue !== undefined) payload.proxy_value = opts.proxyValue
   if (opts.proxyEnable !== undefined || opts.proxyIp !== undefined) {
     payload.proxy = {
       ...(opts.proxyEnable !== undefined && { enable: opts.proxyEnable }),
@@ -199,6 +222,8 @@ Examples:
       .option("--tfa-method <method>", "TFA method: AUTHENTICATOR, EMAIL, or SMS")
       .option("--proxy-enable", "Enable proxy for this entry")
       .option("--proxy-ip <ip>", "Target IP for proxy assignment")
+      .option("--proxy <setting>", "Proxy setting: random, static, country, or custom")
+      .option("--proxy-value <value>", "For custom: proxy URL (encrypted client-side). For static: target IP. For country: country code.")
       .option("--file <path>", "Path to JSON payload (assumed pre-encrypted)")
       .option("--stdin", "Read JSON payload from stdin (assumed pre-encrypted)")
   ).addHelpText("after", `
@@ -220,6 +245,8 @@ Examples:
         tfaMethod?: string
         proxyEnable?: boolean
         proxyIp?: string
+        proxy?: string
+        proxyValue?: string
         file?: string
         stdin?: boolean
       } & AuthOptions
@@ -281,6 +308,8 @@ Examples:
       .option("--tfa-method <method>", "TFA method: AUTHENTICATOR, EMAIL, or SMS")
       .option("--proxy-enable", "Enable proxy for this entry")
       .option("--proxy-ip <ip>", "Target IP for proxy assignment")
+      .option("--proxy <setting>", "Proxy setting: random, static, country, or custom")
+      .option("--proxy-value <value>", "For custom: proxy URL (encrypted client-side). For static: target IP. For country: country code.")
       .option("--file <path>", "Path to JSON payload (assumed pre-encrypted)")
       .option("--stdin", "Read JSON payload from stdin (assumed pre-encrypted)")
   ).addHelpText("after", `
@@ -302,6 +331,8 @@ Examples:
         tfaMethod?: string
         proxyEnable?: boolean
         proxyIp?: string
+        proxy?: string
+        proxyValue?: string
         file?: string
         stdin?: boolean
       } & AuthOptions
