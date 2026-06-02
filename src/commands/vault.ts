@@ -21,6 +21,20 @@ function encryptFields(
       result[field] = encrypt(JSON.stringify(value), hexKey)
     }
   }
+  // proxy_value is meaningless to the backend without proxy_setting, which is
+  // also the discriminator that decides whether to encrypt. Fail closed so a
+  // custom proxy URL (often with embedded credentials) is never sent in
+  // plaintext because --proxy was omitted alongside --proxy-value.
+  if (
+    typeof result.proxy_value === "string" &&
+    result.proxy_value.length > 0 &&
+    (result.proxy_setting === undefined || result.proxy_setting === null)
+  ) {
+    throw new Error(
+      "proxy_value requires proxy_setting. Pass --proxy custom for a bring-your-own " +
+        "proxy URL (encrypted before sending), or --proxy static/country for a managed proxy."
+    )
+  }
   // proxy_value is the bring-your-own proxy URL only for the "custom" setting;
   // for "static"/"country" it is a plaintext IP/country code and must not be
   // encrypted. The backend decrypts it to SSRF-validate, then re-encrypts.
