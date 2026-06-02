@@ -9,6 +9,11 @@ import { enforceNoArgSecrets } from "../core/secret-args.js"
 import type { VaultEntry, VaultEntryPayload } from "../types/vault.js"
 
 const ENCRYPTED_FIELDS = ["user_name", "password", "tfa_secret"] as const
+const PROXY_SETTINGS = ["random", "static", "country", "custom"] as const
+
+function isCustomProxy(setting?: string): boolean {
+  return typeof setting === "string" && setting.toLowerCase() === "custom"
+}
 
 function encryptFields(
   payload: Record<string, unknown>,
@@ -98,7 +103,14 @@ function buildPayloadFromFlags(opts: {
   if (opts.userAlias !== undefined) payload.user_alias = opts.userAlias
   if (opts.tfaSecret !== undefined) payload.tfa_secret = opts.tfaSecret
   if (opts.tfaMethod !== undefined) payload.tfa_method = opts.tfaMethod
-  if (opts.proxy !== undefined) payload.proxy_setting = opts.proxy
+  if (opts.proxy !== undefined) {
+    if (!PROXY_SETTINGS.includes(opts.proxy as (typeof PROXY_SETTINGS)[number])) {
+      throw new Error(
+        `Invalid --proxy value "${opts.proxy}". Must be one of: ${PROXY_SETTINGS.join(", ")}.`
+      )
+    }
+    payload.proxy_setting = opts.proxy
+  }
   if (opts.proxyValue !== undefined) payload.proxy_value = opts.proxyValue
   if (opts.proxyEnable !== undefined || opts.proxyIp !== undefined) {
     payload.proxy = {
@@ -114,20 +126,40 @@ async function applySecretStdinOptions(opts: {
   passwordStdin?: boolean
   tfaSecret?: string
   tfaSecretStdin?: boolean
+  proxy?: string
+  proxyValue?: string
+  proxyValueStdin?: boolean
 }): Promise<void> {
-  enforceNoArgSecrets(
-    { "--password": opts.password, "--tfa-secret": opts.tfaSecret },
-    "vault credential fields"
-  )
+  const secrets: Record<string, unknown> = {
+    "--password": opts.password,
+    "--tfa-secret": opts.tfaSecret,
+  }
+  // A custom proxy URL can embed credentials (e.g. socks5://user:pass@host);
+  // treat it like other secrets and refuse it on argv. For static/country the
+  // value is a non-secret IP/country code, so it stays allowed as an argument.
+  if (isCustomProxy(opts.proxy)) {
+    secrets["--proxy-value"] = opts.proxyValue
+  }
+  enforceNoArgSecrets(secrets, "vault credential fields")
 
-  if (opts.passwordStdin && opts.tfaSecretStdin) {
-    throw new Error("Use only one of --password-stdin or --tfa-secret-stdin")
+  const stdinFlags = [
+    opts.passwordStdin,
+    opts.tfaSecretStdin,
+    opts.proxyValueStdin,
+  ].filter(Boolean)
+  if (stdinFlags.length > 1) {
+    throw new Error(
+      "Use only one of --password-stdin, --tfa-secret-stdin, or --proxy-value-stdin"
+    )
   }
   if (opts.passwordStdin) {
     opts.password = (await readStdin()).trimEnd()
   }
   if (opts.tfaSecretStdin) {
     opts.tfaSecret = (await readStdin()).trimEnd()
+  }
+  if (opts.proxyValueStdin) {
+    opts.proxyValue = (await readStdin()).trimEnd()
   }
 }
 
@@ -237,7 +269,8 @@ Examples:
       .option("--proxy-enable", "Enable proxy for this entry")
       .option("--proxy-ip <ip>", "Target IP for proxy assignment")
       .option("--proxy <setting>", "Proxy setting: random, static, country, or custom")
-      .option("--proxy-value <value>", "For custom: proxy URL (encrypted client-side). For static: target IP. For country: country code.")
+      .option("--proxy-value <value>", "For static: target IP. For country: country code. For custom: proxy URL — may contain credentials; prefer --proxy-value-stdin")
+      .option("--proxy-value-stdin", "Read the custom proxy URL from stdin (avoids leaking credentials into shell history)")
       .option("--file <path>", "Path to JSON payload (assumed pre-encrypted)")
       .option("--stdin", "Read JSON payload from stdin (assumed pre-encrypted)")
   ).addHelpText("after", `
@@ -261,6 +294,7 @@ Examples:
         proxyIp?: string
         proxy?: string
         proxyValue?: string
+        proxyValueStdin?: boolean
         file?: string
         stdin?: boolean
       } & AuthOptions
@@ -323,7 +357,8 @@ Examples:
       .option("--proxy-enable", "Enable proxy for this entry")
       .option("--proxy-ip <ip>", "Target IP for proxy assignment")
       .option("--proxy <setting>", "Proxy setting: random, static, country, or custom")
-      .option("--proxy-value <value>", "For custom: proxy URL (encrypted client-side). For static: target IP. For country: country code.")
+      .option("--proxy-value <value>", "For static: target IP. For country: country code. For custom: proxy URL — may contain credentials; prefer --proxy-value-stdin")
+      .option("--proxy-value-stdin", "Read the custom proxy URL from stdin (avoids leaking credentials into shell history)")
       .option("--file <path>", "Path to JSON payload (assumed pre-encrypted)")
       .option("--stdin", "Read JSON payload from stdin (assumed pre-encrypted)")
   ).addHelpText("after", `
@@ -347,6 +382,7 @@ Examples:
         proxyIp?: string
         proxy?: string
         proxyValue?: string
+        proxyValueStdin?: boolean
         file?: string
         stdin?: boolean
       } & AuthOptions
