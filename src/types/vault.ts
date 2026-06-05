@@ -31,6 +31,8 @@ export interface VaultEntry {
   ip_address: string | null
   location: string | null
   proxy_string: string | null
+  proxy_setting: "random" | "static" | "country" | "custom" | null
+  proxy_value: string | null
 }
 
 export interface VaultEntryPayload {
@@ -59,6 +61,8 @@ export interface VaultEntryPayload {
     enable?: boolean
     target_ip?: string
   }
+  proxy_setting?: "random" | "static" | "country" | "custom"
+  proxy_value?: string
 }
 
 export interface VaultCookie {
