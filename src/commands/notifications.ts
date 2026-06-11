@@ -13,10 +13,11 @@ const RUN_NOTIFICATION_EVENTS = [
 ] as const
 
 function parseEvents(raw: string): string[] {
-  if (raw === "all") {
+  const trimmed = raw.trim()
+  if (trimmed === "all") {
     return [...RUN_NOTIFICATION_EVENTS]
   }
-  const events = raw
+  const events = trimmed
     .split(",")
     .map((e) => e.trim())
     .filter(Boolean)
@@ -43,7 +44,11 @@ function parseScope(
     throw new Error("Provide exactly one of --workspace or --workflows")
   }
   if (opts.workspace) {
-    return { workspace_id: opts.workspace }
+    const workspaceId = opts.workspace.trim()
+    if (!workspaceId) {
+      throw new Error("--workspace requires a workspace ID")
+    }
+    return { workspace_id: workspaceId }
   }
   const ids = (opts.workflows as string)
     .split(",")
@@ -98,11 +103,13 @@ export function registerNotificationCommands(program: Command): void {
       )
   ).action(async (opts: { events: string } & ScopeOptions & AuthOptions) => {
     try {
+      const scope = parseScope(opts)
+      const events = parseEvents(opts.events)
       const auth = await resolveAuth(opts)
       const client = new ApiClient(auth)
       const result = await client.post("/notifications/run-subscriptions", {
-        ...parseScope(opts),
-        events: parseEvents(opts.events)
+        ...scope,
+        events
       })
       outputJson(result)
     } catch (err: unknown) {
@@ -125,11 +132,12 @@ export function registerNotificationCommands(program: Command): void {
       )
   ).action(async (opts: ScopeOptions & AuthOptions) => {
     try {
+      const scope = parseScope(opts)
       const auth = await resolveAuth(opts)
       const client = new ApiClient(auth)
       const result = await client.delete(
         "/notifications/run-subscriptions",
-        parseScope(opts)
+        scope
       )
       outputJson(result)
     } catch (err: unknown) {
