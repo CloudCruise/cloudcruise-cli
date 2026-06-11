@@ -142,6 +142,22 @@ cloudcruise run errors <workflow_id> --since 24h             # Error analytics (
 cloudcruise run snapshots <session_id> <node_id>             # Debug snapshots for a specific node
 ```
 
+### Run Notifications (admin only)
+
+Subscribe to Slack pings when runs in a workspace start, succeed, fail, get requeued, or trigger the maintenance agent. Requires an ADMIN API key; notifications are posted to the team Slack channel and @-mention the subscriber.
+
+```bash
+cloudcruise notifications list                                          # List your subscriptions
+cloudcruise notifications list --all                                    # List all users' subscriptions
+cloudcruise notifications subscribe --workspace <id> --events all       # All events, whole workspace
+cloudcruise notifications subscribe --workspace <id> --events run.failed,run.requeued
+cloudcruise notifications subscribe --workflows <id>,<id> --events run.failed
+cloudcruise notifications unsubscribe --workspace <id>                  # Remove workspace-wide subscription
+cloudcruise notifications unsubscribe --workflows <id>,<id>             # Remove per-workflow subscriptions
+```
+
+Subscribe/unsubscribe take exactly one of `--workspace <id>` or `--workflows <id,id,...>`. Subscribing returns one subscription object per scope; if any workflow ID doesn't exist the whole request fails (no partial writes). Events: `run.started`, `run.succeeded`, `run.failed`, `run.requeued`, `run.maintenance_triggered`, or `all`. Subscribing again for the same scope replaces the event list (upsert).
+
 ### Snapshots
 
 Tools for downloading debug snapshots, auto-generating XPath selectors, and validating them against the page DOM. **Use these instead of manually downloading and searching HTML.**

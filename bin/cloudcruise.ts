@@ -14,6 +14,7 @@ import { registerSnapshotCommands } from "../src/commands/snapshot.js"
 import { registerVaultCommands } from "../src/commands/vault.js"
 import { registerBuilderCommands } from "../src/commands/builder.js"
 import { registerWorkspaceCommands } from "../src/commands/workspaces.js"
+import { registerNotificationCommands } from "../src/commands/notifications.js"
 
 const require = createRequire(import.meta.url)
 const pkg = require("../../package.json") as { name: string; version: string }
@@ -39,5 +40,6 @@ registerInstallCommands(program)
 registerUtilsCommands(program)
 registerSnapshotCommands(program)
 registerVaultCommands(program)
+registerNotificationCommands(program)
 
 program.parse()

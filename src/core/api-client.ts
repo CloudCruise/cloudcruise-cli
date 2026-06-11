@@ -87,10 +87,16 @@ export class ApiClient {
     return res.json() as Promise<T>
   }
 
-  async delete<T = unknown>(path: string): Promise<T> {
+  async delete<T = unknown>(path: string, body?: unknown): Promise<T> {
+    const hasBody = body !== undefined
+    const headers: Record<string, string> = this.authHeaders()
+    if (hasBody) {
+      headers["Content-Type"] = "application/json"
+    }
     const res = await fetch(this.url(path), {
       method: "DELETE",
-      headers: this.headers()
+      headers,
+      body: hasBody ? JSON.stringify(body) : undefined
     })
     if (!res.ok) {
       const text = await res.text()
