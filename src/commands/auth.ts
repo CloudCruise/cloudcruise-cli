@@ -35,9 +35,13 @@ import {
 } from "../core/oauth.js"
 import { ApiClient } from "../core/api-client.js"
 import {
+  decideWorkspaceSelection,
   fetchWorkspaceChoices,
   formatWorkspaceLabel,
+  needsWorkspaceDiscovery,
   promptForWorkspace,
+  summarizeWorkspace,
+  type WorkspaceSummary,
 } from "../core/workspaces.js"
 import { enforceNoArgSecrets } from "../core/secret-args.js"
 import { outputJson, outputError } from "../core/output.js"
@@ -66,6 +70,12 @@ interface LoginOptions {
   scope?: string
   browser?: boolean
   open?: boolean
+}
+
+interface WorkspaceSelectionOutput {
+  workspace_selection_required: boolean
+  available_workspaces?: WorkspaceSummary[]
+  workspace_selection_error?: string
 }
 
 function maskKey(key: string): string {
@@ -277,7 +287,10 @@ async function performOAuthLogin(opts: LoginOptions): Promise<void> {
     )
   }
 
-  if (!profile.currentWorkspaceId && process.stdin.isTTY && process.stderr.isTTY) {
+  const workspaceSelection: WorkspaceSelectionOutput = {
+    workspace_selection_required: false,
+  }
+  if (needsWorkspaceDiscovery(profile.currentWorkspaceId)) {
     try {
       const client = new ApiClient({
         token: tokens.accessToken,
@@ -285,15 +298,34 @@ async function performOAuthLogin(opts: LoginOptions): Promise<void> {
         baseUrl: settings.baseUrl,
       })
       const workspaces = await fetchWorkspaceChoices(client)
-      const selected = await promptForWorkspace(workspaces)
-      if (selected) {
-        profile.currentWorkspaceId = selected.workspace_id
+      const decision = decideWorkspaceSelection(
+        workspaces,
+        Boolean(process.stdin.isTTY && process.stderr.isTTY)
+      )
+      if (decision.kind === "selected") {
+        profile.currentWorkspaceId = decision.workspace.workspace_id
         process.stderr.write(
-          `Selected workspace: ${formatWorkspaceLabel(selected)}\n`
+          `Selected workspace: ${formatWorkspaceLabel(decision.workspace)}\n`
+        )
+      } else if (decision.kind === "prompt") {
+        const selected = await promptForWorkspace(decision.workspaces)
+        if (selected) {
+          profile.currentWorkspaceId = selected.workspace_id
+          process.stderr.write(
+            `Selected workspace: ${formatWorkspaceLabel(selected)}\n`
+          )
+        }
+      } else if (decision.kind === "required") {
+        workspaceSelection.workspace_selection_required = true
+        workspaceSelection.available_workspaces =
+          decision.workspaces.map(summarizeWorkspace)
+        process.stderr.write(
+          "Workspace selection required: run `cloudcruise workspaces use <id>` or pass `--workspace-id <id>`.\n"
         )
       }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err)
+      workspaceSelection.workspace_selection_error = message
       process.stderr.write(
         `Workspace selection skipped: ${message}\n`
       )
@@ -310,6 +342,7 @@ async function performOAuthLogin(opts: LoginOptions): Promise<void> {
     environment: settings.environment,
     account: profile.accountEmail ?? profile.accountId ?? null,
     workspace_id: profile.currentWorkspaceId ?? null,
+    ...workspaceSelection,
     expires_at: expiresAt ?? null,
     config_path: getConfigPath(),
   })

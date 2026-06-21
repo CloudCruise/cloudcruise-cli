@@ -11,6 +11,20 @@ export interface WorkspaceChoice {
   raw: Record<string, unknown>
 }
 
+export interface WorkspaceSummary {
+  workspace_id: string
+  workspace_name: string | null
+  organization_id: string | null
+  organization_name: string | null
+  role: string | null
+}
+
+export type WorkspaceSelectionDecision =
+  | { kind: "none" }
+  | { kind: "selected"; workspace: WorkspaceChoice }
+  | { kind: "prompt"; workspaces: WorkspaceChoice[] }
+  | { kind: "required"; workspaces: WorkspaceChoice[] }
+
 function stringValue(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined
 }
@@ -68,6 +82,30 @@ export function formatWorkspaceLabel(workspace: WorkspaceChoice): string {
     workspace.role,
   ].filter(Boolean)
   return parts.join(" - ")
+}
+
+export function summarizeWorkspace(workspace: WorkspaceChoice): WorkspaceSummary {
+  return {
+    workspace_id: workspace.workspace_id,
+    workspace_name: workspace.workspace_name ?? null,
+    organization_id: workspace.organization_id ?? null,
+    organization_name: workspace.organization_name ?? null,
+    role: workspace.role ?? null,
+  }
+}
+
+export function needsWorkspaceDiscovery(currentWorkspaceId?: string): boolean {
+  return !currentWorkspaceId
+}
+
+export function decideWorkspaceSelection(
+  workspaces: WorkspaceChoice[],
+  isInteractive: boolean
+): WorkspaceSelectionDecision {
+  if (workspaces.length === 0) return { kind: "none" }
+  if (workspaces.length === 1) return { kind: "selected", workspace: workspaces[0] }
+  if (isInteractive) return { kind: "prompt", workspaces }
+  return { kind: "required", workspaces }
 }
 
 export async function promptForWorkspace(

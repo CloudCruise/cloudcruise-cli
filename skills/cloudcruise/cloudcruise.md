@@ -35,6 +35,17 @@ cloudcruise auth profiles                    # List all auth profiles
 cloudcruise auth logout                      # Remove saved credentials
 ```
 
+### Workspaces
+
+```bash
+cloudcruise workspaces list                  # List workspaces available to the authenticated user
+cloudcruise workspaces show                  # Show the active workspace for the auth profile
+cloudcruise workspaces use <workspace_id>    # Set the active workspace for the auth profile
+cloudcruise workspaces clear                 # Clear the active workspace for the auth profile
+```
+
+After OAuth login, the CLI auto-selects the only available workspace. If multiple workspaces are available in a non-interactive agent session, parse the login JSON for `workspace_selection_required: true` and `available_workspaces`, then run `cloudcruise workspaces use <workspace_id>` or pass `--workspace-id <workspace_id>` on later commands.
+
 ### Workflows
 
 Use `workflows` commands to edit existing workflows. For new workflows, use the builder instead.
