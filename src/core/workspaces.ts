@@ -98,6 +98,16 @@ export function needsWorkspaceDiscovery(currentWorkspaceId?: string): boolean {
   return !currentWorkspaceId
 }
 
+export function resolveLoginWorkspaceId(opts: {
+  explicitWorkspaceId?: string
+  existingWorkspaceId?: string
+  identityChanged: boolean
+}): string | undefined {
+  if (opts.explicitWorkspaceId) return opts.explicitWorkspaceId
+  if (opts.identityChanged) return undefined
+  return opts.existingWorkspaceId
+}
+
 export function decideWorkspaceSelection(
   workspaces: WorkspaceChoice[],
   isInteractive: boolean

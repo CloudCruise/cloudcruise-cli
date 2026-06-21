@@ -40,6 +40,7 @@ import {
   formatWorkspaceLabel,
   needsWorkspaceDiscovery,
   promptForWorkspace,
+  resolveLoginWorkspaceId,
   summarizeWorkspace,
   type WorkspaceSummary,
 } from "../core/workspaces.js"
@@ -258,6 +259,17 @@ async function performOAuthLogin(opts: LoginOptions): Promise<void> {
       ? new Date(tokens.expiresAt).toISOString()
       : undefined
 
+  // A different account or environment on the same profile means the saved
+  // workspace can't be trusted for the new login. Drop it (unless an explicit
+  // --workspace-id was passed) so discovery re-runs instead of silently
+  // targeting a workspace the new identity may not own.
+  const identityChanged =
+    (Boolean(existing.accountId) &&
+      typeof claims.sub === "string" &&
+      existing.accountId !== claims.sub) ||
+    (Boolean(existing.environment) &&
+      existing.environment !== settings.environment)
+
   let profile: ProfileConfig = {
     ...existing,
     authType: "oauth",
@@ -276,7 +288,16 @@ async function performOAuthLogin(opts: LoginOptions): Promise<void> {
     tokenExpiresAt: expiresAt,
     accountId: typeof claims.sub === "string" ? claims.sub : undefined,
     accountEmail: typeof claims.email === "string" ? claims.email : undefined,
-    currentWorkspaceId: opts.workspaceId ?? existing.currentWorkspaceId,
+    currentWorkspaceId: resolveLoginWorkspaceId({
+      explicitWorkspaceId: opts.workspaceId,
+      existingWorkspaceId: existing.currentWorkspaceId,
+      identityChanged,
+    }),
+  }
+  if (identityChanged && !opts.workspaceId && existing.currentWorkspaceId) {
+    process.stderr.write(
+      "Account/environment changed; re-selecting workspace.\n"
+    )
   }
   const envEncryptionKey = process.env.CLOUDCRUISE_ENCRYPTION_KEY
   if (opts.encryptionKey || envEncryptionKey) {

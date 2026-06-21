@@ -3,6 +3,7 @@ import assert from "node:assert/strict"
 import {
   decideWorkspaceSelection,
   needsWorkspaceDiscovery,
+  resolveLoginWorkspaceId,
   summarizeWorkspace,
   type WorkspaceChoice,
 } from "../dist/src/core/workspaces.js"
@@ -58,4 +59,50 @@ test("workspace selection keeps the prompt path for multiple interactive workspa
 test("workspace discovery is skipped when login receives an explicit workspace", () => {
   assert.equal(needsWorkspaceDiscovery("ws-explicit"), false)
   assert.equal(needsWorkspaceDiscovery(undefined), true)
+})
+
+test("login workspace resolution prefers an explicit workspace regardless of identity change", () => {
+  assert.equal(
+    resolveLoginWorkspaceId({
+      explicitWorkspaceId: "ws-explicit",
+      existingWorkspaceId: "ws-old",
+      identityChanged: true,
+    }),
+    "ws-explicit"
+  )
+  assert.equal(
+    resolveLoginWorkspaceId({
+      explicitWorkspaceId: "ws-explicit",
+      existingWorkspaceId: "ws-old",
+      identityChanged: false,
+    }),
+    "ws-explicit"
+  )
+})
+
+test("login workspace resolution keeps the existing workspace for the same identity", () => {
+  assert.equal(
+    resolveLoginWorkspaceId({
+      existingWorkspaceId: "ws-old",
+      identityChanged: false,
+    }),
+    "ws-old"
+  )
+})
+
+test("login workspace resolution drops the inherited workspace when identity changed", () => {
+  assert.equal(
+    resolveLoginWorkspaceId({
+      existingWorkspaceId: "ws-old",
+      identityChanged: true,
+    }),
+    undefined
+  )
+})
+
+test("login workspace resolution returns undefined when there is no existing workspace", () => {
+  assert.equal(
+    resolveLoginWorkspaceId({ identityChanged: false }),
+    undefined
+  )
 })
