@@ -101,10 +101,10 @@ export function needsWorkspaceDiscovery(currentWorkspaceId?: string): boolean {
 export function resolveLoginWorkspaceId(opts: {
   explicitWorkspaceId?: string
   existingWorkspaceId?: string
-  identityChanged: boolean
+  sameAccount: boolean
 }): string | undefined {
   if (opts.explicitWorkspaceId) return opts.explicitWorkspaceId
-  if (opts.identityChanged) return undefined
+  if (!opts.sameAccount) return undefined
   return opts.existingWorkspaceId
 }
 

@@ -61,12 +61,12 @@ test("workspace discovery is skipped when login receives an explicit workspace",
   assert.equal(needsWorkspaceDiscovery(undefined), true)
 })
 
-test("login workspace resolution prefers an explicit workspace regardless of identity change", () => {
+test("login workspace resolution prefers an explicit workspace regardless of account match", () => {
   assert.equal(
     resolveLoginWorkspaceId({
       explicitWorkspaceId: "ws-explicit",
       existingWorkspaceId: "ws-old",
-      identityChanged: true,
+      sameAccount: false,
     }),
     "ws-explicit"
   )
@@ -74,27 +74,27 @@ test("login workspace resolution prefers an explicit workspace regardless of ide
     resolveLoginWorkspaceId({
       explicitWorkspaceId: "ws-explicit",
       existingWorkspaceId: "ws-old",
-      identityChanged: false,
+      sameAccount: true,
     }),
     "ws-explicit"
   )
 })
 
-test("login workspace resolution keeps the existing workspace for the same identity", () => {
+test("login workspace resolution keeps the existing workspace only for a confirmed same account", () => {
   assert.equal(
     resolveLoginWorkspaceId({
       existingWorkspaceId: "ws-old",
-      identityChanged: false,
+      sameAccount: true,
     }),
     "ws-old"
   )
 })
 
-test("login workspace resolution drops the inherited workspace when identity changed", () => {
+test("login workspace resolution drops the inherited workspace when the account is not confirmed", () => {
   assert.equal(
     resolveLoginWorkspaceId({
       existingWorkspaceId: "ws-old",
-      identityChanged: true,
+      sameAccount: false,
     }),
     undefined
   )
@@ -102,7 +102,7 @@ test("login workspace resolution drops the inherited workspace when identity cha
 
 test("login workspace resolution returns undefined when there is no existing workspace", () => {
   assert.equal(
-    resolveLoginWorkspaceId({ identityChanged: false }),
+    resolveLoginWorkspaceId({ sameAccount: true }),
     undefined
   )
 })

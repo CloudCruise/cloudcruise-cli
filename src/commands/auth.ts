@@ -259,16 +259,17 @@ async function performOAuthLogin(opts: LoginOptions): Promise<void> {
       ? new Date(tokens.expiresAt).toISOString()
       : undefined
 
-  // A different account or environment on the same profile means the saved
-  // workspace can't be trusted for the new login. Drop it (unless an explicit
-  // --workspace-id was passed) so discovery re-runs instead of silently
-  // targeting a workspace the new identity may not own.
-  const identityChanged =
-    (Boolean(existing.accountId) &&
-      typeof claims.sub === "string" &&
-      existing.accountId !== claims.sub) ||
-    (Boolean(existing.environment) &&
-      existing.environment !== settings.environment)
+  // Only inherit the saved workspace when we can positively confirm the new
+  // token is the SAME account in the SAME environment the workspace was saved
+  // for. Missing prior identity metadata (legacy api-key/older profiles) counts
+  // as "not confirmed" -> drop the workspace (unless an explicit --workspace-id
+  // was passed) so discovery re-runs instead of silently targeting a workspace
+  // the new identity may not own.
+  const sameAccount =
+    Boolean(existing.accountId) &&
+    typeof claims.sub === "string" &&
+    existing.accountId === claims.sub &&
+    existing.environment === settings.environment
 
   let profile: ProfileConfig = {
     ...existing,
@@ -291,12 +292,12 @@ async function performOAuthLogin(opts: LoginOptions): Promise<void> {
     currentWorkspaceId: resolveLoginWorkspaceId({
       explicitWorkspaceId: opts.workspaceId,
       existingWorkspaceId: existing.currentWorkspaceId,
-      identityChanged,
+      sameAccount,
     }),
   }
-  if (identityChanged && !opts.workspaceId && existing.currentWorkspaceId) {
+  if (!sameAccount && !opts.workspaceId && existing.currentWorkspaceId) {
     process.stderr.write(
-      "Account/environment changed; re-selecting workspace.\n"
+      "Saved workspace could not be confirmed for this account; re-selecting workspace.\n"
     )
   }
   const envEncryptionKey = process.env.CLOUDCRUISE_ENCRYPTION_KEY
