@@ -6,10 +6,10 @@ Command-line tool for managing CloudCruise workflows and runs. All output is JSO
 
 ```bash
 npm install -g @cloudcruise/cli
-cloudcruise auth login --api-key "sk_..."
+cloudcruise login
 ```
 
-Or set `CLOUDCRUISE_API_KEY` environment variable.
+`cloudcruise login` is the primary authentication path. It uses browser OAuth, saves tokens to the OS keychain, and sets up the active workspace when possible. For CI or other non-interactive use, set `CLOUDCRUISE_TOKEN`; legacy API-key auth is still supported with `CLOUDCRUISE_API_KEY` for individual commands.
 
 ### Install Skills for Coding Agents
 
@@ -26,13 +26,20 @@ cloudcruise install --skills --target cursor   # Cursor only (.cursor/rules/clou
 ### Auth
 
 ```bash
-cloudcruise auth login --api-key "sk_..." --encryption-key "hex..."  # Save credentials + vault key
-cloudcruise auth login --api-key "sk_..."                            # Save credentials (no vault key)
-cloudcruise auth login --encryption-key "hex..." --profile <name>    # Add vault key to existing profile
+cloudcruise login                            # Primary browser OAuth login
+cloudcruise login --profile <name>           # Log in to a named auth profile
+cloudcruise login --workspace-id <id>         # Save an active workspace on the profile
 cloudcruise auth status                      # Check auth (masked key, source)
 cloudcruise auth switch <profile>            # Set the active auth profile
 cloudcruise auth profiles                    # List all auth profiles
 cloudcruise auth logout                      # Remove saved credentials
+```
+
+For legacy API-key setup, avoid passing secrets as command-line arguments. Use stdin for a stored profile, or set `CLOUDCRUISE_API_KEY` for one-off command execution:
+
+```bash
+printf '%s' "$CLOUDCRUISE_API_KEY" | cloudcruise auth login --api-key-stdin
+CLOUDCRUISE_API_KEY="sk_..." cloudcruise workflows list
 ```
 
 ### Workspaces
