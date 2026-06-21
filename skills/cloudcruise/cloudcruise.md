@@ -367,15 +367,19 @@ If `snapshot fetch` reports no HTML, the run was not `--debug`. Re-run with `--d
 
 The vault stores encrypted credentials to be used in workflows. Three fields are encrypted client-side: `user_name`, `password`, `tfa_secret`. The CLI handles encryption/decryption automatically.
 
-**Encryption key setup** -- required for vault create, update, get --decrypt, encrypt, and decrypt:
+**Encryption key setup** -- required for vault create, update, get --decrypt, encrypt, and decrypt. `cloudcruise login` does NOT fetch the key automatically (it is a client-side key the server never hands out); you must supply it yourself:
 
 ```bash
-cloudcruise auth login --api-key "sk_..." --encryption-key "hex..."
-# Or set CLOUDCRUISE_ENCRYPTION_KEY environment variable
-# Or pass --encryption-key on each command
+# Recommended: store on a profile via stdin (kept in the OS keychain)
+printf '%s' "<64-hex-key>" | cloudcruise login --encryption-key-stdin
+
+# Or set it per-session via environment variable
+export CLOUDCRUISE_ENCRYPTION_KEY="<64-hex-key>"
 ```
 
 The encryption key is a 64-character hex string (256-bit AES key) from [workspace settings](https://app.cloudcruise.com/settings/encryption-keys).
+
+Raw `--encryption-key <hex>` and `--api-key <key>` flags are **rejected by default** to keep secrets out of shell history and `ps` output. Use `--encryption-key-stdin` (or the env var) instead; set `CLOUDCRUISE_ALLOW_ARG_SECRETS=true` only for local testing.
 
 **Two paths for create/update:**
 
