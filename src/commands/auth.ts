@@ -22,6 +22,7 @@ import {
   saveEncryptionKey,
   saveApiKey,
   tokenAccountForProfile,
+  type OAuthTokens,
 } from "../core/credential-store.js"
 import {
   buildAuthorizeUrl,
@@ -111,6 +112,16 @@ function saveProfileApiKey(profileName: string, profile: ProfileConfig, apiKey: 
 function loadStoredEncryptionKey(profileName: string, profile: ProfileConfig): string | null {
   if (!profile.encryptionKeyAccount) return null
   return loadEncryptionKey(profile.encryptionKeyAccount)
+}
+
+function loadOAuthTokensForProfileList(
+  account: string
+): { tokens: OAuthTokens | null; unavailable: boolean } {
+  try {
+    return { tokens: loadOAuthTokens(account), unavailable: false }
+  } catch {
+    return { tokens: null, unavailable: true }
+  }
 }
 
 function saveProfileEncryptionKey(
@@ -737,10 +748,13 @@ export function registerAuthCommands(program: Command): void {
           const p = migrateProfileSecrets(name, loadProfile(name))
           const apiKey =
             p.authType === "api_key" ? loadStoredApiKey(name, p) : null
-          const oauthTokens =
+          const oauthLookup =
             p.authType === "oauth"
-              ? loadOAuthTokens(p.tokenAccount ?? tokenAccountForProfile(name))
-              : null
+              ? loadOAuthTokensForProfileList(
+                  p.tokenAccount ?? tokenAccountForProfile(name)
+                )
+              : { tokens: null, unavailable: false }
+          const oauthTokens = oauthLookup.tokens
           const encryptionKey = loadStoredEncryptionKey(name, p)
           return {
             name,
@@ -752,7 +766,13 @@ export function registerAuthCommands(program: Command): void {
                   ? "api_key"
                   : "none",
             credential_status:
-              p.authType === "oauth" ? (oauthTokens ? "present" : "missing") : null,
+              p.authType === "oauth"
+                ? oauthLookup.unavailable
+                  ? "unavailable"
+                  : oauthTokens
+                    ? "present"
+                    : "missing"
+                : null,
             account: p.accountEmail ?? p.accountId ?? null,
             environment: p.environment ?? null,
             workspace_id: p.currentWorkspaceId ?? null,
@@ -761,6 +781,8 @@ export function registerAuthCommands(program: Command): void {
                 ? new Date(oauthTokens.expiresAt).toISOString()
                 : oauthTokens
                   ? p.tokenExpiresAt ?? null
+                  : oauthLookup.unavailable
+                    ? p.tokenExpiresAt ?? null
                   : null,
             api_key: apiKey ? maskKey(apiKey) : null,
             encryption_key: encryptionKey ? maskKey(encryptionKey) : null,
