@@ -144,6 +144,19 @@ export function tokenResponseToStoredTokens(
   };
 }
 
+export function mergeRefreshedOAuthTokens(
+  current: OAuthTokens,
+  response: OAuthTokenResponse,
+): OAuthTokens {
+  const refreshed = tokenResponseToStoredTokens(response);
+  const merged: OAuthTokens = { ...current, accessToken: refreshed.accessToken };
+  if (refreshed.refreshToken !== undefined) merged.refreshToken = refreshed.refreshToken;
+  if (refreshed.expiresAt !== undefined) merged.expiresAt = refreshed.expiresAt;
+  if (refreshed.tokenType !== undefined) merged.tokenType = refreshed.tokenType;
+  if (refreshed.scope !== undefined) merged.scope = refreshed.scope;
+  return merged;
+}
+
 export function decodeAccessToken(token: string): DecodedAccessToken {
   const [, payload] = token.split(".");
   if (!payload) return {};

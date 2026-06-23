@@ -534,7 +534,15 @@ function profileStatus(profileName: string, opts: LoginOptions) {
     token_expires_at:
       oauthTokens?.expiresAt !== undefined
         ? new Date(oauthTokens.expiresAt).toISOString()
-        : profile.tokenExpiresAt ?? null,
+        : oauthTokens
+          ? profile.tokenExpiresAt ?? null
+          : null,
+    credential_status:
+      profile.authType === "oauth" && !envToken
+        ? oauthTokens
+          ? "present"
+          : "missing"
+        : null,
     scope: oauthTokens?.scope ?? profile.scope ?? null,
     api_key: apiKey ? maskKey(apiKey) : null,
     encryption_key: encKey ? maskKey(encKey) : null,
@@ -729,15 +737,26 @@ export function registerAuthCommands(program: Command): void {
           const p = migrateProfileSecrets(name, loadProfile(name))
           const apiKey =
             p.authType === "api_key" ? loadStoredApiKey(name, p) : null
+          const oauthTokens =
+            p.authType === "oauth"
+              ? loadOAuthTokens(p.tokenAccount ?? tokenAccountForProfile(name))
+              : null
           const encryptionKey = loadStoredEncryptionKey(name, p)
           return {
             name,
             active: name === active,
-            auth_type: p.authType ?? (apiKey ? "api_key" : "none"),
+            auth_type: oauthTokens ? "oauth" : apiKey ? "api_key" : "none",
+            credential_status:
+              p.authType === "oauth" ? (oauthTokens ? "present" : "missing") : null,
             account: p.accountEmail ?? p.accountId ?? null,
             environment: p.environment ?? null,
             workspace_id: p.currentWorkspaceId ?? null,
-            token_expires_at: p.tokenExpiresAt ?? null,
+            token_expires_at:
+              oauthTokens?.expiresAt !== undefined
+                ? new Date(oauthTokens.expiresAt).toISOString()
+                : oauthTokens
+                  ? p.tokenExpiresAt ?? null
+                  : null,
             api_key: apiKey ? maskKey(apiKey) : null,
             encryption_key: encryptionKey ? maskKey(encryptionKey) : null,
             base_url: p.baseUrl ?? null,
