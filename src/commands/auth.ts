@@ -745,7 +745,12 @@ export function registerAuthCommands(program: Command): void {
           return {
             name,
             active: name === active,
-            auth_type: oauthTokens ? "oauth" : apiKey ? "api_key" : "none",
+            auth_type:
+              p.authType === "oauth"
+                ? "oauth"
+                : apiKey
+                  ? "api_key"
+                  : "none",
             credential_status:
               p.authType === "oauth" ? (oauthTokens ? "present" : "missing") : null,
             account: p.accountEmail ?? p.accountId ?? null,

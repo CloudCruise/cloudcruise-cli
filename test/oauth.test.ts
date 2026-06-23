@@ -128,6 +128,23 @@ test("mergeRefreshedOAuthTokens stores rotated refresh token", () => {
   assert.equal(merged.refreshToken, "new-refresh")
 })
 
+test("mergeRefreshedOAuthTokens clears stale expiry when response omits expires_in", () => {
+  const merged = mergeRefreshedOAuthTokens(
+    {
+      accessToken: "old-access",
+      refreshToken: "old-refresh",
+      expiresAt: Date.now() - 1,
+    },
+    {
+      access_token: "new-access",
+    },
+  )
+
+  assert.equal(merged.accessToken, "new-access")
+  assert.equal(merged.refreshToken, "old-refresh")
+  assert.equal(merged.expiresAt, undefined)
+})
+
 // ---- resolveOAuthSettings: anon-key resolution -----------------------------
 
 test("resolveOAuthSettings uses the built-in anon key for the prod issuer", () => {

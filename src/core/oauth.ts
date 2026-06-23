@@ -151,7 +151,11 @@ export function mergeRefreshedOAuthTokens(
   const refreshed = tokenResponseToStoredTokens(response);
   const merged: OAuthTokens = { ...current, accessToken: refreshed.accessToken };
   if (refreshed.refreshToken !== undefined) merged.refreshToken = refreshed.refreshToken;
-  if (refreshed.expiresAt !== undefined) merged.expiresAt = refreshed.expiresAt;
+  if (refreshed.expiresAt !== undefined) {
+    merged.expiresAt = refreshed.expiresAt;
+  } else {
+    delete merged.expiresAt;
+  }
   if (refreshed.tokenType !== undefined) merged.tokenType = refreshed.tokenType;
   if (refreshed.scope !== undefined) merged.scope = refreshed.scope;
   return merged;
