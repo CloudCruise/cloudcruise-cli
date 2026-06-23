@@ -171,9 +171,6 @@ export function registerBuilderCommands(program: Command): void {
         }
 
         const startUrl = normalizeUrl(opts.startUrl, "--start-url")
-        const normalizedVaultDomain = vaultDomain
-          ? normalizeUrl(vaultDomain, "--vault-domain")
-          : undefined
         const auth = await resolveAuth(opts)
         const client = new ApiClient(auth)
 
@@ -183,7 +180,11 @@ export function registerBuilderCommands(program: Command): void {
         }
         if (opts.description) body.description = opts.description
         if (vaultUserId) body.permissionedUserId = vaultUserId
-        if (normalizedVaultDomain) body.authUrl = normalizedVaultDomain
+        // Send the vault domain verbatim. The vault stores it exactly as
+        // registered (the `vault` commands do no normalization) and the
+        // credential lookup is an exact-string match, so normalizing here
+        // (e.g. URL.href appending a trailing slash) would break matching.
+        if (vaultDomain) body.authUrl = vaultDomain
         if (opts.proxy) body.proxySetting = opts.proxy
         if (opts.proxyValue) body.proxyValue = opts.proxyValue
         if (opts.inputSchema) body.inputSchema = JSON.parse(opts.inputSchema)
