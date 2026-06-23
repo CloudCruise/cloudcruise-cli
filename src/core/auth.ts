@@ -11,8 +11,8 @@ import {
   tokenAccountForProfile
 } from "./credential-store.js";
 import {
+  mergeRefreshedOAuthTokens,
   refreshOAuthToken,
-  tokenResponseToStoredTokens
 } from "./oauth.js";
 import { enforceNoArgSecrets } from "./secret-args.js";
 
@@ -181,12 +181,7 @@ export async function resolveAuth(options: {
           throw err;
         }
       }
-      const refreshed = tokenResponseToStoredTokens(refreshedResponse);
-      const merged = {
-        ...tokens,
-        ...refreshed,
-        refreshToken: refreshed.refreshToken ?? tokens.refreshToken,
-      };
+      const merged = mergeRefreshedOAuthTokens(tokens, refreshedResponse);
       saveOAuthTokens(account, merged);
       if (profile.tokenEndpointAuthMethod !== refreshedMethod) {
         profile.tokenEndpointAuthMethod = refreshedMethod;

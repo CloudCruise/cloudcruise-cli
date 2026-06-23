@@ -4,6 +4,7 @@ import { createServer } from "node:net"
 import {
   resolveOAuthSettings,
   decodeAccessToken,
+  mergeRefreshedOAuthTokens,
   fetchMfaFactors,
   challengeMfaFactor,
   verifyMfaChallenge,
@@ -87,6 +88,61 @@ test("decodeAccessToken returns the JWT payload claims", () => {
 
 test("decodeAccessToken returns {} for a malformed token", () => {
   assert.deepEqual(decodeAccessToken("not-a-jwt"), {})
+})
+
+test("mergeRefreshedOAuthTokens preserves refresh token when response omits one", () => {
+  const current = {
+    accessToken: "old-access",
+    refreshToken: "existing-refresh",
+    expiresAt: Date.now() - 1,
+    tokenType: "bearer",
+    scope: "email",
+  }
+
+  const merged = mergeRefreshedOAuthTokens(current, {
+    access_token: "new-access",
+    expires_in: 3600,
+    token_type: "bearer",
+  })
+
+  assert.equal(merged.accessToken, "new-access")
+  assert.equal(merged.refreshToken, "existing-refresh")
+  assert.equal(merged.tokenType, "bearer")
+  assert.equal(merged.scope, "email")
+  assert.ok((merged.expiresAt ?? 0) > Date.now())
+})
+
+test("mergeRefreshedOAuthTokens stores rotated refresh token", () => {
+  const merged = mergeRefreshedOAuthTokens(
+    {
+      accessToken: "old-access",
+      refreshToken: "old-refresh",
+    },
+    {
+      access_token: "new-access",
+      refresh_token: "new-refresh",
+    },
+  )
+
+  assert.equal(merged.accessToken, "new-access")
+  assert.equal(merged.refreshToken, "new-refresh")
+})
+
+test("mergeRefreshedOAuthTokens clears stale expiry when response omits expires_in", () => {
+  const merged = mergeRefreshedOAuthTokens(
+    {
+      accessToken: "old-access",
+      refreshToken: "old-refresh",
+      expiresAt: Date.now() - 1,
+    },
+    {
+      access_token: "new-access",
+    },
+  )
+
+  assert.equal(merged.accessToken, "new-access")
+  assert.equal(merged.refreshToken, "old-refresh")
+  assert.equal(merged.expiresAt, undefined)
 })
 
 // ---- resolveOAuthSettings: anon-key resolution -----------------------------

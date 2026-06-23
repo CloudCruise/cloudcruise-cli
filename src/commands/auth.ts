@@ -22,6 +22,7 @@ import {
   saveEncryptionKey,
   saveApiKey,
   tokenAccountForProfile,
+  type OAuthTokens,
 } from "../core/credential-store.js"
 import {
   buildAuthorizeUrl,
@@ -111,6 +112,16 @@ function saveProfileApiKey(profileName: string, profile: ProfileConfig, apiKey: 
 function loadStoredEncryptionKey(profileName: string, profile: ProfileConfig): string | null {
   if (!profile.encryptionKeyAccount) return null
   return loadEncryptionKey(profile.encryptionKeyAccount)
+}
+
+function loadOAuthTokensForProfileList(
+  account: string
+): { tokens: OAuthTokens | null; unavailable: boolean } {
+  try {
+    return { tokens: loadOAuthTokens(account), unavailable: false }
+  } catch {
+    return { tokens: null, unavailable: true }
+  }
 }
 
 function saveProfileEncryptionKey(
@@ -534,7 +545,15 @@ function profileStatus(profileName: string, opts: LoginOptions) {
     token_expires_at:
       oauthTokens?.expiresAt !== undefined
         ? new Date(oauthTokens.expiresAt).toISOString()
-        : profile.tokenExpiresAt ?? null,
+        : oauthTokens
+          ? profile.tokenExpiresAt ?? null
+          : null,
+    credential_status:
+      profile.authType === "oauth" && !envToken
+        ? oauthTokens
+          ? "present"
+          : "missing"
+        : null,
     scope: oauthTokens?.scope ?? profile.scope ?? null,
     api_key: apiKey ? maskKey(apiKey) : null,
     encryption_key: encKey ? maskKey(encKey) : null,
@@ -729,15 +748,42 @@ export function registerAuthCommands(program: Command): void {
           const p = migrateProfileSecrets(name, loadProfile(name))
           const apiKey =
             p.authType === "api_key" ? loadStoredApiKey(name, p) : null
+          const oauthLookup =
+            p.authType === "oauth"
+              ? loadOAuthTokensForProfileList(
+                  p.tokenAccount ?? tokenAccountForProfile(name)
+                )
+              : { tokens: null, unavailable: false }
+          const oauthTokens = oauthLookup.tokens
           const encryptionKey = loadStoredEncryptionKey(name, p)
           return {
             name,
             active: name === active,
-            auth_type: p.authType ?? (apiKey ? "api_key" : "none"),
+            auth_type:
+              p.authType === "oauth"
+                ? "oauth"
+                : apiKey
+                  ? "api_key"
+                  : "none",
+            credential_status:
+              p.authType === "oauth"
+                ? oauthLookup.unavailable
+                  ? "unavailable"
+                  : oauthTokens
+                    ? "present"
+                    : "missing"
+                : null,
             account: p.accountEmail ?? p.accountId ?? null,
             environment: p.environment ?? null,
             workspace_id: p.currentWorkspaceId ?? null,
-            token_expires_at: p.tokenExpiresAt ?? null,
+            token_expires_at:
+              oauthTokens?.expiresAt !== undefined
+                ? new Date(oauthTokens.expiresAt).toISOString()
+                : oauthTokens
+                  ? p.tokenExpiresAt ?? null
+                  : oauthLookup.unavailable
+                    ? p.tokenExpiresAt ?? null
+                  : null,
             api_key: apiKey ? maskKey(apiKey) : null,
             encryption_key: encryptionKey ? maskKey(encryptionKey) : null,
             base_url: p.baseUrl ?? null,
