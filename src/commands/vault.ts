@@ -151,15 +151,21 @@ function buildPayloadFromFlags(opts: {
 function requiresEncryptionKeyForFlags(opts: {
   userName?: string
   password?: string
+  passwordStdin?: boolean
   tfaSecret?: string
+  tfaSecretStdin?: boolean
   proxy?: string
   proxyValue?: string
+  proxyValueStdin?: boolean
 }): boolean {
   return Boolean(
     opts.userName !== undefined ||
       opts.password !== undefined ||
+      opts.passwordStdin ||
       opts.tfaSecret !== undefined ||
-      (isCustomProxy(opts.proxy) && opts.proxyValue !== undefined)
+      opts.tfaSecretStdin ||
+      (isCustomProxy(opts.proxy) &&
+        (opts.proxyValue !== undefined || opts.proxyValueStdin))
   )
 }
 
@@ -353,10 +359,11 @@ Examples:
         if (!opts.stdin && !opts.file) {
           await applySecretStdinOptions(opts)
         }
+        const needsEncryptionKey =
+          !opts.stdin && !opts.file && requiresEncryptionKeyForFlags(opts)
         const auth = await resolveAuth({
           ...opts,
-          requireEncryptionKey:
-            !opts.stdin && !opts.file && requiresEncryptionKeyForFlags(opts),
+          requireEncryptionKey: needsEncryptionKey,
         })
         const client = new ApiClient(auth)
         let payload: Record<string, unknown>
@@ -371,15 +378,15 @@ Examples:
               "Provide --user-id and --domain, or use --file/--stdin"
             )
           }
-          const key = requireEncryptionKey(auth)
-          validateHexKey(key)
-          payload = encryptFields(
-            buildPayloadFromFlags(
-              opts as Required<Pick<typeof opts, "userId" | "domain">> &
-                typeof opts
-            ),
-            key
+          payload = buildPayloadFromFlags(
+            opts as Required<Pick<typeof opts, "userId" | "domain">> &
+              typeof opts
           )
+          if (needsEncryptionKey) {
+            const key = requireEncryptionKey(auth)
+            validateHexKey(key)
+            payload = encryptFields(payload, key)
+          }
         }
 
         const data = await client.post<VaultEntry>("/vault", payload)
@@ -449,10 +456,11 @@ Examples:
         if (!opts.stdin && !opts.file) {
           await applySecretStdinOptions(opts)
         }
+        const needsEncryptionKey =
+          !opts.stdin && !opts.file && requiresEncryptionKeyForFlags(opts)
         const auth = await resolveAuth({
           ...opts,
-          requireEncryptionKey:
-            !opts.stdin && !opts.file && requiresEncryptionKeyForFlags(opts),
+          requireEncryptionKey: needsEncryptionKey,
         })
         const client = new ApiClient(auth)
         let payload: Record<string, unknown>
@@ -467,15 +475,15 @@ Examples:
               "Provide --user-id and --domain, or use --file/--stdin"
             )
           }
-          const key = requireEncryptionKey(auth)
-          validateHexKey(key)
-          payload = encryptFields(
-            buildPayloadFromFlags(
-              opts as Required<Pick<typeof opts, "userId" | "domain">> &
-                typeof opts
-            ),
-            key
+          payload = buildPayloadFromFlags(
+            opts as Required<Pick<typeof opts, "userId" | "domain">> &
+              typeof opts
           )
+          if (needsEncryptionKey) {
+            const key = requireEncryptionKey(auth)
+            validateHexKey(key)
+            payload = encryptFields(payload, key)
+          }
         }
 
         const data = await client.put<VaultEntry>("/vault", payload)
