@@ -12,6 +12,7 @@ import { registerInstallCommands } from "../src/commands/install.js"
 import { registerUtilsCommands } from "../src/commands/utils.js"
 import { registerSnapshotCommands } from "../src/commands/snapshot.js"
 import { registerVaultCommands } from "../src/commands/vault.js"
+import { registerSecretProviderCommands } from "../src/commands/secret-providers.js"
 import { registerBuilderCommands } from "../src/commands/builder.js"
 import { registerWorkspaceCommands } from "../src/commands/workspaces.js"
 
@@ -38,6 +39,7 @@ registerBuilderCommands(program)
 registerInstallCommands(program)
 registerUtilsCommands(program)
 registerSnapshotCommands(program)
+registerSecretProviderCommands(program)
 registerVaultCommands(program)
 
 program.parse()
