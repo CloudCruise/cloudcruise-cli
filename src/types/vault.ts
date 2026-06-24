@@ -4,6 +4,9 @@ export interface VaultEntry {
   domain: string
   user_name: string | null
   password: string | null
+  secret_provider_id: string | null
+  secret_ref: string | null
+  secret_cache_ttl_seconds: number | null
   user_alias: string | null
   tfa_secret: string | null
   tfa_method: "AUTHENTICATOR" | "EMAIL" | "SMS" | null
@@ -41,6 +44,9 @@ export interface VaultEntryPayload {
   domain: string
   user_name?: string
   password?: string
+  secret_provider_id?: string
+  secret_ref?: string
+  secret_cache_ttl_seconds?: number
   user_alias?: string
   tfa_secret?: string
   tfa_method?: "AUTHENTICATOR" | "EMAIL" | "SMS"

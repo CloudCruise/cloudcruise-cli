@@ -109,10 +109,12 @@ cloudcruise snapshot test '//input[@name="email"]' --file ./snapshots/page.html
 | `snapshot test <xpath> [sid] [nid]` | Test XPath against snapshot (`--file`, `--count`) |
 | `vault list` | List vault entries (`--full`) |
 | `vault get` | Get vault entry (`--user-id`, `--domain`, `--decrypt`) |
-| `vault create` | Create vault entry (`--user-id`, `--domain`, `--user-name`, `--password`) |
-| `vault update` | Update vault entry fields |
+| `vault create` | Create vault entry (`--user-id`, `--domain`, `--user-name`, `--password`, `--secret-provider-id`, `--secret-ref`) |
+| `vault update` | Update vault entry fields, including provider-backed bindings |
 | `vault clear-state` | Clear browser state for a credential |
 | `vault encrypt` / `decrypt` | Encrypt or decrypt values locally |
+| `secret-providers list` | List secret-provider connections |
+| `secret-providers items <provider-id>` | List items visible to a secret-provider connection |
 | `builder start` | Start builder session (`--start-url`, `--name`, `--vault-user-id`) |
 | `builder send <message>` | Send instruction to builder agent |
 | `builder poll` | Check agent status and new messages |

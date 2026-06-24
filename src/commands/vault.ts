@@ -93,6 +93,9 @@ function buildPayloadFromFlags(opts: {
   proxyIp?: string
   proxy?: string
   proxyValue?: string
+  secretProviderId?: string
+  secretRef?: string
+  secretCacheTtlSeconds?: string
 }): Record<string, unknown> {
   const payload: Record<string, unknown> = {
     permissioned_user_id: opts.userId,
@@ -103,6 +106,30 @@ function buildPayloadFromFlags(opts: {
   if (opts.userAlias !== undefined) payload.user_alias = opts.userAlias
   if (opts.tfaSecret !== undefined) payload.tfa_secret = opts.tfaSecret
   if (opts.tfaMethod !== undefined) payload.tfa_method = opts.tfaMethod
+  if (opts.secretProviderId !== undefined) {
+    if (!opts.secretRef) {
+      throw new Error("--secret-provider-id requires --secret-ref")
+    }
+    payload.secret_provider_id = opts.secretProviderId
+  }
+  if (opts.secretRef !== undefined) {
+    if (!opts.secretProviderId) {
+      throw new Error("--secret-ref requires --secret-provider-id")
+    }
+    payload.secret_ref = opts.secretRef
+  }
+  if (opts.secretCacheTtlSeconds !== undefined) {
+    if (!opts.secretProviderId || !opts.secretRef) {
+      throw new Error(
+        "--secret-cache-ttl-seconds requires --secret-provider-id and --secret-ref"
+      )
+    }
+    const ttl = Number(opts.secretCacheTtlSeconds)
+    if (!Number.isInteger(ttl) || ttl < 0) {
+      throw new Error("--secret-cache-ttl-seconds must be a non-negative integer")
+    }
+    payload.secret_cache_ttl_seconds = ttl
+  }
   if (opts.proxy !== undefined) {
     if (!PROXY_SETTINGS.includes(opts.proxy as (typeof PROXY_SETTINGS)[number])) {
       throw new Error(
@@ -119,6 +146,21 @@ function buildPayloadFromFlags(opts: {
     }
   }
   return payload
+}
+
+function requiresEncryptionKeyForFlags(opts: {
+  userName?: string
+  password?: string
+  tfaSecret?: string
+  proxy?: string
+  proxyValue?: string
+}): boolean {
+  return Boolean(
+    opts.userName !== undefined ||
+      opts.password !== undefined ||
+      opts.tfaSecret !== undefined ||
+      (isCustomProxy(opts.proxy) && opts.proxyValue !== undefined)
+  )
 }
 
 async function applySecretStdinOptions(opts: {
@@ -196,6 +238,7 @@ Examples:
           id: e.id,
           permissioned_user_id: e.permissioned_user_id,
           domain: e.domain,
+          secret_provider_id: e.secret_provider_id,
           user_alias: e.user_alias,
           created_at: e.created_at,
         }))
@@ -266,6 +309,9 @@ Examples:
       .option("--tfa-secret <secret>", "TOTP secret in base32 (plaintext, will be encrypted). Visible in ps output; prefer --tfa-secret-stdin")
       .option("--tfa-secret-stdin", "Read plaintext TOTP secret from stdin")
       .option("--tfa-method <method>", "TFA method: AUTHENTICATOR, EMAIL, or SMS")
+      .option("--secret-provider-id <id>", "Secret-provider connection ID for provider-backed credentials")
+      .option("--secret-ref <ref>", "Secret-provider item reference, for example op://vaultId/itemId")
+      .option("--secret-cache-ttl-seconds <seconds>", "Override provider cache TTL for this credential")
       .option("--proxy-enable", "Enable proxy for this entry")
       .option("--proxy-ip <ip>", "Target IP for proxy assignment")
       .option("--proxy <setting>", "Proxy setting: random, static, country, or custom")
@@ -276,6 +322,7 @@ Examples:
   ).addHelpText("after", `
 Examples:
   $ cloudcruise vault create --user-id f47ac10b-... --domain "https://app.example.com" --user-name "user@example.com" --password "s3cret"
+  $ cloudcruise vault create --user-id acme-prod --domain "https://acme.com" --secret-provider-id 25290e80-bbd5-41b3-861e-dea30cc26e27 --secret-ref "op://vaultId/itemId"
   $ cloudcruise vault create --file payload.json
   $ cat payload.json | cloudcruise vault create --stdin
 `).action(
@@ -290,6 +337,9 @@ Examples:
         tfaSecret?: string
         tfaSecretStdin?: boolean
         tfaMethod?: string
+        secretProviderId?: string
+        secretRef?: string
+        secretCacheTtlSeconds?: string
         proxyEnable?: boolean
         proxyIp?: string
         proxy?: string
@@ -305,7 +355,8 @@ Examples:
         }
         const auth = await resolveAuth({
           ...opts,
-          requireEncryptionKey: !opts.stdin && !opts.file,
+          requireEncryptionKey:
+            !opts.stdin && !opts.file && requiresEncryptionKeyForFlags(opts),
         })
         const client = new ApiClient(auth)
         let payload: Record<string, unknown>
@@ -354,6 +405,9 @@ Examples:
       .option("--tfa-secret <secret>", "TOTP secret in base32 (plaintext, will be encrypted). Visible in ps output; prefer --tfa-secret-stdin")
       .option("--tfa-secret-stdin", "Read plaintext TOTP secret from stdin")
       .option("--tfa-method <method>", "TFA method: AUTHENTICATOR, EMAIL, or SMS")
+      .option("--secret-provider-id <id>", "Secret-provider connection ID for provider-backed credentials")
+      .option("--secret-ref <ref>", "Secret-provider item reference, for example op://vaultId/itemId")
+      .option("--secret-cache-ttl-seconds <seconds>", "Override provider cache TTL for this credential")
       .option("--proxy-enable", "Enable proxy for this entry")
       .option("--proxy-ip <ip>", "Target IP for proxy assignment")
       .option("--proxy <setting>", "Proxy setting: random, static, country, or custom")
@@ -364,6 +418,7 @@ Examples:
   ).addHelpText("after", `
 Examples:
   $ cloudcruise vault update --user-id f47ac10b-... --domain "https://app.example.com" --password "new_pass"
+  $ cloudcruise vault update --user-id acme-prod --domain "https://acme.com" --secret-provider-id 25290e80-bbd5-41b3-861e-dea30cc26e27 --secret-ref "op://vaultId/itemId"
   $ cloudcruise vault update --file payload.json
   $ cat payload.json | cloudcruise vault update --stdin
 `).action(
@@ -378,6 +433,9 @@ Examples:
         tfaSecret?: string
         tfaSecretStdin?: boolean
         tfaMethod?: string
+        secretProviderId?: string
+        secretRef?: string
+        secretCacheTtlSeconds?: string
         proxyEnable?: boolean
         proxyIp?: string
         proxy?: string
@@ -393,7 +451,8 @@ Examples:
         }
         const auth = await resolveAuth({
           ...opts,
-          requireEncryptionKey: !opts.stdin && !opts.file,
+          requireEncryptionKey:
+            !opts.stdin && !opts.file && requiresEncryptionKeyForFlags(opts),
         })
         const client = new ApiClient(auth)
         let payload: Record<string, unknown>
