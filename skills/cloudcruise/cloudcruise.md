@@ -94,13 +94,16 @@ cloudcruise workflows update <workflow_id> --file rollback.json --version-note "
 ```bash
 # 1. Start with a minimal workflow: START (target URL) → END
 #    Run with --debug to capture a snapshot of the landing page
-cloudcruise run start <workflow_id> --input '{}' --wait --debug
+#    run start returns { session_id } immediately; poll run get until the status is terminal
+cloudcruise run start <workflow_id> --input '{}' --debug
+cloudcruise run get <session_id>
 
 # 2. Discover elements → validate → add nodes → run again → repeat
 cloudcruise snapshot suggest <session_id> <end_node_id>
 cloudcruise snapshot test "//input[@name='email']" <session_id> <end_node_id>
 # Edit workflow.json, push with: cloudcruise workflows update ... --version-note "..."
-cloudcruise run start <workflow_id> --input '{}' --wait --debug
+cloudcruise run start <workflow_id> --input '{}' --debug
+cloudcruise run get <session_id>   # poll until terminal
 # On success: inspect END node's snapshot for the next page state.
 # On failure: inspect the failed node's snapshot (see Debug Snapshots).
 ```
@@ -149,11 +152,10 @@ cloudcruise utils uuid --count 5    # Generate multiple UUIDs
 ### Runs
 
 ```bash
-cloudcruise run start <workflow_id>                          # Start run, returns { session_id }
-cloudcruise run start <workflow_id> --wait                   # Start and stream events until done
-cloudcruise run start <workflow_id> --wait --debug           # Start with debug snapshots on every node
+cloudcruise run start <workflow_id>                          # Start run, returns { session_id } immediately (non-blocking)
+cloudcruise run start <workflow_id> --debug                  # Start with debug snapshots on every node
 cloudcruise run start <workflow_id> --input '{"key":"val"}'  # Start with input variables
-cloudcruise run get <session_id>                             # Get run status, errors, screenshots, output
+cloudcruise run get <session_id>                             # Get run status, errors, screenshots, output (poll until status is terminal)
 cloudcruise run list --workflow <id> --status <s> --since 7d --limit 50 # List runs with filters
 cloudcruise run interrupt <session_id>                       # Stop a running session
 cloudcruise run errors <workflow_id> --since 24h             # Error analytics (24h, 7d, 30m)
@@ -210,18 +212,21 @@ cloudcruise builder start --start-url "https://app.example.com" \
 
 # ── Interact with the builder agent ──
 cloudcruise builder send "Click the login button"              # Returns immediately
-cloudcruise builder poll                                       # Check status + new messages
-# poll returns: { status: "processing"|"done"|"error"|"waiting_for_input", text, tools, ... }
+cloudcruise builder poll                                       # Check status (hits /status; also the keepalive)
+# poll returns: { status: "processing"|"awaiting-human-input"|"agent-errored"|"completed"|"idle"|"ended", terminal, isProcessing, workflowId?, ... }
 
 # ── Respond to human input requests ──
 cloudcruise builder respond --message-id "msg-456" --value "123456"
 cloudcruise builder respond --message-id "msg-456" --responses '{"email":"user@example.com","password":"s3cret"}'
 
 # ── Inspect session state ──
-cloudcruise builder status              # Check if session is active, get workflow summary
+cloudcruise builder status              # Check if session is active (hits /status: status + terminal)
+cloudcruise builder sessions            # List active builder sessions for the workspace (newest first)
 cloudcruise builder workflow            # Get current workflow definition (nodes, edges)
-cloudcruise builder messages            # Get conversation history
+cloudcruise builder messages            # Get conversation history (pagination envelope)
 cloudcruise builder messages --limit 5  # Last 5 messages only
+cloudcruise builder messages --limit 20 --offset 20            # Page backward from the end
+cloudcruise builder messages --limit 20 --offset 0 --no-tail   # Page forward from the start
 
 # ── Session lifecycle ──
 cloudcruise builder save        # Persist workflow to the database
@@ -235,10 +240,10 @@ cloudcruise builder end         # End session and clean up
 
 - `builder send` returns immediately — use `builder poll` to check for completion
 - Break complex tasks into small steps (e.g. "log in", then "navigate to X", then "search for Y")
-- Poll in a loop — if poll returns `processing`, wait a few seconds and poll again
-- **`waiting_for_input` is how the builder asks for information it needs** (e.g. email, password, 2FA code). When you see it, relay the question to the user, then pass their answer back with `builder respond`. The agent may request multiple inputs at once — check `waitingForInputs.inputs` for the full list and use `--responses` with a JSON object keyed by input name. Never pre-emptively browse the site or ask the user for form values — let the builder discover what it needs.
-- Only fall back to direct DSL editing after the builder reaches a true terminal state such as `done` or `error`.
-- **Wait for `done`/`error` before sending the next message** — sending while the agent is processing interrupts the current turn
+- Poll in a loop — if poll returns `processing`, wait a few seconds and poll again. Poll also keeps the session alive (it hits `/status`), so keep polling rather than letting an idle session get reaped.
+- **`awaiting-human-input` is how the builder asks for information it needs** (e.g. email, password, 2FA code). When you see it, relay the question to the user, then pass their answer back with `builder respond`. The agent may request multiple inputs at once — check `waitingForInputs.inputs` for the full list and use `--responses` with a JSON object keyed by input name. Never pre-emptively browse the site or ask the user for form values — let the builder discover what it needs.
+- Only fall back to direct DSL editing after the builder reaches a terminal state (`terminal: true` — i.e. `completed`, `agent-errored`, or `ended`).
+- **Wait for a terminal status before sending the next message** — sending while the agent is processing interrupts the current turn, and a busy send returns HTTP 409 `SESSION_BUSY` (exit code 6)
 
 **Writing effective builder messages:**
 
@@ -246,7 +251,9 @@ cloudcruise builder end         # End session and clean up
 - **Don't tell the builder how to build** — never specify execution types ("use STATIC"), selector strategies ("use an XPath with @id"), or node structure ("add a LOOP node"). The builder has access to the page DOM and knows the workflow DSL; let it make implementation decisions.
 - **Reference credentials naturally** — "Log in using the vault credentials" is enough. The builder knows to use vault credential templates.
 
-**Poll statuses:** `done` → proceed to next step. `waiting_for_input` → respond then poll. `error` → read text, send corrective instruction. `processing` → wait and poll again. `idle` → no pending work.
+**Poll statuses:** `completed` → proceed to next step. `awaiting-human-input` → respond then poll. `agent-errored` → inspect messages, send corrective instruction. `processing` → wait and poll again. `idle` → no pending work. `ended` → session is over. `terminal: true` marks the states that won't change without a new turn (`completed`, `agent-errored`, `ended`).
+
+**409 exit codes:** `builder send` on a busy session → `SESSION_BUSY` (exit 6). `builder respond` after the input was already answered → `ALREADY_ANSWERED` (exit 7). The code is printed to stderr.
 
 **Send + poll pattern:**
 
@@ -254,25 +261,25 @@ cloudcruise builder end         # End session and clean up
 cloudcruise builder send "Log me in"
 # → {"status":"sent","messageCountBefore":2}
 
-# Poll until agent reaches a terminal state
+# Poll until agent reaches a terminal state (terminal: true)
 cloudcruise builder poll
-# → {"status":"processing","tools":[...],"newMessageCount":3,"totalMessageCount":8}
+# → {"status":"processing","terminal":false,"isProcessing":true}
 
 cloudcruise builder poll
-# → {"status":"done","text":"I built the login flow...","tools":[...]}
+# → {"status":"completed","terminal":true,"isProcessing":false,"workflowId":"wf_..."}
 
 # If agent needs input (single value):
-# → {"status":"waiting_for_input","waitingForInput":{"messageId":"m1","description":"What's the 2FA code?"}}
+# → {"status":"awaiting-human-input","terminal":false,"waitingForInput":{"messageId":"m1","description":"What's the 2FA code?"}}
 cloudcruise builder respond --message-id m1 --value "123456"
 cloudcruise builder poll
 
 # If agent needs multiple inputs at once:
-# → {"status":"waiting_for_input","waitingForInputs":{"messageId":"m1","inputs":[{"name":"npi",...},{"name":"last_name",...}]}}
+# → {"status":"awaiting-human-input","terminal":false,"waitingForInputs":{"messageId":"m1","inputs":[{"name":"npi",...},{"name":"last_name",...}]}}
 cloudcruise builder respond --message-id m1 --responses '{"npi":"1234567890","last_name":"Ziegler"}'
 cloudcruise builder poll
 
 # If agent needs credentials (type: "auth"):
-# → {"status":"waiting_for_input","waitingForInputs":{"messageId":"m1","inputs":[{"name":"Portal Credentials","type":"auth",...}]}}
+# → {"status":"awaiting-human-input","terminal":false,"waitingForInputs":{"messageId":"m1","inputs":[{"name":"Portal Credentials","type":"auth",...}]}}
 # 1. Look up the vault entry to get the domain:
 cloudcruise vault list
 # 2. Respond with { permissioned_user_id, domain }:
@@ -289,15 +296,15 @@ cloudcruise builder start --start-url "https://app.example.com" --name "Search w
 
 # Step 1: Login
 cloudcruise builder send "Log in using the vault credentials"
-cloudcruise builder poll   # repeat until "done"
+cloudcruise builder poll   # repeat until "completed"
 
 # Step 2: Navigate
 cloudcruise builder send "Click on Reports in the nav bar, then select Monthly Summary"
-cloudcruise builder poll   # repeat until "done"
+cloudcruise builder poll   # repeat until "completed"
 
 # Step 3: Search and extract
 cloudcruise builder send "Search for order 12345 and extract the status"
-cloudcruise builder poll   # repeat until "done"
+cloudcruise builder poll   # repeat until "completed"
 
 # Save and clean up
 cloudcruise builder save
@@ -318,7 +325,9 @@ cloudcruise run get <session_id>
 cloudcruise workflows get <workflow_id> > workflow.json
 
 # 2. Reproduce with snapshots (failed runs often lack them)
-cloudcruise run start <workflow_id> --input '{}' --wait --debug
+#    run start returns { session_id } immediately; poll run get until the status is terminal
+cloudcruise run start <workflow_id> --input '{}' --debug
+cloudcruise run get <new_session_id>
 
 # 3. Inspect the failed node (see Debug Snapshots for timing details)
 cloudcruise snapshot fetch <new_session_id> <failed_node_id>
@@ -328,13 +337,14 @@ cloudcruise snapshot test "<new_xpath>" <new_session_id> <failed_node_id>
 # 4. Fix and push
 cloudcruise workflows update <workflow_id> --file workflow.json --version-note "Fixed XPath for submit button"
 
-# 5. Verify
-cloudcruise run start <workflow_id> --input '{}' --wait
+# 5. Verify (run start returns { session_id }; poll run get until terminal)
+cloudcruise run start <workflow_id> --input '{}'
+cloudcruise run get <new_session_id>
 ```
 
 ## Debug Snapshots
 
-After a `--debug` run, use `snapshot` commands to inspect pages and generate XPaths. Use the `node_id` from `run get` errors or from the `--wait` event stream.
+After a `--debug` run, use `snapshot` commands to inspect pages and generate XPaths. Use the `node_id` from `run get` errors or from the `run get` node results.
 
 ```bash
 cloudcruise snapshot fetch <session_id> <node_id>
@@ -355,7 +365,7 @@ If `snapshot fetch` reports no HTML, the run was not `--debug`. Re-run with `--d
 ## Key Details
 
 - `run get` returns: status, output_data, workflow_errors (with node_id, llm_error_category, llm_error_description), screenshot_urls (with node_id)
-- `run start --wait` prints NDJSON events to stdout, then the final run result. Exit code 0 = success, 1 = failure.
+- `run start` returns `{ session_id }` immediately and does not block or stream. Poll `run get <session_id>` until the status is terminal to determine success or failure.
 - `run list --since` accepts duration strings: `24h`, `7d`, `30m`; without `--since`, the API defaults to the last 24 hours
 - `run errors --since` accepts duration strings: `24h`, `7d`, `30m`
 - `workflows update` requires: nodes, edges, name, input_schema, output_schema, max_retries. Keep all other mutable fields from the GET response (e.g., description, enable_xpath_recovery, proxy_setting).
@@ -419,8 +429,8 @@ cloudcruise vault create \
 #    run_input_variables maps the alias to a permissioned_user_id:
 #      { "USER": "f47ac10b-58cc-4372-a567-0e02b2c3d479" }
 
-# 3. Run the workflow with the credential
-cloudcruise run start <workflow_id> --input '{"USER": "f47ac10b-58cc-4372-a567-0e02b2c3d479"}' --wait
+# 3. Run the workflow with the credential (returns { session_id }; poll run get for completion)
+cloudcruise run start <workflow_id> --input '{"USER": "f47ac10b-58cc-4372-a567-0e02b2c3d479"}'
 ```
 
 **Workflow node template syntax for vault credentials:**
@@ -445,5 +455,5 @@ Example INPUT_TEXT node using vault credentials:
 **Switching credentials** is as simple as changing the `--input` value to a different `permissioned_user_id`:
 
 ```bash
-cloudcruise run start <workflow_id> --input '{"USER": "b91a8def-12c4-4a67-8e3f-5c6d7e8f9a0b"}' --wait
+cloudcruise run start <workflow_id> --input '{"USER": "b91a8def-12c4-4a67-8e3f-5c6d7e8f9a0b"}'
 ```

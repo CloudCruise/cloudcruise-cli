@@ -1,16 +1,8 @@
 import { Command } from "commander"
-import { randomUUID } from "crypto"
 import { resolveAuth } from "../core/auth.js"
 import { ApiClient } from "../core/api-client.js"
-import { streamSSE } from "../core/sse-client.js"
-import { outputJson, outputError, outputEvent } from "../core/output.js"
+import { outputJson, outputError } from "../core/output.js"
 import { addAuthOptions, type AuthOptions } from "../core/auth-options.js"
-
-const TERMINAL_STATUSES = [
-  "execution.success",
-  "execution.failed",
-  "execution.stopped"
-]
 
 function parseSince(since: string): Date {
   const match = since.match(/^(\d+)(h|d|m)$/)
@@ -40,20 +32,19 @@ export function registerRunCommands(program: Command): void {
       .command("start <workflow_id>")
       .description("Start a new run")
       .option("--input <json>", "Input variables as JSON string", "{}")
-      .option("--wait", "Wait for completion and print result")
       .option("--debug", "Enable debug snapshots on every node")
   ).addHelpText("after", `
+Returns { session_id } immediately. Poll status with 'cloudcruise run get <session_id>'.
+
 Examples:
   $ cloudcruise run start wf_abc123
-  $ cloudcruise run start wf_abc123 --wait
-  $ cloudcruise run start wf_abc123 --wait --debug
-  $ cloudcruise run start wf_abc123 --input '{"USER":"f47ac10b-58cc-4372-a567-0e02b2c3d479"}' --wait
+  $ cloudcruise run start wf_abc123 --debug
+  $ cloudcruise run start wf_abc123 --input '{"USER":"f47ac10b-58cc-4372-a567-0e02b2c3d479"}'
 `).action(
     async (
       workflowId: string,
       opts: {
         input: string
-        wait?: boolean
         debug?: boolean
       } & AuthOptions
     ) => {
@@ -68,51 +59,14 @@ Examples:
           throw new Error(`Invalid --input JSON: ${opts.input}`)
         }
 
-        const clientId = opts.wait ? randomUUID() : undefined
-
         const body: Record<string, unknown> = {
           workflow_id: workflowId,
           run_input_variables: inputVariables
         }
         if (opts.debug) body.debug = true
-        if (clientId) body.client_id = clientId
 
         const result = await client.post<{ session_id: string }>("/run", body)
-        const sessionId = result.session_id
-
-        if (!opts.wait) {
-          outputJson(result)
-          return
-        }
-
-        for await (const event of streamSSE(
-          client,
-          `/run/clients/${clientId}/events`
-        )) {
-          if (event.event === "ping") continue
-
-          try {
-            const parsed = JSON.parse(event.data) as Record<string, unknown>
-            outputEvent(event.event ?? "run.event", parsed)
-
-            const inner = parsed.data as Record<string, unknown> | undefined
-            const status =
-              (inner?.event as string) ??
-              (inner?.payload as Record<string, unknown> | undefined)
-                ?.status ??
-              (parsed.status as string | undefined)
-            if (status && TERMINAL_STATUSES.includes(status)) {
-              const finalResult = await client.get(`/run/${sessionId}`)
-              outputJson(finalResult)
-              process.exit(status === "execution.success" ? 0 : 1)
-            }
-          } catch {
-            outputEvent(event.event ?? "run.event", { raw: event.data })
-          }
-        }
-
-        const finalResult = await client.get(`/run/${sessionId}`)
-        outputJson(finalResult)
+        outputJson(result)
       } catch (err: unknown) {
         outputError(err instanceof Error ? err.message : String(err))
         process.exit(1)
