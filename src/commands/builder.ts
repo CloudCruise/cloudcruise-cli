@@ -59,6 +59,26 @@ function progress(msg: string): void {
   process.stderr.write(`${msg}\n`)
 }
 
+/**
+ * Build the builder app link for a conversation. The CLI only knows the API
+ * host, so map it to the corresponding app host (api.* -> app.*,
+ * staging-api.* -> staging.*); anything unrecognized falls back to prod.
+ */
+function builderUrl(apiBaseUrl: string, conversationId: string): string {
+  let host: string
+  try {
+    host = new URL(apiBaseUrl).host
+  } catch {
+    host = "app.cloudcruise.com"
+  }
+  const appHost = host.startsWith("staging-api.")
+    ? host.replace(/^staging-api\./, "staging.")
+    : host.startsWith("api.")
+      ? host.replace(/^api\./, "app.")
+      : "app.cloudcruise.com"
+  return `https://${appHost}/workflows/builder/${conversationId}`
+}
+
 function normalizeUrl(value: string, flagName: string): string {
   const trimmed = value.trim()
   const withScheme = /^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//.test(trimmed)
@@ -152,7 +172,7 @@ export function registerBuilderCommands(program: Command): void {
       .option("--input-schema <json>", "Input schema as JSON")
       .option("--input <json>", "Example input values as JSON")
       .option("--network", "Enable network traffic capture")
-      .option("--no-open", "Don't open the live browser URL in the default browser")
+      .option("--open-builder", "Open the builder in the default browser")
   ).action(
     async (
       opts: {
@@ -168,7 +188,7 @@ export function registerBuilderCommands(program: Command): void {
         inputSchema?: string
         input?: string
         network?: boolean
-        open: boolean
+        openBuilder?: boolean
       } & AuthOptions
     ) => {
       try {
@@ -230,12 +250,10 @@ export function registerBuilderCommands(program: Command): void {
 
         outputJson(result)
 
-        const sessionUrl = (
-          result as { builderSession?: { url?: string } }
-        ).builderSession?.url
-        if (opts.open && sessionUrl) {
-          openInBrowser(sessionUrl)
-          progress("Opened live browser session in default browser")
+        if (opts.openBuilder) {
+          const url = builderUrl(auth.baseUrl, result.conversationId)
+          openInBrowser(url)
+          progress(`Opened builder in default browser: ${url}`)
         }
       } catch (err: unknown) {
         outputError(err instanceof Error ? err.message : String(err))
@@ -256,6 +274,7 @@ export function registerBuilderCommands(program: Command): void {
         "--use-last-browser-state",
         "Continue from previous browser state"
       )
+      .option("--open-builder", "Open the builder in the default browser")
   ).action(
     async (
       opts: {
@@ -263,6 +282,7 @@ export function registerBuilderCommands(program: Command): void {
         targetNode?: string
         input?: string
         useLastBrowserState?: boolean
+        openBuilder?: boolean
       } & AuthOptions
     ) => {
       try {
@@ -291,6 +311,12 @@ export function registerBuilderCommands(program: Command): void {
         })
 
         outputJson(result)
+
+        if (opts.openBuilder) {
+          const url = builderUrl(auth.baseUrl, result.conversationId)
+          openInBrowser(url)
+          progress(`Opened builder in default browser: ${url}`)
+        }
       } catch (err: unknown) {
         outputError(err instanceof Error ? err.message : String(err))
         process.exit(1)
@@ -704,6 +730,26 @@ details for 'builder respond' are attached.
       process.exit(1)
     }
   })
+
+  // ── builder open ───────────────────────────────────────────────
+  builder
+    .command("open")
+    .description("Open the current builder session in the default browser")
+    .action(() => {
+      try {
+        const session = requireSession()
+        const url = builderUrl(
+          session.baseUrl ?? "https://api.cloudcruise.com",
+          session.conversationId
+        )
+        openInBrowser(url)
+        progress(`Opened builder in default browser: ${url}`)
+        outputJson({ url })
+      } catch (err: unknown) {
+        outputError(err instanceof Error ? err.message : String(err))
+        process.exit(1)
+      }
+    })
 
   // ── builder sessions ───────────────────────────────────────────
   addAuthOptions(
