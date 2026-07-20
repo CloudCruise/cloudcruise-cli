@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync, unlinkSync, existsSync, chmodSync, mkdirSync } from "fs"
 import { join } from "path"
 import { homedir } from "os"
+import { echoSession, UsageError } from "./exit.js"
 
 export interface BuilderSession {
   conversationId: string
@@ -8,6 +9,7 @@ export interface BuilderSession {
   startedAt: string
   lastMessageCount?: number
   baseUrl?: string
+  appUrl?: string
   profile?: string
   workspaceId?: string
 }
@@ -45,9 +47,10 @@ export function deleteSession(): void {
 export function requireSession(): BuilderSession {
   const session = loadSession()
   if (!session) {
-    throw new Error(
+    throw new UsageError(
       "No active builder session. Run 'cloudcruise builder start' first."
     )
   }
+  echoSession(session.conversationId)
   return session
 }

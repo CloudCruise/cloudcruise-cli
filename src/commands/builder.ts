@@ -3,7 +3,8 @@ import { exec } from "child_process"
 import { writeFileSync } from "fs"
 import { resolveAuth } from "../core/auth.js"
 import { ApiClient, ApiError } from "../core/api-client.js"
-import { outputJson, outputError, stripBase64 } from "../core/output.js"
+import { outputJson, stripBase64 } from "../core/output.js"
+import { fail, echoSession, exitCodeForStatus, UsageError } from "../core/exit.js"
 import { addAuthOptions, type AuthOptions } from "../core/auth-options.js"
 import {
   saveSession,
@@ -16,31 +17,23 @@ import { enforceNoArgSecrets } from "../core/secret-args.js"
 
 const BASE = "/workflow-builder/agent"
 
-// Exit codes for the 409 error taxonomy so scripts can distinguish outcomes.
-const EXIT_SESSION_BUSY = 6 // a turn is already running (busy guard)
-const EXIT_ALREADY_ANSWERED = 7 // lost the human-input race
-
-/**
- * Uniform error handling for builder commands. Maps the backend's coded 409
- * responses to distinct exit codes and prints the code so the outcome is
- * observable from a script; everything else falls back to a generic exit 1.
- */
-function failBuilder(err: unknown): never {
-  if (err instanceof ApiError && err.code) {
-    let messageId: string | undefined
-    try {
-      messageId = (JSON.parse(err.body) as { messageId?: string }).messageId
-    } catch {
-      // Non-JSON body — nothing more to surface.
-    }
-    outputError(
-      `${err.code} (HTTP ${err.status})${messageId ? ` messageId=${messageId}` : ""}`
-    )
-    if (err.code === "SESSION_BUSY") process.exit(EXIT_SESSION_BUSY)
-    if (err.code === "ALREADY_ANSWERED") process.exit(EXIT_ALREADY_ANSWERED)
+/** Normalize a timestamp to ISO 8601. The backend stores epoch ms; the contract
+ * emits ISO strings so timestamps are one type across every command. */
+function toIso(value: unknown): unknown {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return new Date(value).toISOString()
   }
-  outputError(err instanceof Error ? err.message : String(err))
-  process.exit(1)
+  return value
+}
+
+/** Return a copy with `startedAt` normalized to ISO (if present). */
+function normalizeStartedAt(
+  obj: Record<string, unknown>
+): Record<string, unknown> {
+  if (obj.startedAt !== undefined) {
+    return { ...obj, startedAt: toIso(obj.startedAt) }
+  }
+  return obj
 }
 
 function openInBrowser(url: string): void {
@@ -60,17 +53,55 @@ function progress(msg: string): void {
 }
 
 /**
- * Build the builder app link for a conversation. The CLI only knows the API
- * host, so map it to the corresponding app host (api.* -> app.*,
- * staging-api.* -> staging.*); anything unrecognized falls back to prod.
+ * Build the builder app link for a conversation.
+ *
+ * When `appUrl` is provided (via --app-url, profile.appUrl, or
+ * CLOUDCRUISE_APP_URL) it is used verbatim as the app origin. Otherwise the
+ * app host is inferred from the API host (api.* -> app.*, staging-api.* ->
+ * staging.*). Localhost has no inferable app host, so it requires an explicit
+ * appUrl; any other unrecognized host falls back to prod.
  */
-function builderUrl(apiBaseUrl: string, conversationId: string): string {
+function builderUrl(
+  appUrl: string | undefined,
+  apiBaseUrl: string,
+  conversationId: string
+): string {
+  if (appUrl) {
+    let parsed: URL | null = null
+    try {
+      parsed = new URL(appUrl.trim())
+    } catch {
+      parsed = null
+    }
+    if (!parsed || (parsed.protocol !== "http:" && parsed.protocol !== "https:")) {
+      throw new UsageError(
+        `Invalid app URL "${appUrl}". Include an http(s) scheme, e.g. http://localhost:3000.`
+      )
+    }
+    return `${parsed.origin}/workflows/builder/${conversationId}`
+  }
+
+  let hostname: string
   let host: string
   try {
-    host = new URL(apiBaseUrl).host
+    const parsed = new URL(apiBaseUrl)
+    hostname = parsed.hostname
+    host = parsed.host
   } catch {
-    host = "app.cloudcruise.com"
+    return `https://app.cloudcruise.com/workflows/builder/${conversationId}`
   }
+
+  if (
+    hostname === "localhost" ||
+    hostname === "127.0.0.1" ||
+    hostname === "::1" ||
+    hostname.endsWith(".localhost")
+  ) {
+    throw new UsageError(
+      "Can't infer the builder app URL for a localhost API. Set the app URL via --app-url, CLOUDCRUISE_APP_URL, or the profile's appUrl (e.g. http://localhost:3000)."
+    )
+  }
+
   const appHost = host.startsWith("staging-api.")
     ? host.replace(/^staging-api\./, "staging.")
     : host.startsWith("api.")
@@ -87,8 +118,7 @@ function normalizeUrl(value: string, flagName: string): string {
   try {
     return new URL(withScheme).href
   } catch {
-    outputError(`${flagName}: Invalid URL (${JSON.stringify(value)})`)
-    process.exit(1)
+    throw new UsageError(`${flagName}: Invalid URL (${JSON.stringify(value)})`)
   }
 }
 
@@ -103,11 +133,11 @@ async function readStdin(): Promise<string> {
 function parseLimit(limit: string | undefined): number | undefined {
   if (limit === undefined) return undefined
   if (!/^[1-9]\d*$/.test(limit)) {
-    throw new Error("--limit must be a positive integer")
+    throw new UsageError("--limit must be a positive integer")
   }
   const parsed = Number.parseInt(limit, 10)
   if (!Number.isSafeInteger(parsed) || parsed > 1000) {
-    throw new Error("--limit must be between 1 and 1000")
+    throw new UsageError("--limit must be between 1 and 1000")
   }
   return parsed
 }
@@ -115,11 +145,11 @@ function parseLimit(limit: string | undefined): number | undefined {
 function parseOffset(offset: string | undefined): number | undefined {
   if (offset === undefined) return undefined
   if (!/^\d+$/.test(offset)) {
-    throw new Error("--offset must be a non-negative integer")
+    throw new UsageError("--offset must be a non-negative integer")
   }
   const parsed = Number.parseInt(offset, 10)
   if (!Number.isSafeInteger(parsed)) {
-    throw new Error("--offset is too large")
+    throw new UsageError("--offset is too large")
   }
   return parsed
 }
@@ -193,10 +223,10 @@ export function registerBuilderCommands(program: Command): void {
     ) => {
       try {
         if (opts.vaultUserId && opts.credential) {
-          throw new Error("--vault-user-id and --credential are aliases; pass only one")
+          throw new UsageError("--vault-user-id and --credential are aliases; pass only one")
         }
         if (opts.vaultDomain && opts.authUrl) {
-          throw new Error("--vault-domain and --auth-url are aliases; pass only one")
+          throw new UsageError("--vault-domain and --auth-url are aliases; pass only one")
         }
         if (opts.credential) {
           progress("[deprecated] --credential is deprecated; use --vault-user-id instead.")
@@ -208,7 +238,7 @@ export function registerBuilderCommands(program: Command): void {
         const vaultUserId = opts.vaultUserId ?? opts.credential
         const vaultDomain = opts.vaultDomain ?? opts.authUrl
         if (Boolean(vaultUserId) !== Boolean(vaultDomain)) {
-          throw new Error(
+          throw new UsageError(
             "--vault-user-id and --vault-domain must be used together. Pass both to pre-configure login, or omit both to let the builder prompt for credentials."
           )
         }
@@ -244,20 +274,21 @@ export function registerBuilderCommands(program: Command): void {
           name: opts.name,
           startedAt: new Date().toISOString(),
           baseUrl: auth.baseUrl,
+          appUrl: auth.appUrl,
           profile: opts.profile,
           workspaceId: auth.workspaceId
         })
 
-        outputJson(result)
+        echoSession(result.conversationId)
+        outputJson(normalizeStartedAt(result))
 
         if (opts.openBuilder) {
-          const url = builderUrl(auth.baseUrl, result.conversationId)
+          const url = builderUrl(auth.appUrl, auth.baseUrl, result.conversationId)
           openInBrowser(url)
           progress(`Opened builder in default browser: ${url}`)
         }
       } catch (err: unknown) {
-        outputError(err instanceof Error ? err.message : String(err))
-        process.exit(1)
+        fail(err)
       }
     }
   )
@@ -306,20 +337,21 @@ export function registerBuilderCommands(program: Command): void {
           name: `Edit ${opts.workflow}`,
           startedAt: new Date().toISOString(),
           baseUrl: auth.baseUrl,
+          appUrl: auth.appUrl,
           profile: opts.profile,
           workspaceId: auth.workspaceId
         })
 
-        outputJson(result)
+        echoSession(result.conversationId)
+        outputJson(normalizeStartedAt(result))
 
         if (opts.openBuilder) {
-          const url = builderUrl(auth.baseUrl, result.conversationId)
+          const url = builderUrl(auth.appUrl, auth.baseUrl, result.conversationId)
           openInBrowser(url)
           progress(`Opened builder in default browser: ${url}`)
         }
       } catch (err: unknown) {
-        outputError(err instanceof Error ? err.message : String(err))
-        process.exit(1)
+        fail(err)
       }
     }
   )
@@ -332,7 +364,7 @@ export function registerBuilderCommands(program: Command): void {
         "Send a message to the builder agent (returns immediately)"
       )
   ).addHelpText("after", `
-Returns { status: "sent" } once the agent accepts the message. Poll for the
+Returns { conversationId, accepted: true } once the agent accepts the message. Poll for the
 agent's response with 'cloudcruise builder poll'.
 `).action(
     async (message: string, opts: AuthOptions) => {
@@ -341,13 +373,11 @@ agent's response with 'cloudcruise builder poll'.
         const client = new ApiClient(auth)
         const session = requireSession()
 
-        let messageCountBefore: number | undefined
         try {
           const { messages } = await fetchMessages(
             client,
             session.conversationId
           )
-          messageCountBefore = messages.length
           updateSession({ lastMessageCount: messages.length })
         } catch {
           // Best effort — poll still works with the previous index.
@@ -389,9 +419,9 @@ agent's response with 'cloudcruise builder poll'.
         } finally {
           clearTimeout(timer)
         }
-        outputJson({ status: "sent", messageCountBefore })
+        outputJson({ conversationId: session.conversationId, accepted: true })
       } catch (err: unknown) {
-        failBuilder(err)
+        fail(err)
       }
     }
   )
@@ -423,9 +453,10 @@ agent's response with 'cloudcruise builder poll'.
     options?: string[]
   }
 
-  interface WaitingInput {
-    waitingForInput: { messageId: string; description: string }
-    waitingForInputs?: { messageId: string; inputs: HumanInputField[] }
+  interface HumanInput {
+    messageId: string
+    prompt: string
+    fields: HumanInputField[]
   }
 
   interface MessagesResponse {
@@ -463,9 +494,9 @@ agent's response with 'cloudcruise builder poll'.
    * scan for the most recent interaction.inputs message to surface the
    * messageId and field schema needed by `builder respond`.
    */
-  function extractWaitingInput(
+  function extractHumanInput(
     messages: Record<string, unknown>[]
-  ): WaitingInput | null {
+  ): HumanInput | null {
     for (let i = messages.length - 1; i >= 0; i--) {
       const msg = messages[i]
       const msgStatus = msg.status as string
@@ -484,37 +515,50 @@ agent's response with 'cloudcruise builder poll'.
         (content?.humanInput as Record<string, unknown> | undefined) ??
         humanInputs[0]
       const messageId = msg.id as string
-      const result: WaitingInput = {
-        waitingForInput: {
-          messageId,
-          description:
-            (humanInput?.description as string) ??
-            (humanInput?.name as string) ??
-            (msg.text as string) ??
-            "Input requested"
+      const prompt =
+        (humanInput?.description as string) ??
+        (humanInput?.name as string) ??
+        (msg.text as string) ??
+        "Input requested"
+      const fields: HumanInputField[] = humanInputs.map((input) => {
+        const field: HumanInputField = {
+          name: input.name as string,
+          type: input.type as string,
+          description: input.description as string
         }
-      }
-
-      if (humanInputs.length > 0) {
-        result.waitingForInputs = {
-          messageId,
-          inputs: humanInputs.map((input) => {
-            const field: HumanInputField = {
-              name: input.name as string,
-              type: input.type as string,
-              description: input.description as string
-            }
-            if (input.default !== undefined) {
-              field.default = input.default as string
-            }
-            if (input.options) field.options = input.options as string[]
-            return field
-          })
+        if (input.default !== undefined) {
+          field.default = input.default as string
         }
-      }
-      return result
+        if (input.options) field.options = input.options as string[]
+        return field
+      })
+      return { messageId, prompt, fields }
     }
     return null
+  }
+
+  /**
+   * Canonical status object shared by `poll` and `status`: the /status taxonomy
+   * plus, when awaiting human input, the request details attached as
+   * `humanInput`. /status is also the keepalive (touches lastApiActivityAt).
+   */
+  async function fetchStatus(
+    client: ApiClient,
+    conversationId: string
+  ): Promise<StatusResponse & { humanInput?: HumanInput }> {
+    const status = await client.get<StatusResponse>(
+      `${BASE}/${conversationId}/status`
+    )
+    if (status.status !== "awaiting-human-input") return status
+    try {
+      const { messages } = await fetchMessages(client, conversationId)
+      updateSession({ lastMessageCount: messages.length })
+      const humanInput = extractHumanInput(messages)
+      return humanInput ? { ...status, humanInput } : status
+    } catch {
+      // Best effort — status is still returned without input detail.
+      return status
+    }
   }
 
   // ── builder poll ────────────────────────────────────────────────
@@ -533,30 +577,13 @@ details for 'builder respond' are attached.
       const client = new ApiClient(auth)
       const session = requireSession()
 
-      // GET /status is the keepalive (it touches lastApiActivityAt). Poll must
-      // hit it — not the side-effect-free /messages — or idle sessions get
-      // reaped despite active polling.
-      const status = await client.get<StatusResponse>(
-        `${BASE}/${session.conversationId}/status`
-      )
-
-      let waiting: WaitingInput | null = null
-      if (status.status === "awaiting-human-input") {
-        try {
-          const { messages } = await fetchMessages(
-            client,
-            session.conversationId
-          )
-          updateSession({ lastMessageCount: messages.length })
-          waiting = extractWaitingInput(messages)
-        } catch {
-          // Best effort — status is still returned without input detail.
-        }
-      }
-
-      outputJson({ ...status, ...(waiting ?? {}) })
+      const result = await fetchStatus(client, session.conversationId)
+      outputJson(result)
+      // The exit code IS the observed status: a driver switches on it (7 answer,
+      // 8 intervene, 9 tick+re-arm, 0 proceed) without parsing stdout.
+      process.exit(exitCodeForStatus(result.status))
     } catch (err: unknown) {
-      failBuilder(err)
+      fail(err)
     }
   })
 
@@ -586,10 +613,10 @@ details for 'builder respond' are attached.
           Boolean(opts.responsesStdin)
         ].filter(Boolean).length
         if (providedCount === 0) {
-          throw new Error("Provide --value, --value-stdin, or --responses-stdin")
+          throw new UsageError("Provide --value, --value-stdin, or --responses-stdin")
         }
         if (providedCount > 1) {
-          throw new Error("Use only one of --value, --value-stdin, or --responses-stdin")
+          throw new UsageError("Use only one of --value, --value-stdin, or --responses-stdin")
         }
 
         const auth = await resolveBuilderAuth(opts)
@@ -616,14 +643,14 @@ details for 'builder respond' are attached.
           try {
             body.responses = JSON.parse(rawResponses)
           } catch {
-            throw new Error("--responses-stdin must contain valid JSON")
+            throw new UsageError("--responses-stdin must contain valid JSON")
           }
           if (
             body.responses === null ||
             Array.isArray(body.responses) ||
             typeof body.responses !== "object"
           ) {
-            throw new Error("--responses-stdin must contain a JSON object")
+            throw new UsageError("--responses-stdin must contain a JSON object")
           }
         } else {
           const rawValue = opts.valueStdin
@@ -672,7 +699,7 @@ details for 'builder respond' are attached.
                 typeof (value as Record<string, unknown>).domain === "string"
 
               if (!isValid) {
-                throw new Error(
+                throw new UsageError(
                   `Auth input "${name}" requires an object with "permissioned_user_id" and "domain" strings. Use --responses-stdin with {"${name}":{"permissioned_user_id":"<user_id>","domain":"<domain>"}}.`
                 )
               }
@@ -690,7 +717,7 @@ details for 'builder respond' are attached.
         outputJson(result)
       } catch (err: unknown) {
         // Maps ALREADY_ANSWERED (lost the human-input race) to its exit code.
-        failBuilder(err)
+        fail(err)
       }
     }
   )
@@ -702,32 +729,27 @@ details for 'builder respond' are attached.
     try {
       const session = loadSession()
       if (!session) {
+        // The one intentional object without a conversationId: there is no
+        // session to name.
         outputJson({ active: false })
         return
       }
+      echoSession(session.conversationId)
 
-      // Verify liveness via /status. This is also the keepalive (it touches
-      // lastApiActivityAt) and returns the status taxonomy + terminal flag.
+      // Verify liveness via /status (also the keepalive). Returns the canonical
+      // status object — identical shape to `poll`.
       const auth = await resolveBuilderAuth(opts)
       const client = new ApiClient(auth)
       try {
-        const status = await client.get<StatusResponse>(
-          `${BASE}/${session.conversationId}/status`
-        )
-        outputJson({
-          active: true,
-          name: session.name,
-          startedAt: session.startedAt,
-          ...status
-        })
+        const result = await fetchStatus(client, session.conversationId)
+        outputJson(result)
       } catch {
         // Session expired on the server
         deleteSession()
         outputJson({ active: false, reason: "session_expired" })
       }
     } catch (err: unknown) {
-      outputError(err instanceof Error ? err.message : String(err))
-      process.exit(1)
+      fail(err)
     }
   })
 
@@ -739,15 +761,15 @@ details for 'builder respond' are attached.
       try {
         const session = requireSession()
         const url = builderUrl(
+          session.appUrl,
           session.baseUrl ?? "https://api.cloudcruise.com",
           session.conversationId
         )
         openInBrowser(url)
         progress(`Opened builder in default browser: ${url}`)
-        outputJson({ url })
+        outputJson({ conversationId: session.conversationId, url })
       } catch (err: unknown) {
-        outputError(err instanceof Error ? err.message : String(err))
-        process.exit(1)
+        fail(err)
       }
     })
 
@@ -763,16 +785,21 @@ details for 'builder respond' are attached.
       const result = await client.get<{
         sessions: {
           conversationId: string
+          previousConversationIds?: string[]
           workflowId?: string
           status: string
-          startedAt: string
+          startedAt: number
           title?: string
         }[]
       }>(`${BASE}/sessions`)
-      outputJson(result)
+      outputJson({
+        sessions: result.sessions.map((s) => ({
+          ...s,
+          startedAt: toIso(s.startedAt)
+        }))
+      })
     } catch (err: unknown) {
-      outputError(err instanceof Error ? err.message : String(err))
-      process.exit(1)
+      fail(err)
     }
   })
 
@@ -801,13 +828,16 @@ details for 'builder respond' are attached.
         if (opts.output && result.base64) {
           const raw = result.base64.replace(/^data:image\/[^;]+;base64,/, "")
           writeFileSync(opts.output, Buffer.from(raw, "base64"))
-          outputJson({ url: result.url, file: opts.output })
+          outputJson({
+            conversationId: session.conversationId,
+            url: result.url,
+            file: opts.output
+          })
         } else {
           outputJson(result)
         }
       } catch (err: unknown) {
-        outputError(err instanceof Error ? err.message : String(err))
-        process.exit(1)
+        fail(err)
       }
     }
   )
@@ -836,13 +866,16 @@ details for 'builder respond' are attached.
 
         if (opts.output && result.html) {
           writeFileSync(opts.output, result.html)
-          outputJson({ url: result.url, file: opts.output })
+          outputJson({
+            conversationId: session.conversationId,
+            url: result.url,
+            file: opts.output
+          })
         } else {
           outputJson(result)
         }
       } catch (err: unknown) {
-        outputError(err instanceof Error ? err.message : String(err))
-        process.exit(1)
+        fail(err)
       }
     }
   )
@@ -863,8 +896,7 @@ details for 'builder respond' are attached.
       )
       outputJson(result)
     } catch (err: unknown) {
-      outputError(err instanceof Error ? err.message : String(err))
-      process.exit(1)
+      fail(err)
     }
   })
 
@@ -914,8 +946,7 @@ isProcessing }. By default offset counts from the newest message (tail); pass
         )
         outputJson(stripBase64(result))
       } catch (err: unknown) {
-        outputError(err instanceof Error ? err.message : String(err))
-        process.exit(1)
+        fail(err)
       }
     }
   )
@@ -934,8 +965,7 @@ isProcessing }. By default offset counts from the newest message (tail); pass
       )
       outputJson(result)
     } catch (err: unknown) {
-      outputError(err instanceof Error ? err.message : String(err))
-      process.exit(1)
+      fail(err)
     }
   })
 
@@ -955,8 +985,7 @@ isProcessing }. By default offset counts from the newest message (tail); pass
       )
       outputJson(result)
     } catch (err: unknown) {
-      outputError(err instanceof Error ? err.message : String(err))
-      process.exit(1)
+      fail(err)
     }
   })
 
@@ -980,11 +1009,14 @@ isProcessing }. By default offset counts from the newest message (tail); pass
       } catch {
         // Server may be down or session expired — clean up locally anyway
         deleteSession()
-        outputJson({ status: "ended", note: "Local session cleared. Server cleanup may have failed." })
+        outputJson({
+          conversationId: session.conversationId,
+          status: "ended",
+          note: "Local session cleared. Server cleanup may have failed."
+        })
       }
     } catch (err: unknown) {
-      outputError(err instanceof Error ? err.message : String(err))
-      process.exit(1)
+      fail(err)
     }
   })
 }

@@ -12,6 +12,10 @@ import { homedir } from "os"
 export interface ProfileConfig {
   apiKey?: string
   baseUrl?: string
+  // Frontend app URL for builder links. When unset, the app host is inferred
+  // from `baseUrl` (api.* -> app.*, staging-api.* -> staging.*). Set this for
+  // deployments whose app host can't be inferred (e.g. localhost dev).
+  appUrl?: string
   encryptionKey?: string
   authType?: "api_key" | "oauth"
   apiKeyAccount?: string
