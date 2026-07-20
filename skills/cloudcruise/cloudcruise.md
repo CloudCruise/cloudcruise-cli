@@ -218,8 +218,8 @@ cloudcruise builder status                                     # Check status (h
 #   0 proceed (completed/idle/ended) · 7 answer (awaiting-human-input) · 8 intervene (agent-errored) · 9 tick+re-arm (processing)
 
 # ── Respond to human input requests ──
-cloudcruise builder respond --message-id "msg-456" --value "123456"
-cloudcruise builder respond --message-id "msg-456" --responses '{"email":"user@example.com","password":"s3cret"}'
+printf '%s' "123456" | cloudcruise builder respond --message-id "msg-456" --value-stdin
+printf '%s' '{"email":"user@example.com","password":"s3cret"}' | cloudcruise builder respond --message-id "msg-456" --responses-stdin
 
 # ── Inspect conversation state ──
 cloudcruise builder conversations list     # List live builder conversations for the workspace (newest first)
@@ -246,7 +246,7 @@ cloudcruise builder end         # End the conversation and clean up
 - `builder send` returns immediately — use `builder status` to check for completion
 - Break complex tasks into small steps (e.g. "log in", then "navigate to X", then "search for Y")
 - Poll `builder status` in a loop — if it returns `processing`, wait a few seconds and call it again. `status` also keeps the session alive (it hits `/status`), so keep polling rather than letting an idle session get reaped.
-- **`awaiting-human-input` is how the builder asks for information it needs** (e.g. email, password, 2FA code). When you see it, relay the question to the user, then pass their answer back with `builder respond`. The agent may request multiple inputs at once — check `waitingForInputs.inputs` for the full list and use `--responses` with a JSON object keyed by input name. Never pre-emptively browse the site or ask the user for form values — let the builder discover what it needs.
+- **`awaiting-human-input` is how the builder asks for information it needs** (e.g. email, password, 2FA code). When you see it, relay the question to the user, then pass their answer back with `builder respond`. The agent may request multiple inputs at once — check `humanInput.fields` for the full list and pipe a JSON object keyed by field name to `--responses-stdin`. Never pre-emptively browse the site or ask the user for form values — let the builder discover what it needs.
 - Only fall back to direct DSL editing after the builder reaches a terminal state (`terminal: true` — i.e. `completed`, `agent-errored`, or `ended`).
 - **Wait for a terminal status before sending the next message** — sending while the agent is processing interrupts the current turn, and a busy send returns HTTP 409 `SESSION_BUSY` (exit code 6)
 
@@ -266,7 +266,7 @@ cloudcruise builder end         # End the conversation and clean up
 
 ```bash
 cloudcruise builder send "Log me in"
-# → {"status":"sent","messageCountBefore":2}
+# → {"conversationId":"conv-abc123","accepted":true}
 
 # Poll until agent reaches a terminal state (terminal: true)
 cloudcruise builder status
@@ -276,21 +276,21 @@ cloudcruise builder status
 # → {"status":"completed","terminal":true,"isProcessing":false,"workflowId":"wf_..."}
 
 # If agent needs input (single value):
-# → {"status":"awaiting-human-input","terminal":false,"waitingForInput":{"messageId":"m1","description":"What's the 2FA code?"}}
-cloudcruise builder respond --message-id m1 --value "123456"
+# → {"status":"awaiting-human-input","terminal":false,"conversationId":"conv-abc123","humanInput":{"messageId":"m1","prompt":"What's the 2FA code?","fields":[{"name":"code","type":"text"}]}}
+printf '%s' "123456" | cloudcruise builder respond --message-id m1 --value-stdin
 cloudcruise builder status
 
 # If agent needs multiple inputs at once:
-# → {"status":"awaiting-human-input","terminal":false,"waitingForInputs":{"messageId":"m1","inputs":[{"name":"npi",...},{"name":"last_name",...}]}}
-cloudcruise builder respond --message-id m1 --responses '{"npi":"1234567890","last_name":"Ziegler"}'
+# → {"status":"awaiting-human-input","terminal":false,"humanInput":{"messageId":"m1","prompt":"...","fields":[{"name":"npi",...},{"name":"last_name",...}]}}
+printf '%s' '{"npi":"1234567890","last_name":"Ziegler"}' | cloudcruise builder respond --message-id m1 --responses-stdin
 cloudcruise builder status
 
 # If agent needs credentials (type: "auth"):
-# → {"status":"awaiting-human-input","terminal":false,"waitingForInputs":{"messageId":"m1","inputs":[{"name":"Portal Credentials","type":"auth",...}]}}
+# → {"status":"awaiting-human-input","terminal":false,"humanInput":{"messageId":"m1","prompt":"...","fields":[{"name":"Portal Credentials","type":"auth",...}]}}
 # 1. Look up the vault entry to get the domain:
 cloudcruise vault list
 # 2. Respond with { permissioned_user_id, domain }:
-cloudcruise builder respond --message-id m1 --responses '{"Portal Credentials":{"permissioned_user_id":"d2b9d80e-...","domain":"https://example.com"}}'
+printf '%s' '{"Portal Credentials":{"permissioned_user_id":"d2b9d80e-...","domain":"https://example.com"}}' | cloudcruise builder respond --message-id m1 --responses-stdin
 cloudcruise builder status
 ```
 
