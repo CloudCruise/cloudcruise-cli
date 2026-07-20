@@ -219,22 +219,26 @@ cloudcruise builder poll                                       # Check status (h
 cloudcruise builder respond --message-id "msg-456" --value "123456"
 cloudcruise builder respond --message-id "msg-456" --responses '{"email":"user@example.com","password":"s3cret"}'
 
-# ── Inspect session state ──
-cloudcruise builder status              # Check if session is active (hits /status: status + terminal)
-cloudcruise builder sessions            # List active builder sessions for the workspace (newest first)
-cloudcruise builder workflow            # Get current workflow definition (nodes, edges)
-cloudcruise builder messages            # Get conversation history (pagination envelope)
-cloudcruise builder messages --limit 5  # Last 5 messages only
+# ── Inspect conversation state ──
+cloudcruise builder status                 # Current conversation status (hits /status: status + terminal)
+cloudcruise builder conversation list      # List live builder conversations for the workspace (newest first)
+cloudcruise builder workflow               # Get current workflow definition (nodes, edges)
+cloudcruise builder messages               # Get conversation history (pagination envelope)
+cloudcruise builder messages --limit 5     # Last 5 messages only
 cloudcruise builder messages --limit 20 --offset 20            # Page backward from the end
 cloudcruise builder messages --limit 20 --offset 0 --no-tail   # Page forward from the start
 
-# ── Session lifecycle ──
+# ── Target a specific conversation (concurrent/multi-conversation) ──
+cloudcruise builder poll --conversation "conv-abc123"
+CLOUDCRUISE_CONVERSATION="conv-abc123" cloudcruise builder send "Click login"
+
+# ── Conversation lifecycle ──
 cloudcruise builder save        # Persist workflow to the database
 cloudcruise builder interrupt   # Stop the agent's current processing
-cloudcruise builder end         # End session and clean up
+cloudcruise builder end         # End the conversation and clean up
 ```
 
-**Session is implicit** — `start` saves the conversation ID locally. All other builder commands use it automatically. One active session at a time.
+**Conversation resolution is server-driven** — there is no local session file. `start` prints the `conversationId`; the server roster (`builder conversation list`) is the source of truth for what's live. When exactly one conversation is live in your workspace, every other builder command resolves to it automatically. When more than one is live, commands error with exit 5 (ambiguous) and you must pass `--conversation <id>` (or set `CLOUDCRUISE_CONVERSATION`). With none live, they exit 2. `--conversation` overrides everything, including workspace scope. Each command echoes `conversation <id> (via flag|env|roster)` to stderr so you can tell how it resolved.
 
 **Important guidelines:**
 
