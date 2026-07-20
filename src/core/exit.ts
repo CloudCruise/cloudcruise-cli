@@ -16,7 +16,8 @@ export const ExitCode = {
   SESSION_BUSY: 6,
   AWAITING_HUMAN_INPUT: 7,
   AGENT_ERROR: 8,
-  TIMEOUT: 9
+  TIMEOUT: 9,
+  NO_BROWSER_ATTACHED: 10
 } as const
 
 export type ExitCodeValue = (typeof ExitCode)[keyof typeof ExitCode]
@@ -65,6 +66,8 @@ export function exitCodeForApiError(err: ApiError): ExitCodeValue {
       return ExitCode.AUTH
     case "TIMEOUT":
       return ExitCode.TIMEOUT
+    case "NO_BROWSER_ATTACHED":
+      return ExitCode.NO_BROWSER_ATTACHED
   }
   switch (err.status) {
     case 400:

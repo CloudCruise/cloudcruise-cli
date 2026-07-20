@@ -259,6 +259,8 @@ cloudcruise builder end         # End the conversation and clean up
 
 **409 exit codes:** `builder send` on a busy session → `SESSION_BUSY` (exit 6). `builder respond` after the input was already answered → `ALREADY_ANSWERED` (exit 7). The code is printed to stderr.
 
+`builder screenshot`/`html` with no attached browser → `NO_BROWSER_ATTACHED` (exit 10); provision/warm a browser, then retry.
+
 **Send + poll pattern:**
 
 ```bash

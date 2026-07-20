@@ -360,7 +360,7 @@ agent's response with 'cloudcruise builder poll'.
         // meant); each attempt gets a fresh abort.
         const sendTo = async (id: string): Promise<void> => {
           const ac = new AbortController()
-          const timer = setTimeout(() => ac.abort(), 5000)
+          const timer = setTimeout(() => ac.abort(), 1500)
           try {
             const res = await fetch(`${auth.baseUrl}${BASE}/${id}/message`, {
               method: "POST",
