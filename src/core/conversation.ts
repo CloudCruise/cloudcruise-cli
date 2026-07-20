@@ -1,4 +1,4 @@
-import { ApiClient } from "./api-client.js"
+import { ApiClient, ApiError } from "./api-client.js"
 import { AmbiguousSessionError, UsageError } from "./exit.js"
 
 /** Roster route on the workflow-builder agent. Kept in sync with builder.ts BASE. */
@@ -82,4 +82,98 @@ export async function resolveConversation(
     )
   }
   return { conversationId: scope[0].conversationId, source: "roster" }
+}
+
+/** The live successor the backend attached to a gone-conversation 404, if any. */
+function successorFromError(err: ApiError): string | undefined {
+  try {
+    const body = JSON.parse(err.body) as { successorConversationId?: unknown }
+    return typeof body.successorConversationId === "string"
+      ? body.successorConversationId
+      : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/** Fallback when the backend didn't enrich the 404: one roster scan matching
+ * the dead id against previousConversationIds (full ancestry, so the tip at any
+ * chain depth). */
+async function successorFromRoster(
+  client: ApiClient,
+  deadId: string,
+  workspaceId: string | undefined
+): Promise<string | undefined> {
+  const scope = scopeToWorkspace(await fetchRoster(client), workspaceId)
+  return scope.find((s) => s.previousConversationIds?.includes(deadId))
+    ?.conversationId
+}
+
+export interface Reconciled<T> {
+  result: T
+  /** The conversation actually acted on — the chain tip after any follow. */
+  conversationId: string
+  /** Present only when a follow happened; the dead id the caller held. */
+  reconciledFrom?: string
+}
+
+/**
+ * Run an action against a conversation, auto-following a cleared/restarted
+ * conversation to its live chain tip when the command is eligible (§5 matrix).
+ *
+ * A held id that was cleared/restarted 404s with CONVERSATION_NOT_FOUND. For
+ * eligible reads/send/save we follow the successor (from the enriched 404, or a
+ * roster fallback) and retry, reporting reconciledFrom. For ineligible commands
+ * (respond/interrupt/end) we surface the successor on stderr and re-throw so the
+ * caller never acts on the wrong turn — following `end` would destroy the live
+ * successor. Whole-chain-dead (no successor) always re-throws -> exit 4.
+ */
+export async function withAutoFollow<T>(
+  client: ApiClient,
+  conversationId: string,
+  eligible: boolean,
+  workspaceId: string | undefined,
+  action: (id: string) => Promise<T>
+): Promise<Reconciled<T>> {
+  try {
+    return { result: await action(conversationId), conversationId }
+  } catch (err) {
+    if (!(err instanceof ApiError) || err.code !== "CONVERSATION_NOT_FOUND") {
+      throw err
+    }
+    const successor =
+      successorFromError(err) ??
+      (await successorFromRoster(client, conversationId, workspaceId))
+    if (!successor) throw err
+
+    if (!eligible) {
+      process.stderr.write(
+        `conversation ${conversationId} was cleared; live successor ` +
+          `${successor}. Re-run with --conversation ${successor} if intended.\n`
+      )
+      throw err
+    }
+
+    process.stderr.write(
+      `reconciled ${conversationId} → ${successor} (${conversationId} was cleared)\n`
+    )
+    return {
+      result: await action(successor),
+      conversationId: successor,
+      reconciledFrom: conversationId
+    }
+  }
+}
+
+/** Merge the reconcile fields onto a command's output object: the tip as
+ * `conversationId`, and `reconciledFrom` when a follow happened. */
+export function withReconcileFields(
+  result: object,
+  r: Reconciled<unknown>
+): Record<string, unknown> {
+  return {
+    ...(result as Record<string, unknown>),
+    conversationId: r.conversationId,
+    ...(r.reconciledFrom ? { reconciledFrom: r.reconciledFrom } : {})
+  }
 }
