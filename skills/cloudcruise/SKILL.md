@@ -1,3 +1,9 @@
+---
+name: cloudcruise
+description: CloudCruise CLI command and DSL reference — canonical syntax for managing workflows, runs, the builder, and vault, plus the workflow DSL. Read this (the builder-drive skills reference it as /cloudcruise) whenever you need the literal CLI commands, flags, exit codes, or DSL for a CloudCruise task.
+user-invocable: true
+---
+
 # CloudCruise CLI
 
 Command-line tool for managing CloudCruise workflows and runs. All output is JSON to stdout; errors go to stderr.

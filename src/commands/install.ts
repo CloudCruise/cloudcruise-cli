@@ -9,7 +9,9 @@ import {
 } from "fs"
 import { join, dirname, basename } from "path"
 import { fileURLToPath } from "url"
-import { outputJson, outputError } from "../core/output.js"
+import { outputJson } from "../core/output.js"
+import { fail, UsageError } from "../core/exit.js"
+import { CLI_VERSION } from "../core/version.js"
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -18,12 +20,60 @@ function getSkillSourceDir(): string {
   return join(__dirname, "..", "..", "..", "skills", "cloudcruise")
 }
 
-function installClaudeSkills(cwd: string): string {
-  const destDir = join(cwd, ".claude", "skills", "cloudcruise")
-  const sourceDir = getSkillSourceDir()
-  mkdirSync(destDir, { recursive: true })
-  cpSync(sourceDir, destDir, { recursive: true })
-  return destDir
+// Strip a leading YAML frontmatter block (--- ... ---) so it doesn't leak into
+// the Cursor .mdc wrapper, which prepends its own frontmatter header.
+function stripFrontmatter(md: string): string {
+  return md.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, "")
+}
+
+function getSkillsRootDir(): string {
+  return join(__dirname, "..", "..", "..", "skills")
+}
+
+// A pack is any top-level dir under skills/ that contains a SKILL.md.
+function listSourcePacks(): string[] {
+  const root = getSkillsRootDir()
+  return readdirSync(root, { withFileTypes: true })
+    .filter((e) => e.isDirectory() && existsSync(join(root, e.name, "SKILL.md")))
+    .map((e) => e.name)
+}
+
+// Stamp the install-time manifest the staleness check reads. requiresCli is
+// authored in each pack's skill.meta.json sidecar (not frontmatter).
+function writeSkillManifest(destPackDir: string, pack: string): void {
+  let requiresCli: string | undefined
+  const metaPath = join(getSkillsRootDir(), pack, "skill.meta.json")
+  if (existsSync(metaPath)) {
+    try {
+      requiresCli = (
+        JSON.parse(readFileSync(metaPath, "utf-8")) as { requiresCli?: string }
+      ).requiresCli
+    } catch {
+      // Missing/malformed sidecar — omit requiresCli.
+    }
+  }
+  const manifest = {
+    pack,
+    cliVersion: CLI_VERSION,
+    ...(requiresCli ? { requiresCli } : {}),
+    installedAt: new Date().toISOString()
+  }
+  writeFileSync(
+    join(destPackDir, ".cloudcruise-skill.json"),
+    `${JSON.stringify(manifest, null, 2)}\n`
+  )
+}
+
+function installClaudeSkills(cwd: string): string[] {
+  const installed: string[] = []
+  for (const pack of listSourcePacks()) {
+    const destDir = join(cwd, ".claude", "skills", pack)
+    mkdirSync(destDir, { recursive: true })
+    cpSync(join(getSkillsRootDir(), pack), destDir, { recursive: true })
+    writeSkillManifest(destDir, pack)
+    installed.push(destDir)
+  }
+  return installed
 }
 
 function installCursorSkills(cwd: string): string[] {
@@ -31,8 +81,8 @@ function installCursorSkills(cwd: string): string[] {
   mkdirSync(destDir, { recursive: true })
   const installed: string[] = []
 
-  const sourceFile = join(getSkillSourceDir(), "cloudcruise.md")
-  const content = readFileSync(sourceFile, "utf-8")
+  const sourceFile = join(getSkillSourceDir(), "SKILL.md")
+  const content = stripFrontmatter(readFileSync(sourceFile, "utf-8"))
 
   const mainMdc = `---
 description: CloudCruise CLI usage reference for managing workflows and runs
@@ -50,7 +100,7 @@ ${content}`
   if (existsSync(refsDir)) {
     for (const file of readdirSync(refsDir)) {
       if (!file.endsWith(".md")) continue
-      const refContent = readFileSync(join(refsDir, file), "utf-8")
+      const refContent = stripFrontmatter(readFileSync(join(refsDir, file), "utf-8"))
       const name = basename(file, ".md")
 
       const refMdc = `---
@@ -88,10 +138,11 @@ Examples:
 `)
     .action((opts: { skills?: boolean; target: string }) => {
       if (!opts.skills) {
-        outputError(
-          "No install target specified. Use --skills to install skill files."
+        fail(
+          new UsageError(
+            "No install target specified. Use --skills to install skill files."
+          )
         )
-        process.exit(1)
       }
 
       try {
@@ -100,8 +151,7 @@ Examples:
         const target = opts.target.toLowerCase()
 
         if (target === "claude" || target === "all") {
-          const dest = installClaudeSkills(cwd)
-          installed.push(dest)
+          installed.push(...installClaudeSkills(cwd))
         }
 
         if (target === "cursor" || target === "all") {
@@ -110,10 +160,11 @@ Examples:
         }
 
         if (target !== "claude" && target !== "cursor" && target !== "all") {
-          outputError(
-            `Unknown target "${opts.target}". Use: claude, cursor, all`
+          fail(
+            new UsageError(
+              `Unknown target "${opts.target}". Use: claude, cursor, all`
+            )
           )
-          process.exit(1)
         }
 
         outputJson({
@@ -121,8 +172,7 @@ Examples:
           installed
         })
       } catch (err: unknown) {
-        outputError(err instanceof Error ? err.message : String(err))
-        process.exit(1)
+        fail(err)
       }
     })
 }

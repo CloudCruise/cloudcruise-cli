@@ -1,6 +1,8 @@
 ---
 name: builder-drive-legacy
 description: Current-CLI (singleton-session) version of builder-drive, runnable today. Drive and supervise the CloudCruise builder agent through the CLI, agent-to-agent — own the plan/todo, dispatch atomic tasks (investigate/explore/map/test/fix/harden) to the builder, watch cheaply via bare poll, and intervene only when the builder doom-loops, poisons its own context, or rabbit-holes. Entry via a new workflow, an existing workflow (edit), or connecting to the local session. Use when the user wants Claude Code to build/edit a workflow by driving the builder on the current CLI.
+user-invocable: true
+allowed-tools: Bash, Read, Write, Edit, Grep, Glob, Skill, AskUserQuestion
 ---
 
 # builder-drive-legacy — supervising the builder agent on the current CLI

@@ -1,6 +1,8 @@
 ---
 name: payload-sweep
 description: Stress-test a CloudCruise workflow for MECHANICAL correctness by generating synthetic input payloads from its input_schema (full / empty / partial_a / partial_b, plus a hand-built max), triggering one run per tier, polling them to terminal, then classifying each failure by who owns the fix — payload bug, schema-too-strict/incoherent, workflow null-unsafe (direct fix), workflow mechanical bug like node-ordering/bad-XPath/element-not-ready (needs a human to drive a builder session), or site/extension. Explicitly out of scope: semantic correctness (single-input-vs-should-loop, progress not saved) — that's caught by manual inspection of successful runs, not this sweep. Use when the user wants to validate a workflow runs cleanly against fake/synthetic data end-to-end, not fix one known failure.
+user-invocable: true
+allowed-tools: Bash, Read, Write, Grep, Glob
 ---
 
 # payload-sweep — schema-driven workflow stress testing

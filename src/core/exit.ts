@@ -17,7 +17,8 @@ export const ExitCode = {
   AWAITING_HUMAN_INPUT: 7,
   AGENT_ERROR: 8,
   TIMEOUT: 9,
-  NO_BROWSER_ATTACHED: 10
+  NO_BROWSER_ATTACHED: 10,
+  SKILLS_INCOMPATIBLE: 11
 } as const
 
 export type ExitCodeValue = (typeof ExitCode)[keyof typeof ExitCode]
@@ -40,6 +41,21 @@ export class AmbiguousSessionError extends Error {
   constructor(
     message: string,
     readonly sessions: unknown[] = []
+  ) {
+    super(message)
+  }
+}
+
+/**
+ * Installed CloudCruise skills are incompatible with this CLI version (a breaking
+ * skills/CLI change). Maps to exit 11. Only thrown when the skills gate is set to
+ * "refuse" and a gated command runs.
+ */
+export class SkillsIncompatibleError extends Error {
+  readonly name = "SkillsIncompatibleError"
+  constructor(
+    message: string,
+    readonly packs: string[] = []
   ) {
     super(message)
   }
@@ -142,6 +158,11 @@ export function fail(err: unknown): never {
     exitCode = ExitCode.BAD_ARGS
     envelope.code = "BAD_ARGS"
     envelope.message = err.message
+  } else if (err instanceof SkillsIncompatibleError) {
+    exitCode = ExitCode.SKILLS_INCOMPATIBLE
+    envelope.code = "SKILLS_INCOMPATIBLE"
+    envelope.message = err.message
+    envelope.packs = err.packs
   } else {
     envelope.code = "FAILURE"
     envelope.message = err instanceof Error ? err.message : String(err)

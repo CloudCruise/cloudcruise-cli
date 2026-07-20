@@ -15,6 +15,8 @@ import { registerVaultCommands } from "../src/commands/vault.js"
 import { registerSecretProviderCommands } from "../src/commands/secret-providers.js"
 import { registerBuilderCommands } from "../src/commands/builder.js"
 import { registerWorkspaceCommands } from "../src/commands/workspaces.js"
+import { CLI_VERSION } from "../src/core/version.js"
+import { checkInstalledSkills } from "../src/core/skills.js"
 
 const require = createRequire(import.meta.url)
 const pkg = require("../../package.json") as { name: string; version: string }
@@ -28,7 +30,7 @@ if (process.stderr.isTTY) {
 program
   .name("cloudcruise")
   .description("CloudCruise CLI for managing workflows and runs")
-  .version(pkg.version)
+  .version(CLI_VERSION)
 
 registerAuthCommands(program)
 registerWorkflowCommands(program)
@@ -41,5 +43,14 @@ registerUtilsCommands(program)
 registerSnapshotCommands(program)
 registerSecretProviderCommands(program)
 registerVaultCommands(program)
+
+// Warn (or, on a breaking release, block) when a project's installed skills have
+// drifted from this CLI version. Resolves the invoked command's top-level group
+// and only acts on the gated groups; never fires for --help/--version.
+program.hook("preAction", (_thisCommand, actionCommand) => {
+  let cmd = actionCommand
+  while (cmd.parent && cmd.parent.parent) cmd = cmd.parent
+  checkInstalledSkills(cmd.name())
+})
 
 program.parse()

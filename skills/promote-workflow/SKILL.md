@@ -1,6 +1,8 @@
 ---
 name: promote-workflow
 description: Copy a workflow definition from one CloudCruise environment to another (staging -> production) using two CLI profiles. Exports the source workflow's nodes/edges/schemas with `workflows get --profile <src>` and applies them onto an already-existing target workflow with `workflows update <target-id> --profile <dst>`. Handles the cross-environment gaps the raw copy does NOT carry: the target workflow must be seeded first (no `workflows create`), and vault credentials, node-embedded error-code IDs, referenced components, and the resource-group assignment do not transfer and must be reconciled in the target environment. Use when someone wants to promote/port/copy a workflow between environments (staging<->prod, or any two deployments). NOT for copying within one environment across workspaces — that's a same-DB fork, done in the dashboard.
+user-invocable: true
+allowed-tools: Bash, Read, Write, Grep, Glob
 ---
 
 # promote-workflow — port a workflow between environments

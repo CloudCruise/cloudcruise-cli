@@ -1,6 +1,8 @@
 ---
 name: video-distill
 description: Download a Loom (or local) screen recording, transcribe the narration, extract frames, and correlate them into a structured step-by-step walkthrough — numbered UI actions with exact label text, every input value typed, what the final result screen shows, and narrator gotchas verbatim. Use when the user points at a Loom link or a local video and wants its on-screen workflow distilled into actionable steps.
+user-invocable: true
+allowed-tools: Bash, Read, Write, Grep, Glob
 ---
 
 # Loom Distiller — Video Walkthrough → Structured Steps

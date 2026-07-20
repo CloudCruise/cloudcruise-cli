@@ -4,6 +4,22 @@ dist/
 .cloudcruise/
 .claude/*
 !.claude/skills/
+
+# local dev symlinks to the published packs in skills/ — edit the real source in skills/, not here
+.claude/skills/cloudcruise
+.claude/skills/builder-drive
+.claude/skills/observe
+.claude/skills/payload-gen
+.claude/skills/payload-sweep
+.claude/skills/plan-compile
+.claude/skills/promote-workflow
+.claude/skills/queue-run
+.claude/skills/run-investigate
+.claude/skills/video-distill
+.claude/skills/video-extract
+.claude/skills/work
+.claude/skills/workflow-audit
+
 .cursor/
 
 # npm pack artifacts
