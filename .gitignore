@@ -2,7 +2,8 @@ node_modules/
 dist/
 .env
 .cloudcruise/
-.claude/
+.claude/*
+!.claude/skills/
 .cursor/
 
 # npm pack artifacts
