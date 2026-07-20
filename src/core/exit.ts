@@ -1,0 +1,152 @@
+import { ApiError } from "./api-client.js"
+
+/**
+ * The machine-first exit-code taxonomy shared by every command. A driver keys
+ * its control flow on these numbers alone — stderr is for humans/logs.
+ *
+ * See the "Exit-code taxonomy" contract note for the full mapping.
+ */
+export const ExitCode = {
+  SUCCESS: 0,
+  FAILURE: 1,
+  BAD_ARGS: 2,
+  AUTH: 3,
+  SESSION_NOT_FOUND: 4,
+  AMBIGUOUS_SESSION: 5,
+  SESSION_BUSY: 6,
+  AWAITING_HUMAN_INPUT: 7,
+  AGENT_ERROR: 8,
+  TIMEOUT: 9
+} as const
+
+export type ExitCodeValue = (typeof ExitCode)[keyof typeof ExitCode]
+
+/**
+ * A client-side usage error (bad flags, malformed stdin, conflicting options).
+ * Maps to exit 2 so it is distinguishable from an unexpected failure (exit 1).
+ */
+export class UsageError extends Error {
+  readonly name = "UsageError"
+}
+
+/**
+ * More than one active local session and no explicit `--session`. Maps to exit
+ * 5. Carries the roster so the handler can print it to stderr.
+ */
+export class AmbiguousSessionError extends Error {
+  readonly name = "AmbiguousSessionError"
+  constructor(
+    message: string,
+    readonly sessions: unknown[] = []
+  ) {
+    super(message)
+  }
+}
+
+/**
+ * Map a backend error to an exit code. The machine `code` wins (it disambiguates
+ * same-status cases like 409 SESSION_BUSY vs ALREADY_ANSWERED); HTTP status is
+ * the fallback for any error the backend has not (yet) given a specific code.
+ */
+export function exitCodeForApiError(err: ApiError): ExitCodeValue {
+  switch (err.code) {
+    case "SESSION_BUSY":
+      return ExitCode.SESSION_BUSY
+    case "ALREADY_ANSWERED":
+      return ExitCode.AWAITING_HUMAN_INPUT
+    case "CONVERSATION_NOT_FOUND":
+      return ExitCode.SESSION_NOT_FOUND
+    case "VALIDATION_FAILED":
+    case "BAD_REQUEST":
+      return ExitCode.BAD_ARGS
+    case "UNAUTHENTICATED":
+    case "FORBIDDEN":
+      return ExitCode.AUTH
+    case "TIMEOUT":
+      return ExitCode.TIMEOUT
+  }
+  switch (err.status) {
+    case 400:
+    case 422:
+      return ExitCode.BAD_ARGS
+    case 401:
+    case 403:
+      return ExitCode.AUTH
+    case 404:
+      return ExitCode.SESSION_NOT_FOUND
+    case 408:
+      return ExitCode.TIMEOUT
+    default:
+      return ExitCode.FAILURE
+  }
+}
+
+/**
+ * Map an observed conversation status to an exit code (for observe commands like
+ * `poll`). `processing` only reaches here when a long-poll expired without
+ * settling — the driver ticks and re-arms (exit 9).
+ */
+export function exitCodeForStatus(status: string): ExitCodeValue {
+  switch (status) {
+    case "completed":
+    case "idle":
+    case "ended":
+      return ExitCode.SUCCESS
+    case "awaiting-human-input":
+      return ExitCode.AWAITING_HUMAN_INPUT
+    case "agent-errored":
+      return ExitCode.AGENT_ERROR
+    case "processing":
+      return ExitCode.TIMEOUT
+    default:
+      return ExitCode.SUCCESS
+  }
+}
+
+/**
+ * Terminal error handler for every command. Writes a machine-readable error
+ * envelope to stderr (never stdout — stdout stays clean for parsers) and exits
+ * with the mapped code.
+ */
+export function fail(err: unknown): never {
+  let exitCode: ExitCodeValue = ExitCode.FAILURE
+  const envelope: Record<string, unknown> = {}
+
+  if (err instanceof ApiError) {
+    exitCode = exitCodeForApiError(err)
+    envelope.code = err.code ?? "ERROR"
+    envelope.statusCode = err.status
+    envelope.message = err.message
+    let messageId: string | undefined
+    try {
+      messageId = (JSON.parse(err.body) as { messageId?: string }).messageId
+    } catch {
+      // Non-JSON body — nothing more to surface.
+    }
+    if (messageId) envelope.messageId = messageId
+  } else if (err instanceof AmbiguousSessionError) {
+    exitCode = ExitCode.AMBIGUOUS_SESSION
+    envelope.code = "AMBIGUOUS_SESSION"
+    envelope.message = err.message
+    envelope.sessions = err.sessions
+  } else if (err instanceof UsageError) {
+    exitCode = ExitCode.BAD_ARGS
+    envelope.code = "BAD_ARGS"
+    envelope.message = err.message
+  } else {
+    envelope.code = "FAILURE"
+    envelope.message = err instanceof Error ? err.message : String(err)
+  }
+
+  envelope.exitCode = exitCode
+  process.stderr.write(`${JSON.stringify(envelope)}\n`)
+  process.exit(exitCode)
+}
+
+/**
+ * Echo the resolved session on stderr so a driver always knows which
+ * conversation a command acted on (stdout stays reserved for the answer).
+ */
+export function echoSession(conversationId: string): void {
+  process.stderr.write(`session ${conversationId}\n`)
+}
