@@ -49,12 +49,10 @@ stays LLM_VISION by design. Skip these silently — do not even list them as can
 delay is an undocumented hole. Flag each. Also note where a `DELAY` could be replaced by `wait_time`
 on the adjacent action node (the DSL prefers that over standalone delays).
 
-**4. Loose / ungrouped nodes.** Flag nodes not associated with any component
-(`source_component_instance_id` absent) where the plan or repetition suggests they belong to a
-reusable group. **Interpretation flag:** the node model (`BaseNode`) has no first-class
-`group`/`section` field — the only grouping primitive is component membership — so this pass equates
-"grouped" with "componentized." If the builder represents sections some other way, this rule needs
-retargeting; call that out rather than over-report. Keep this pass low-confidence until confirmed.
+**4. Loose / ungrouped nodes.** Grouping means **component membership** — `BaseNode` has no
+`group`/`section` field; the grouping primitive is the component (`source_component_instance_id`).
+Flag runs of nodes not associated with any component where the plan or repetition shows they'd be a
+reusable group (a repeated section, a login flow), and recommend extracting them into a component.
 
 ## Return contract
 

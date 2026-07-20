@@ -1,6 +1,6 @@
 ---
 name: video-extract
-description: Turn a Loom (or local) workflow recording into a DENSE structured plan for building a CloudCruise workflow — per-section steps with every conditional branch enumerated, a visual anchor for on-screen recognition, narrated constraints as candidate ADRs, and the demonstrated reset recipe (entry path to a clean form). First stage of the builder-drive pipeline; feeds plan-compile. Forked child; never invoked directly by a user.
+description: Turn a Loom (or local) workflow recording into a DENSE, frame-accurate plan for building a CloudCruise workflow — timestamped actions, a full input inventory (every field, verbatim labels + option lists), gating dependencies, observed-vs-speculative branches, per-section visual anchors, narrated constraints as candidate ADRs, the reset recipe, and a marked gaps list. First stage of the builder-drive pipeline; feeds plan-compile. Forked child; never invoked directly by a user.
 context: fork
 agent: general-purpose
 user-invocable: false
@@ -9,93 +9,120 @@ allowed-tools: Bash, Read, Write, Grep, Glob
 
 # video-extract — recording → dense structured plan
 
-You are a **fork** and the first stage of the builder-drive pipeline. You turn a screen recording
-of someone performing a workflow into a **dense, structured plan** that everything downstream
-grades against, then **return a short summary** (the plan itself is written to disk). Nothing
-downstream can verify against intent it never received, so **enumerate everything** — especially
-every conditional branch.
+You are a **fork** and the first pipeline stage. You do **dense, frame-accurate observation — not a
+summary** — and write a structured plan to disk, then return a short summary. An automation agent
+rebuilds the task from your plan and knows **only what you wrote down**: assume every on-screen
+detail you drop is lost forever. Length is not a concern; a long, gap-marked plan is the goal.
 
 ## Arguments contract
 
-`$ARGUMENTS`: a **video source** (a Loom URL or an absolute path to a local video), optional context
-notes (what the workflow is, known inputs/values, the target start URL), and an `outPath` for the
-plan file (default `plan.md` in the working dir). If no source is given, that is the only thing you
-may stop to ask for.
+`$ARGUMENTS`: a **video source** (Loom URL or absolute local path), optional context notes (what the
+workflow is, known inputs/values, the target start URL), and an `outPath` (default `plan.md`). If no
+source is given, that is the only thing you may stop to ask for.
 
-## Extraction engine — reuse video-distill
+## Engine + the Claude Code advantage
 
-The download / transcribe / frame-sample mechanics are the proven `video-distill` procedure — do
-not reinvent them. Bootstrap once and run it in *this* fork (you already are the subagent that
-protects the main context):
+Get frames + transcript with the proven `video-distill` mechanics (run them here — you are the fork
+that protects the main context):
 
 ```bash
-python3 -m venv venv && venv/bin/pip install yt-dlp mlx-whisper     # ffmpeg is on PATH
-venv/bin/yt-dlp -o video.mp4 "<loom-url>"                            # or use the local path
+python3 -m venv venv && venv/bin/pip install yt-dlp mlx-whisper     # ffmpeg on PATH
+venv/bin/yt-dlp -o video.mp4 "<loom-url>"                           # or the local path
 ffmpeg -i video.mp4 -vn -ar 16000 -ac 1 audio.wav && venv/bin/mlx_whisper audio.wav
-ffmpeg -i video.mp4 -vf fps=1/2 frame_%04d.png                      # 1 frame / 2s; raise if dense
+ffmpeg -i video.mp4 -vf fps=1 frame_%04d.png                       # 1 fps baseline; raise if dense
 ```
 
-Read frames in order against the transcript timeline — narration says *why*, frames show *what was
-clicked/typed*. If the download fails or the video is unobtainable, **stop and report** — never
-fabricate a plan. (See `/video-distill` for the download-fallback details.)
+**Unlike a one-shot video model, you can look again.** Before you ever mark something a gap,
+**re-sample that moment denser and re-read** — a blurred dropdown, a fast scroll, an unreadable
+label are usually recoverable:
 
-> The kickoff referenced a "Gemini-based extraction prompt." The only Gemini video prompt in the
-> codebase is the maintenance agent's *run-error* analyzer (Langfuse-hosted), not a Loom-walkthrough
-> extractor — so this skill uses the on-disk `video-distill` engine instead. If a dedicated Gemini
-> extraction prompt is preferred, swap the engine above for it; the enrichment + output contract
-> below is unchanged.
+```bash
+ffmpeg -ss 71 -to 78 -i video.mp4 -vf fps=6 zoom_%03d.png          # tight window, high fps
+```
 
-## What to extract — the plan (beyond a plain walkthrough)
+Use this liberally on any dropdown open, fast scroll, or ambiguous click. A gap you *could* have
+resolved by re-watching is a failure, not a limitation.
 
-`video-distill` gives you the base walkthrough (summary, numbered steps with exact UI label text,
-every typed input, final screen, narrator gotchas). **Enrich it** into the plan with four additions
-the downstream skills depend on:
+## How to observe (the discipline)
 
-1. **Every conditional branch enumerated.** Wherever the flow forks (a value present/absent, a
-   status, a role, an "if X then Y" the narrator mentions or the screen implies), name both arms and
-   what each does — even arms the demo didn't take. run-investigate checks branch reachability
-   against this list; an un-enumerated branch is invisible to it forever.
-2. **A visual anchor per section** — how to recognize this section on screen: page title,
-   distinctive header text, unique layout. run-investigate uses these as frame-registration points
-   to align the run video to the node list, so make them concrete and unambiguous.
-3. **Narrated constraints → candidate ADRs.** Every "you must…", "always…", "never…", "watch out
-   for…", business rule, or value constraint the narrator states → a candidate ADR (one line: the
-   constraint + where it applies). ADRs come from **narration + video only** — no standing library.
-4. **The reset recipe.** The recording starts from fresh state, so the entry path to a clean form is
-   demonstrated in the **opening** — extract it explicitly (the exact navigation/clicks to get back
-   to a clean starting form). This is the recovery manual `work` and `builder-drive` use to recover
-   a stuck section; get it precise.
+- **Sequentially, in small batches** (~30–60s of frames). Fully report a batch before the next —
+  never watch the whole thing then write from an overall impression; that is how detail is lost.
+- **Every new page / modal / panel / tab → inventory it fully** (all fields, per below) *before*
+  following what the cursor does next.
+- **Scrolling reveals content.** Fields scrolled past quickly still exist and still get inventoried —
+  transcribe what's legible, re-sample the rest.
+- **Register every discrete state change** — clicks, typed text, dropdown opens, selections, scrolls
+  to a new region, focus changes, tooltips, modals, toasts, spinners, page loads.
 
-## Output contract (write to `outPath`)
+**Two failure modes, both unacceptable:**
 
-Crude-but-structured markdown — this is the contract plan-compile parses and run-investigate grades
-against. One block per section, plus top-level reset recipe + constraints:
+- **Confabulation** — writing what the pixels don't support. When unsure what happened, what an
+  element is, or why, **say so** (`[?] unclear — couldn't see the click target @1:12`) rather than
+  guess.
+- **Compression** — summarizing detail away. Never "fills several fields", "various options",
+  "etc.", "similar to before", "repeats the process". If something repeats, say exactly what is
+  identical and **enumerate what differs**. Replace any "etc." with the actual items or
+  `[remaining items not legible]`.
+
+A **marked** gap is fine; a **silent** gap or an invented detail is not.
+
+**Verbatim, always, for labels and option lists.** Transcribe only what is in the pixels. **Never
+fill enum options from your knowledge of standard forms** — this form may be a customized variant,
+and a plausible-but-wrong enum is worse than a marked gap. Use `[options not visible]` /
+`[list truncated after "X"]` when a list wasn't opened or isn't legible (after re-sampling).
+
+## Output contract — the plan (`outPath`)
+
+Crude-but-structured markdown; this is what `plan-compile` parses and `run-investigate` grades
+against. Top matter + one block per section:
 
 ```markdown
 # Plan: <workflow name>
-start_url: <url if known>
+start_url: <url if legible>
 
 ## Reset recipe
-<exact steps demonstrated in the opening to reach a clean starting form>
+<exact steps from the OPENING to reach a clean starting form — the recovery manual>
 
 ## Constraints (candidate ADRs)
-- C1: <constraint> — applies to <section/step>
-- C2: ...
+- C1: <narrated must/never/always/business rule/value constraint> — applies to <section/step>
+
+## Parameterization
+- varies per run: <names, ids, dates, search strings, clinical answers…>
+- constant / structural: <…>
 
 ## Section 1 — <name>
-visual_anchor: <page title / header / layout that identifies this section on screen>
-steps:
-  1. <action on exact UI label> [input: <value + field>]
-  2. ...
+visual_anchor: <page title / distinctive header / layout that identifies this on screen>
+skeleton:                         # every discrete action, timestamped
+  0:03  click "Search" (top-right)
+  0:05  type "12345" into "Order #"
+  0:08  URL → app.example.com/orders   # note URL at each page load / tab switch / redirect
+input_inventory:                  # EVERY field on this page — interacted or not, skipped counts
+  - "C0100 Reason for assessment" | 0:11 | single-select | options: ["01 - Admission","02 - ..."] | default: none | set to: "01 - Admission"
+  - "Notes" | 0:14 | free text | set: no
 branches:
-  - if <condition>: <arm A — what happens> | else: <arm B>
-constraints: [C1]        # ADR refs that bind this section
+  observed:    - if <cond> hit in the recording → <arm>
+  speculative: - <plausible untested branch — validation fail / empty result / timeout> [untested]
+dependencies:                     # gating, both directions
+  - "Other" = checked → "Other detail" (revealed)                # activation: parent→child
+  - "Diagnosis" = set → "Onset date" (required) [inferred from fill order]   # requirement: child→parent
+constraints: [C1]                 # ADR refs binding this section
 notes: <gotchas verbatim, ambiguities>
 
 ## Section 2 — ...
+
+## Gaps & uncertainties
+- 1:12 [?] couldn't see click target after "Submit" — agent should probe live
+- 2:40 [options not visible] "Facility" dropdown never opened
 ```
 
-Then **return a short summary**: the workflow name, section count, branch count, ADR-candidate
-count, whether the reset recipe was found, and the `outPath`. Flag in the summary any section whose
-effect is ambiguous or any label unreadable in the frames — honesty over a plausible guess. Do not
-return the full plan; it's on disk.
+Rules baked into the format: **every branch enumerated** (both arms, even untaken); **one line per
+input** (never collapse "the PHQ-9 questions" into one line — list each); enum option lists
+**verbatim with codes/prefixes** (they become the workflow's enum values, so casing matters);
+dependencies as one line each with direction; gaps consolidated with timestamps (err toward listing
+too much — this section is the agent's live-probe list).
+
+## Return
+
+A short summary only (the plan is on disk): workflow name, counts (sections / total inputs /
+branches observed+speculative / candidate ADRs / gaps), whether a reset recipe was found, and the
+`outPath`. Flag the biggest ambiguities. Do not return the plan body.

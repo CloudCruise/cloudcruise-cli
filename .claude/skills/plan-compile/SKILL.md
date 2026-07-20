@@ -44,6 +44,8 @@ file, not your context:
       adrs: [7, 12]        # ADR numbers that bind this todo
       visual_anchor: <from the plan — run-investigate's registration point>
       branches: [ "<cond> → <arm A> | <arm B>", ... ]   # every branch to cover
+      inputs: <the section's input inventory — fields + verbatim enum sets to fill>
+      dependencies: [ "<parent>=<v> → <child> (revealed|required)", ... ]   # gating to honor
       reset_recipe: <ref/pointer to the plan's reset recipe>
       state: pending
 ```
@@ -52,9 +54,11 @@ Preserve plan order (login/entry first). Keep `state` in {pending, done, blocked
 
 **3. `constraint-spec.md`** (crude markdown beside the ADRs). The constraints in a shape
 `payload-gen` can later read to synthesize valid + contradictory inputs — field-level value rules,
-required/forbidden combinations, enum sets — distilled from the ADRs + the plan's narrated value
-constraints. One line per constraint; note the ADR it came from. It grows during the build too
-(`work` appends constraints it discovers visually), so leave it append-friendly.
+required/forbidden combinations, enum sets. Distill it from three plan sources: the ADRs, the plan's
+**input inventory** (each field's verbatim enum set → an allowed-values constraint; casing matters),
+and the plan's **dependencies** (activation/requirement gating → the "present ⇒ child" combination
+rules that make the best contradictory payloads). One line per constraint; note its source. It grows
+during the build too (`work` appends constraints it discovers visually), so leave it append-friendly.
 
 ## The ★ human gate
 
