@@ -99,7 +99,12 @@ export function exitCodeForStatus(status: string): ExitCodeValue {
     case "processing":
       return ExitCode.TIMEOUT
     default:
-      return ExitCode.SUCCESS
+      // An unrecognized status means the CLI is out of sync with the backend
+      // taxonomy. Don't fail open to SUCCESS (a driver would proceed on a
+      // session that isn't actually done); treat it as tick+re-arm (exit 9) so
+      // the driver keeps polling — safe for a new transient status (queued/
+      // paused) and, for a new terminal one, its own poll cap bails it out.
+      return ExitCode.TIMEOUT
   }
 }
 

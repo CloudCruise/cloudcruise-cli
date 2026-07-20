@@ -462,6 +462,7 @@ async function saveLegacyProfile(opts: LoginOptions): Promise<void> {
     profile = saveProfileApiKey(profileName, profile, opts.apiKey ?? envApiKey as string)
   }
   if (opts.baseUrl) profile.baseUrl = opts.baseUrl
+  if (opts.appUrl) profile.appUrl = opts.appUrl
   if (opts.workspaceId) profile.currentWorkspaceId = opts.workspaceId
   if (opts.encryptionKey || envEncryptionKey) {
     profile = saveProfileEncryptionKey(
