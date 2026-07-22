@@ -87,7 +87,7 @@ export function exitCodeForApiError(err: ApiError): ExitCodeValue {
 
 /**
  * Map an observed conversation status to an exit code (for observe commands like
- * `poll`). `processing` only reaches here when a long-poll expired without
+ * `status`). `processing` only reaches here when a long-poll expired without
  * settling — the driver ticks and re-arms (exit 9).
  */
 export function exitCodeForStatus(status: string): ExitCodeValue {

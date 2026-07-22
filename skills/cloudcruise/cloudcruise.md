@@ -212,16 +212,17 @@ cloudcruise builder start --start-url "https://app.example.com" \
 
 # ── Interact with the builder agent ──
 cloudcruise builder send "Click the login button"              # Returns immediately
-cloudcruise builder poll                                       # Check status (hits /status; also the keepalive)
-# poll returns: { status: "processing"|"awaiting-human-input"|"agent-errored"|"completed"|"idle"|"ended", terminal, isProcessing, workflowId?, ... }
+cloudcruise builder status                                     # Check status (hits /status; also the keepalive)
+# status returns: { status: "processing"|"awaiting-human-input"|"agent-errored"|"completed"|"idle"|"ended", terminal, isProcessing, workflowId?, ... }
+# and its exit code encodes that status so a driver can switch on $?:
+#   0 proceed (completed/idle/ended) · 7 answer (awaiting-human-input) · 8 intervene (agent-errored) · 9 tick+re-arm (processing)
 
 # ── Respond to human input requests ──
-cloudcruise builder respond --message-id "msg-456" --value "123456"
-cloudcruise builder respond --message-id "msg-456" --responses '{"email":"user@example.com","password":"s3cret"}'
+printf '%s' "123456" | cloudcruise builder respond --message-id "msg-456" --value-stdin
+printf '%s' '{"email":"user@example.com","password":"s3cret"}' | cloudcruise builder respond --message-id "msg-456" --responses-stdin
 
 # ── Inspect conversation state ──
-cloudcruise builder status                 # Current conversation status (hits /status: status + terminal)
-cloudcruise builder conversation list      # List live builder conversations for the workspace (newest first)
+cloudcruise builder conversations list     # List live builder conversations for the workspace (newest first)
 cloudcruise builder workflow               # Get current workflow definition (nodes, edges)
 cloudcruise builder messages               # Get conversation history (pagination envelope)
 cloudcruise builder messages --limit 5     # Last 5 messages only
@@ -229,7 +230,7 @@ cloudcruise builder messages --limit 20 --offset 20            # Page backward f
 cloudcruise builder messages --limit 20 --offset 0 --no-tail   # Page forward from the start
 
 # ── Target a specific conversation (concurrent/multi-conversation) ──
-cloudcruise builder poll --conversation "conv-abc123"
+cloudcruise builder status --conversation "conv-abc123"
 CLOUDCRUISE_CONVERSATION="conv-abc123" cloudcruise builder send "Click login"
 
 # ── Conversation lifecycle ──
@@ -238,14 +239,14 @@ cloudcruise builder interrupt   # Stop the agent's current processing
 cloudcruise builder end         # End the conversation and clean up
 ```
 
-**Conversation resolution is server-driven** — there is no local session file. `start` prints the `conversationId`; the server roster (`builder conversation list`) is the source of truth for what's live. When exactly one conversation is live in your workspace, every other builder command resolves to it automatically. When more than one is live, commands error with exit 5 (ambiguous) and you must pass `--conversation <id>` (or set `CLOUDCRUISE_CONVERSATION`). With none live, they exit 2. `--conversation` overrides everything, including workspace scope. Each command echoes `conversation <id> (via flag|env|roster)` to stderr so you can tell how it resolved.
+**Conversation resolution is server-driven** — there is no local session file. `start` prints the `conversationId`; the server roster (`builder conversations list`) is the source of truth for what's live. When exactly one conversation is live in your workspace, every other builder command resolves to it automatically. When more than one is live, commands error with exit 5 (ambiguous) and you must pass `--conversation <id>` (or set `CLOUDCRUISE_CONVERSATION`). With none live, they exit 2. `--conversation` overrides everything, including workspace scope. Each command echoes `conversation <id> (via flag|env|roster)` to stderr so you can tell how it resolved.
 
 **Important guidelines:**
 
-- `builder send` returns immediately — use `builder poll` to check for completion
+- `builder send` returns immediately — use `builder status` to check for completion
 - Break complex tasks into small steps (e.g. "log in", then "navigate to X", then "search for Y")
-- Poll in a loop — if poll returns `processing`, wait a few seconds and poll again. Poll also keeps the session alive (it hits `/status`), so keep polling rather than letting an idle session get reaped.
-- **`awaiting-human-input` is how the builder asks for information it needs** (e.g. email, password, 2FA code). When you see it, relay the question to the user, then pass their answer back with `builder respond`. The agent may request multiple inputs at once — check `waitingForInputs.inputs` for the full list and use `--responses` with a JSON object keyed by input name. Never pre-emptively browse the site or ask the user for form values — let the builder discover what it needs.
+- Poll `builder status` in a loop — if it returns `processing`, wait a few seconds and call it again. `status` also keeps the session alive (it hits `/status`), so keep polling rather than letting an idle session get reaped.
+- **`awaiting-human-input` is how the builder asks for information it needs** (e.g. email, password, 2FA code). When you see it, relay the question to the user, then pass their answer back with `builder respond`. The agent may request multiple inputs at once — check `humanInput.fields` for the full list and pipe a JSON object keyed by field name to `--responses-stdin`. Never pre-emptively browse the site or ask the user for form values — let the builder discover what it needs.
 - Only fall back to direct DSL editing after the builder reaches a terminal state (`terminal: true` — i.e. `completed`, `agent-errored`, or `ended`).
 - **Wait for a terminal status before sending the next message** — sending while the agent is processing interrupts the current turn, and a busy send returns HTTP 409 `SESSION_BUSY` (exit code 6)
 
@@ -255,42 +256,42 @@ cloudcruise builder end         # End the conversation and clean up
 - **Don't tell the builder how to build** — never specify execution types ("use STATIC"), selector strategies ("use an XPath with @id"), or node structure ("add a LOOP node"). The builder has access to the page DOM and knows the workflow DSL; let it make implementation decisions.
 - **Reference credentials naturally** — "Log in using the vault credentials" is enough. The builder knows to use vault credential templates.
 
-**Poll statuses:** `completed` → proceed to next step. `awaiting-human-input` → respond then poll. `agent-errored` → inspect messages, send corrective instruction. `processing` → wait and poll again. `idle` → no pending work. `ended` → session is over. `terminal: true` marks the states that won't change without a new turn (`completed`, `agent-errored`, `ended`).
+**Status codes** (`builder status` — exit code in parens): `completed` (0) → proceed to next step. `awaiting-human-input` (7) → respond then re-check. `agent-errored` (8) → inspect messages, send corrective instruction. `processing` (9) → wait and re-check. `idle` (0) → no pending work. `ended` (0) → session is over. `terminal: true` marks the states that won't change without a new turn (`completed`, `agent-errored`, `ended`). A driver can branch on the exit code alone without parsing stdout — note that a non-zero `status` exit (7/8/9) is the *state*, not a command failure.
 
 **409 exit codes:** `builder send` on a busy session → `SESSION_BUSY` (exit 6). `builder respond` after the input was already answered → `ALREADY_ANSWERED` (exit 7). The code is printed to stderr.
 
 `builder screenshot`/`html` with no attached browser → `NO_BROWSER_ATTACHED` (exit 10); provision/warm a browser, then retry.
 
-**Send + poll pattern:**
+**Send + status-poll pattern:**
 
 ```bash
 cloudcruise builder send "Log me in"
-# → {"status":"sent","messageCountBefore":2}
+# → {"conversationId":"conv-abc123","accepted":true}
 
 # Poll until agent reaches a terminal state (terminal: true)
-cloudcruise builder poll
+cloudcruise builder status
 # → {"status":"processing","terminal":false,"isProcessing":true}
 
-cloudcruise builder poll
+cloudcruise builder status
 # → {"status":"completed","terminal":true,"isProcessing":false,"workflowId":"wf_..."}
 
 # If agent needs input (single value):
-# → {"status":"awaiting-human-input","terminal":false,"waitingForInput":{"messageId":"m1","description":"What's the 2FA code?"}}
-cloudcruise builder respond --message-id m1 --value "123456"
-cloudcruise builder poll
+# → {"status":"awaiting-human-input","terminal":false,"conversationId":"conv-abc123","humanInput":{"messageId":"m1","prompt":"What's the 2FA code?","fields":[{"name":"code","type":"text"}]}}
+printf '%s' "123456" | cloudcruise builder respond --message-id m1 --value-stdin
+cloudcruise builder status
 
 # If agent needs multiple inputs at once:
-# → {"status":"awaiting-human-input","terminal":false,"waitingForInputs":{"messageId":"m1","inputs":[{"name":"npi",...},{"name":"last_name",...}]}}
-cloudcruise builder respond --message-id m1 --responses '{"npi":"1234567890","last_name":"Ziegler"}'
-cloudcruise builder poll
+# → {"status":"awaiting-human-input","terminal":false,"humanInput":{"messageId":"m1","prompt":"...","fields":[{"name":"npi",...},{"name":"last_name",...}]}}
+printf '%s' '{"npi":"1234567890","last_name":"Ziegler"}' | cloudcruise builder respond --message-id m1 --responses-stdin
+cloudcruise builder status
 
 # If agent needs credentials (type: "auth"):
-# → {"status":"awaiting-human-input","terminal":false,"waitingForInputs":{"messageId":"m1","inputs":[{"name":"Portal Credentials","type":"auth",...}]}}
+# → {"status":"awaiting-human-input","terminal":false,"humanInput":{"messageId":"m1","prompt":"...","fields":[{"name":"Portal Credentials","type":"auth",...}]}}
 # 1. Look up the vault entry to get the domain:
 cloudcruise vault list
 # 2. Respond with { permissioned_user_id, domain }:
-cloudcruise builder respond --message-id m1 --responses '{"Portal Credentials":{"permissioned_user_id":"d2b9d80e-...","domain":"https://example.com"}}'
-cloudcruise builder poll
+printf '%s' '{"Portal Credentials":{"permissioned_user_id":"d2b9d80e-...","domain":"https://example.com"}}' | cloudcruise builder respond --message-id m1 --responses-stdin
+cloudcruise builder status
 ```
 
 **Full example: Login → Navigate → Search**
@@ -302,15 +303,15 @@ cloudcruise builder start --start-url "https://app.example.com" --name "Search w
 
 # Step 1: Login
 cloudcruise builder send "Log in using the vault credentials"
-cloudcruise builder poll   # repeat until "completed"
+cloudcruise builder status   # repeat until "completed"
 
 # Step 2: Navigate
 cloudcruise builder send "Click on Reports in the nav bar, then select Monthly Summary"
-cloudcruise builder poll   # repeat until "completed"
+cloudcruise builder status   # repeat until "completed"
 
 # Step 3: Search and extract
 cloudcruise builder send "Search for order 12345 and extract the status"
-cloudcruise builder poll   # repeat until "completed"
+cloudcruise builder status   # repeat until "completed"
 
 # Save and clean up
 cloudcruise builder save

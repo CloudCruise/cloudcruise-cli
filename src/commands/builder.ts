@@ -339,7 +339,7 @@ export function registerBuilderCommands(program: Command): void {
       )
   )).addHelpText("after", `
 Returns { conversationId, accepted: true } once the agent accepts the message. Poll for the
-agent's response with 'cloudcruise builder poll'.
+agent's response with 'cloudcruise builder status'.
 `).action(
     async (message: string, opts: ConversationOptions) => {
       try {
@@ -352,37 +352,22 @@ agent's response with 'cloudcruise builder poll'.
         )
         echoSession(conversationId, source)
 
-        // Fire the request with a 5s abort — enough for the server to
-        // accept and start processing, but don't wait for the full
-        // response (which blocks until the agent turn ends). Poll for
-        // completion with `builder poll`. Wrapped so a cleared conversation
-        // auto-follows to its successor (send: the continuation is what you
-        // meant); each attempt gets a fresh abort.
+        // POST the message; the server accepts it and runs the agent turn
+        // detached, returning immediately. Poll for completion with
+        // `builder status`. Wrapped so a cleared conversation auto-follows to
+        // its successor (send: the continuation is what you meant).
         const sendTo = async (id: string): Promise<void> => {
-          const ac = new AbortController()
-          const timer = setTimeout(() => ac.abort(), 1500)
-          try {
-            const res = await fetch(`${auth.baseUrl}${BASE}/${id}/message`, {
-              method: "POST",
-              headers: client.authHeaders({
-                "Content-Type": "application/json"
-              }),
-              body: JSON.stringify({ text: message }),
-              signal: ac.signal
-            })
-            if (!res.ok) {
-              // Surface the coded taxonomy (SESSION_BUSY, CONVERSATION_NOT_FOUND)
-              // so the caller maps it to an exit code / auto-follows.
-              throw await ApiError.from("POST", `${BASE}/${id}/message`, res)
-            }
-          } catch (err: unknown) {
-            if (!(err instanceof DOMException && err.name === "AbortError")) {
-              throw err
-            }
-            // AbortError is expected — server accepted but we're not
-            // waiting for the full response.
-          } finally {
-            clearTimeout(timer)
+          const res = await fetch(`${auth.baseUrl}${BASE}/${id}/message`, {
+            method: "POST",
+            headers: client.authHeaders({
+              "Content-Type": "application/json"
+            }),
+            body: JSON.stringify({ text: message })
+          })
+          if (!res.ok) {
+            // Surface the coded taxonomy (SESSION_BUSY, CONVERSATION_NOT_FOUND)
+            // so the caller maps it to an exit code / auto-follows.
+            throw await ApiError.from("POST", `${BASE}/${id}/message`, res)
           }
         }
 
@@ -404,7 +389,7 @@ agent's response with 'cloudcruise builder poll'.
     }
   )
 
-  // ── builder poll (helpers) ──────────────────────────────────────
+  // ── builder status (helpers) ────────────────────────────────────
   // Status taxonomy emitted by GET /:id/status. `terminal` marks the states
   // that will never change without a new turn (completed, agent-errored, ended).
   type BuilderStatus =
@@ -516,7 +501,7 @@ agent's response with 'cloudcruise builder poll'.
   }
 
   /**
-   * Canonical status object shared by `poll` and `status`: the /status taxonomy
+   * Canonical status object returned by `status`: the /status taxonomy
    * plus, when awaiting human input, the request details attached as
    * `humanInput`. /status is also the keepalive (touches lastApiActivityAt).
    */
@@ -537,43 +522,6 @@ agent's response with 'cloudcruise builder poll'.
       return status
     }
   }
-
-  // ── builder poll ────────────────────────────────────────────────
-  addConversationOption(addAuthOptions(
-    builder
-      .command("poll")
-      .description("Check builder agent status (one-shot snapshot)")
-  )).addHelpText("after", `
-Hits the /status endpoint, which reports the status taxonomy (processing,
-awaiting-human-input, agent-errored, completed, idle, ended) and doubles as the
-session keepalive. When the agent is awaiting human input, the request/field
-details for 'builder respond' are attached.
-`).action(async (opts: ConversationOptions) => {
-    try {
-      const auth = await resolveAuth(opts)
-      const client = new ApiClient(auth)
-      const { conversationId, source } = await resolveConversation(
-        client,
-        opts,
-        auth.workspaceId
-      )
-      echoSession(conversationId, source)
-
-      const r = await withAutoFollow(
-        client,
-        conversationId,
-        true,
-        auth.workspaceId,
-        (id) => fetchStatus(client, id)
-      )
-      outputJson(withReconcileFields(r.result, r))
-      // The exit code IS the observed status: a driver switches on it (7 answer,
-      // 8 intervene, 9 tick+re-arm, 0 proceed) without parsing stdout.
-      process.exit(exitCodeForStatus(r.result.status))
-    } catch (err: unknown) {
-      fail(err)
-    }
-  })
 
   // ── builder respond ────────────────────────────────────────────
   addConversationOption(addAuthOptions(
@@ -716,7 +664,17 @@ details for 'builder respond' are attached.
   // ── builder status ─────────────────────────────────────────────
   addConversationOption(addAuthOptions(
     builder.command("status").description("Show current builder conversation status")
-  )).action(async (opts: ConversationOptions) => {
+  )).addHelpText("after", `
+Hits the /status endpoint, which reports the status taxonomy (processing,
+awaiting-human-input, agent-errored, completed, idle, ended) and doubles as the
+session keepalive. When the agent is awaiting human input, the request/field
+details for 'builder respond' are attached.
+
+The exit code IS the observed status, so a driver can switch on it without
+parsing stdout: 0 proceed (completed/idle/ended), 7 answer (awaiting-human-input),
+8 intervene (agent-errored), 9 tick+re-arm (processing). Some status
+observations therefore exit non-zero — a nonzero status is the state, not a failure.
+`).action(async (opts: ConversationOptions) => {
     try {
       const auth = await resolveAuth(opts)
       const client = new ApiClient(auth)
@@ -727,8 +685,8 @@ details for 'builder respond' are attached.
       )
       echoSession(conversationId, source)
 
-      // Canonical status object (identical shape to `poll`); /status is also
-      // the keepalive. Auto-follows a cleared conversation to its tip.
+      // Canonical status object; /status is also the keepalive. Auto-follows a
+      // cleared conversation to its tip.
       const r = await withAutoFollow(
         client,
         conversationId,
@@ -737,6 +695,9 @@ details for 'builder respond' are attached.
         (id) => fetchStatus(client, id)
       )
       outputJson(withReconcileFields(r.result, r))
+      // The exit code IS the observed status: a driver switches on it (7 answer,
+      // 8 intervene, 9 tick+re-arm, 0 proceed) without parsing stdout.
+      process.exit(exitCodeForStatus(r.result.status))
     } catch (err: unknown) {
       fail(err)
     }
@@ -766,7 +727,7 @@ details for 'builder respond' are attached.
       }
     })
 
-  // ── builder conversation list ───────────────────────────────────
+  // ── builder conversations list ──────────────────────────────────
   // The server roster is the single source of truth for which conversations
   // exist and are live; the CLI keeps no local conversation store.
   async function listConversations(opts: AuthOptions): Promise<void> {
@@ -783,26 +744,13 @@ details for 'builder respond' are attached.
     })
   }
 
-  const conversation = builder
-    .command("conversation")
+  const conversations = builder
+    .command("conversations")
     .description("Inspect builder conversations")
   addAuthOptions(
-    conversation
+    conversations
       .command("list")
       .description("List live builder conversations for the workspace (newest first)")
-  ).action(async (opts: AuthOptions) => {
-    try {
-      await listConversations(opts)
-    } catch (err: unknown) {
-      fail(err)
-    }
-  })
-
-  // Hidden legacy alias for `builder conversation list`.
-  addAuthOptions(
-    builder
-      .command("sessions", { hidden: true })
-      .description("[deprecated] Alias for 'builder conversation list'")
   ).action(async (opts: AuthOptions) => {
     try {
       await listConversations(opts)
