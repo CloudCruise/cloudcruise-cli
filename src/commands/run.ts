@@ -1,13 +1,14 @@
 import { Command } from "commander"
 import { resolveAuth } from "../core/auth.js"
 import { ApiClient } from "../core/api-client.js"
-import { outputJson, outputError } from "../core/output.js"
+import { outputJson } from "../core/output.js"
+import { fail, UsageError } from "../core/exit.js"
 import { addAuthOptions, type AuthOptions } from "../core/auth-options.js"
 
 function parseSince(since: string): Date {
   const match = since.match(/^(\d+)(h|d|m)$/)
   if (!match) {
-    throw new Error(`Invalid --since format: "${since}". Use e.g. 24h, 7d, 30m`)
+    throw new UsageError(`Invalid --since format: "${since}". Use e.g. 24h, 7d, 30m`)
   }
   const amount = parseInt(match[1])
   const unit = match[2]
@@ -20,7 +21,7 @@ function parseSince(since: string): Date {
     case "m":
       return new Date(now.getTime() - amount * 60 * 1000)
     default:
-      throw new Error(`Unknown time unit: ${unit}`)
+      throw new UsageError(`Unknown time unit: ${unit}`)
   }
 }
 
@@ -56,7 +57,7 @@ Examples:
         try {
           inputVariables = JSON.parse(opts.input)
         } catch {
-          throw new Error(`Invalid --input JSON: ${opts.input}`)
+          throw new UsageError(`Invalid --input JSON: ${opts.input}`)
         }
 
         const body: Record<string, unknown> = {
@@ -68,8 +69,7 @@ Examples:
         const result = await client.post<{ session_id: string }>("/run", body)
         outputJson(result)
       } catch (err: unknown) {
-        outputError(err instanceof Error ? err.message : String(err))
-        process.exit(1)
+        fail(err)
       }
     }
   )
@@ -92,8 +92,7 @@ Examples:
         const data = await client.get(`/run/${sessionId}`)
         outputJson(data)
       } catch (err: unknown) {
-        outputError(err instanceof Error ? err.message : String(err))
-        process.exit(1)
+        fail(err)
       }
     }
   )
@@ -147,8 +146,7 @@ Examples:
           process.stdout.write(text + "\n")
         }
       } catch (err: unknown) {
-        outputError(err instanceof Error ? err.message : String(err))
-        process.exit(1)
+        fail(err)
       }
     }
   )
@@ -171,8 +169,7 @@ Examples:
         const data = await client.post(`/run/${sessionId}/interrupt`)
         outputJson(data)
       } catch (err: unknown) {
-        outputError(err instanceof Error ? err.message : String(err))
-        process.exit(1)
+        fail(err)
       }
     }
   )
@@ -214,8 +211,7 @@ Examples:
         )
         outputJson(data)
       } catch (err: unknown) {
-        outputError(err instanceof Error ? err.message : String(err))
-        process.exit(1)
+        fail(err)
       }
     }
   )
@@ -241,8 +237,7 @@ Examples:
         )
         outputJson(data)
       } catch (err: unknown) {
-        outputError(err instanceof Error ? err.message : String(err))
-        process.exit(1)
+        fail(err)
       }
     }
   )

@@ -2,7 +2,8 @@ import { Command, InvalidArgumentError } from "commander"
 import { readFileSync } from "fs"
 import { resolveAuth } from "../core/auth.js"
 import { ApiClient } from "../core/api-client.js"
-import { outputJson, outputError } from "../core/output.js"
+import { outputJson } from "../core/output.js"
+import { fail, UsageError } from "../core/exit.js"
 import { addAuthOptions, type AuthOptions } from "../core/auth-options.js"
 
 const parsePositiveInt = (value: string): number => {
@@ -53,7 +54,7 @@ async function readStdin(): Promise<string> {
 
 function assertJsonObject(value: unknown): Record<string, unknown> {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error("Expected a JSON object")
+    throw new UsageError("Expected a JSON object")
   }
   return value as Record<string, unknown>
 }
@@ -63,7 +64,7 @@ async function readPayload(opts: {
   stdin?: boolean
 }): Promise<Record<string, unknown>> {
   if (opts.stdin && opts.file) {
-    throw new Error("Pass either --file or --stdin, not both")
+    throw new UsageError("Pass either --file or --stdin, not both")
   }
   if (opts.stdin) {
     return assertJsonObject(JSON.parse(await readStdin()))
@@ -71,7 +72,7 @@ async function readPayload(opts: {
   if (opts.file) {
     return assertJsonObject(JSON.parse(readFileSync(opts.file, "utf-8")))
   }
-  throw new Error("Provide --file <path> or --stdin")
+  throw new UsageError("Provide --file <path> or --stdin")
 }
 
 function extractComponentData(
@@ -139,8 +140,7 @@ Examples:
           outputJson(summary)
         }
       } catch (err: unknown) {
-        outputError(err instanceof Error ? err.message : String(err))
-        process.exit(1)
+        fail(err)
       }
     })
 
@@ -178,8 +178,7 @@ Examples:
           const data = await client.get(path)
           outputJson(data)
         } catch (err: unknown) {
-          outputError(err instanceof Error ? err.message : String(err))
-          process.exit(1)
+          fail(err)
         }
       }
     )
@@ -214,8 +213,7 @@ Examples:
           opts.limit !== undefined ? data.slice(0, opts.limit) : data
         outputJson(sliced)
       } catch (err: unknown) {
-        outputError(err instanceof Error ? err.message : String(err))
-        process.exit(1)
+        fail(err)
       }
     })
 
@@ -239,8 +237,7 @@ Examples:
         const data = await client.get(`/workflow-components/${id}/usage`)
         outputJson(data)
       } catch (err: unknown) {
-        outputError(err instanceof Error ? err.message : String(err))
-        process.exit(1)
+        fail(err)
       }
     })
 
@@ -277,8 +274,7 @@ Examples:
           const data = await client.post(`/workflow-components`, body)
           outputJson(data)
         } catch (err: unknown) {
-          outputError(err instanceof Error ? err.message : String(err))
-          process.exit(1)
+          fail(err)
         }
       }
     )
@@ -306,8 +302,7 @@ Examples:
         })
         outputJson(data)
       } catch (err: unknown) {
-        outputError(err instanceof Error ? err.message : String(err))
-        process.exit(1)
+        fail(err)
       }
     })
 
@@ -369,8 +364,7 @@ Examples:
           const data = await client.put(`/workflow-components/${id}`, body)
           outputJson(data)
         } catch (err: unknown) {
-          outputError(err instanceof Error ? err.message : String(err))
-          process.exit(1)
+          fail(err)
         }
       }
     )
@@ -403,8 +397,7 @@ Examples:
         }
         outputJson({ id, status: "deleted" })
       } catch (err: unknown) {
-        outputError(err instanceof Error ? err.message : String(err))
-        process.exit(1)
+        fail(err)
       }
     })
 }
