@@ -16,7 +16,8 @@ export const ExitCode = {
   SESSION_BUSY: 6,
   AWAITING_HUMAN_INPUT: 7,
   AGENT_ERROR: 8,
-  TIMEOUT: 9
+  TIMEOUT: 9,
+  NO_BROWSER_ATTACHED: 10
 } as const
 
 export type ExitCodeValue = (typeof ExitCode)[keyof typeof ExitCode]
@@ -30,8 +31,9 @@ export class UsageError extends Error {
 }
 
 /**
- * More than one active local session and no explicit `--session`. Maps to exit
- * 5. Carries the roster so the handler can print it to stderr.
+ * More than one live conversation in scope and no explicit `--conversation`.
+ * Maps to exit 5. Carries the candidate roster so the handler can print it to
+ * stderr.
  */
 export class AmbiguousSessionError extends Error {
   readonly name = "AmbiguousSessionError"
@@ -64,6 +66,8 @@ export function exitCodeForApiError(err: ApiError): ExitCodeValue {
       return ExitCode.AUTH
     case "TIMEOUT":
       return ExitCode.TIMEOUT
+    case "NO_BROWSER_ATTACHED":
+      return ExitCode.NO_BROWSER_ATTACHED
   }
   switch (err.status) {
     case 400:
@@ -83,7 +87,7 @@ export function exitCodeForApiError(err: ApiError): ExitCodeValue {
 
 /**
  * Map an observed conversation status to an exit code (for observe commands like
- * `poll`). `processing` only reaches here when a long-poll expired without
+ * `status`). `processing` only reaches here when a long-poll expired without
  * settling — the driver ticks and re-arms (exit 9).
  */
 export function exitCodeForStatus(status: string): ExitCodeValue {
@@ -149,9 +153,17 @@ export function fail(err: unknown): never {
 }
 
 /**
- * Echo the resolved session on stderr so a driver always knows which
- * conversation a command acted on (stdout stays reserved for the answer).
+ * Echo the resolved conversation on stderr so a driver always knows which
+ * conversation a command acted on and how it was resolved (stdout stays
+ * reserved for the answer). Naming the source lets a driver tell it fell into
+ * implicit roster resolution — the case a second live conversation breaks with
+ * exit 5.
  */
-export function echoSession(conversationId: string): void {
-  process.stderr.write(`session ${conversationId}\n`)
+export function echoSession(
+  conversationId: string,
+  source?: "flag" | "env" | "roster"
+): void {
+  process.stderr.write(
+    `conversation ${conversationId}${source ? ` (via ${source})` : ""}\n`
+  )
 }
