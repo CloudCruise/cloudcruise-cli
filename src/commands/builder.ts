@@ -2,24 +2,50 @@ import { Command } from "commander"
 import { exec } from "child_process"
 import { writeFileSync } from "fs"
 import { resolveAuth } from "../core/auth.js"
-import { ApiClient } from "../core/api-client.js"
-import { streamSSE } from "../core/sse-client.js"
-import { outputJson, outputError, stripBase64 } from "../core/output.js"
+import { ApiClient, ApiError } from "../core/api-client.js"
+import { outputJson, stripBase64 } from "../core/output.js"
+import { fail, echoSession, exitCodeForStatus, UsageError } from "../core/exit.js"
 import { addAuthOptions, type AuthOptions } from "../core/auth-options.js"
 import {
-  saveSession,
-  deleteSession,
-  requireSession,
-  loadSession,
-  updateSession
-} from "../core/session.js"
-import {
-  processBuilderStream,
-  pollBuilderStream
-} from "../core/builder-stream.js"
+  resolveConversation,
+  withAutoFollow,
+  withReconcileFields
+} from "../core/conversation.js"
+import type { RosterEntry } from "../core/conversation.js"
 import { enforceNoArgSecrets } from "../core/secret-args.js"
 
+/** Options carried by every command that targets an existing conversation. */
+type ConversationOptions = AuthOptions & { conversation?: string }
+
+/** Add the --conversation selector to a command. Explicit ids overrule
+ * CLOUDCRUISE_CONVERSATION and the implicit workspace-scoped roster lookup. */
+function addConversationOption(cmd: Command): Command {
+  return cmd.option(
+    "--conversation <id>",
+    "Target conversation id (overrides CLOUDCRUISE_CONVERSATION and workspace scope)"
+  )
+}
+
 const BASE = "/workflow-builder/agent"
+
+/** Normalize a timestamp to ISO 8601. The backend stores epoch ms; the contract
+ * emits ISO strings so timestamps are one type across every command. */
+function toIso(value: unknown): unknown {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return new Date(value).toISOString()
+  }
+  return value
+}
+
+/** Return a copy with `startedAt` normalized to ISO (if present). */
+function normalizeStartedAt(
+  obj: Record<string, unknown>
+): Record<string, unknown> {
+  if (obj.startedAt !== undefined) {
+    return { ...obj, startedAt: toIso(obj.startedAt) }
+  }
+  return obj
+}
 
 function openInBrowser(url: string): void {
   const cmd =
@@ -37,6 +63,64 @@ function progress(msg: string): void {
   process.stderr.write(`${msg}\n`)
 }
 
+/**
+ * Build the builder app link for a conversation.
+ *
+ * When `appUrl` is provided (via --app-url, profile.appUrl, or
+ * CLOUDCRUISE_APP_URL) it is used verbatim as the app origin. Otherwise the
+ * app host is inferred from the API host (api.* -> app.*, staging-api.* ->
+ * staging.*). Localhost has no inferable app host, so it requires an explicit
+ * appUrl; any other unrecognized host falls back to prod.
+ */
+function builderUrl(
+  appUrl: string | undefined,
+  apiBaseUrl: string,
+  conversationId: string
+): string {
+  if (appUrl) {
+    let parsed: URL | null = null
+    try {
+      parsed = new URL(appUrl.trim())
+    } catch {
+      parsed = null
+    }
+    if (!parsed || (parsed.protocol !== "http:" && parsed.protocol !== "https:")) {
+      throw new UsageError(
+        `Invalid app URL "${appUrl}". Include an http(s) scheme, e.g. http://localhost:3000.`
+      )
+    }
+    return `${parsed.origin}/workflows/builder/${conversationId}`
+  }
+
+  let hostname: string
+  let host: string
+  try {
+    const parsed = new URL(apiBaseUrl)
+    hostname = parsed.hostname
+    host = parsed.host
+  } catch {
+    return `https://app.cloudcruise.com/workflows/builder/${conversationId}`
+  }
+
+  if (
+    hostname === "localhost" ||
+    hostname === "127.0.0.1" ||
+    hostname === "::1" ||
+    hostname.endsWith(".localhost")
+  ) {
+    throw new UsageError(
+      "Can't infer the builder app URL for a localhost API. Set the app URL via --app-url, CLOUDCRUISE_APP_URL, or the profile's appUrl (e.g. http://localhost:3000)."
+    )
+  }
+
+  const appHost = host.startsWith("staging-api.")
+    ? host.replace(/^staging-api\./, "staging.")
+    : host.startsWith("api.")
+      ? host.replace(/^api\./, "app.")
+      : "app.cloudcruise.com"
+  return `https://${appHost}/workflows/builder/${conversationId}`
+}
+
 function normalizeUrl(value: string, flagName: string): string {
   const trimmed = value.trim()
   const withScheme = /^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//.test(trimmed)
@@ -45,8 +129,7 @@ function normalizeUrl(value: string, flagName: string): string {
   try {
     return new URL(withScheme).href
   } catch {
-    outputError(`${flagName}: Invalid URL (${JSON.stringify(value)})`)
-    process.exit(1)
+    throw new UsageError(`${flagName}: Invalid URL (${JSON.stringify(value)})`)
   }
 }
 
@@ -61,41 +144,25 @@ async function readStdin(): Promise<string> {
 function parseLimit(limit: string | undefined): number | undefined {
   if (limit === undefined) return undefined
   if (!/^[1-9]\d*$/.test(limit)) {
-    throw new Error("--limit must be a positive integer")
+    throw new UsageError("--limit must be a positive integer")
   }
   const parsed = Number.parseInt(limit, 10)
   if (!Number.isSafeInteger(parsed) || parsed > 1000) {
-    throw new Error("--limit must be between 1 and 1000")
+    throw new UsageError("--limit must be between 1 and 1000")
   }
   return parsed
 }
 
-function parseTimeoutSeconds(timeout: string): number {
-  if (!/^[1-9]\d*$/.test(timeout)) {
-    throw new Error("--timeout must be a positive integer number of seconds")
+function parseOffset(offset: string | undefined): number | undefined {
+  if (offset === undefined) return undefined
+  if (!/^\d+$/.test(offset)) {
+    throw new UsageError("--offset must be a non-negative integer")
   }
-  const parsed = Number.parseInt(timeout, 10)
-  if (!Number.isSafeInteger(parsed) || parsed > 86_400) {
-    throw new Error("--timeout must be between 1 and 86400 seconds")
+  const parsed = Number.parseInt(offset, 10)
+  if (!Number.isSafeInteger(parsed)) {
+    throw new UsageError("--offset is too large")
   }
   return parsed
-}
-
-/**
- * Resolve auth for builder commands. Uses non-secret session metadata as
- * fallback so profile/base URL/workspace only need to be passed at session start.
- */
-async function resolveBuilderAuth(opts: AuthOptions) {
-  const session = loadSession()
-  const merged = { ...opts }
-  if (session) {
-    if (!merged.baseUrl && session.baseUrl) merged.baseUrl = session.baseUrl
-    if (!merged.profile && session.profile) merged.profile = session.profile
-    if (!merged.workspaceId && session.workspaceId) {
-      merged.workspaceId = session.workspaceId
-    }
-  }
-  return resolveAuth(merged)
 }
 
 export function registerBuilderCommands(program: Command): void {
@@ -129,7 +196,7 @@ export function registerBuilderCommands(program: Command): void {
       .option("--input-schema <json>", "Input schema as JSON")
       .option("--input <json>", "Example input values as JSON")
       .option("--network", "Enable network traffic capture")
-      .option("--no-open", "Don't open the live browser URL in the default browser")
+      .option("--open-builder", "Open the builder in the default browser")
   ).action(
     async (
       opts: {
@@ -145,15 +212,15 @@ export function registerBuilderCommands(program: Command): void {
         inputSchema?: string
         input?: string
         network?: boolean
-        open: boolean
+        openBuilder?: boolean
       } & AuthOptions
     ) => {
       try {
         if (opts.vaultUserId && opts.credential) {
-          throw new Error("--vault-user-id and --credential are aliases; pass only one")
+          throw new UsageError("--vault-user-id and --credential are aliases; pass only one")
         }
         if (opts.vaultDomain && opts.authUrl) {
-          throw new Error("--vault-domain and --auth-url are aliases; pass only one")
+          throw new UsageError("--vault-domain and --auth-url are aliases; pass only one")
         }
         if (opts.credential) {
           progress("[deprecated] --credential is deprecated; use --vault-user-id instead.")
@@ -165,7 +232,7 @@ export function registerBuilderCommands(program: Command): void {
         const vaultUserId = opts.vaultUserId ?? opts.credential
         const vaultDomain = opts.vaultDomain ?? opts.authUrl
         if (Boolean(vaultUserId) !== Boolean(vaultDomain)) {
-          throw new Error(
+          throw new UsageError(
             "--vault-user-id and --vault-domain must be used together. Pass both to pre-configure login, or omit both to let the builder prompt for credentials."
           )
         }
@@ -196,27 +263,16 @@ export function registerBuilderCommands(program: Command): void {
           [k: string]: unknown
         }>(`${BASE}/session`, body)
 
-        saveSession({
-          conversationId: result.conversationId,
-          name: opts.name,
-          startedAt: new Date().toISOString(),
-          baseUrl: auth.baseUrl,
-          profile: opts.profile,
-          workspaceId: auth.workspaceId
-        })
+        echoSession(result.conversationId)
+        outputJson(normalizeStartedAt(result))
 
-        outputJson(result)
-
-        const sessionUrl = (
-          result as { builderSession?: { url?: string } }
-        ).builderSession?.url
-        if (opts.open && sessionUrl) {
-          openInBrowser(sessionUrl)
-          progress("Opened live browser session in default browser")
+        if (opts.openBuilder) {
+          const url = builderUrl(auth.appUrl, auth.baseUrl, result.conversationId)
+          openInBrowser(url)
+          progress(`Opened builder in default browser: ${url}`)
         }
       } catch (err: unknown) {
-        outputError(err instanceof Error ? err.message : String(err))
-        process.exit(1)
+        fail(err)
       }
     }
   )
@@ -233,6 +289,7 @@ export function registerBuilderCommands(program: Command): void {
         "--use-last-browser-state",
         "Continue from previous browser state"
       )
+      .option("--open-builder", "Open the builder in the default browser")
   ).action(
     async (
       opts: {
@@ -240,6 +297,7 @@ export function registerBuilderCommands(program: Command): void {
         targetNode?: string
         input?: string
         useLastBrowserState?: boolean
+        openBuilder?: boolean
       } & AuthOptions
     ) => {
       try {
@@ -258,161 +316,96 @@ export function registerBuilderCommands(program: Command): void {
           [k: string]: unknown
         }>(`${BASE}/session/from-workflow`, body)
 
-        saveSession({
-          conversationId: result.conversationId,
-          name: `Edit ${opts.workflow}`,
-          startedAt: new Date().toISOString(),
-          baseUrl: auth.baseUrl,
-          profile: opts.profile,
-          workspaceId: auth.workspaceId
-        })
+        echoSession(result.conversationId)
+        outputJson(normalizeStartedAt(result))
 
-        outputJson(result)
+        if (opts.openBuilder) {
+          const url = builderUrl(auth.appUrl, auth.baseUrl, result.conversationId)
+          openInBrowser(url)
+          progress(`Opened builder in default browser: ${url}`)
+        }
       } catch (err: unknown) {
-        outputError(err instanceof Error ? err.message : String(err))
-        process.exit(1)
+        fail(err)
       }
     }
   )
 
   // ── builder send ───────────────────────────────────────────────
-  addAuthOptions(
+  addConversationOption(addAuthOptions(
     builder
       .command("send <message>")
-      .description("Send a message to the builder agent")
-      .option("--no-wait", "Return immediately without waiting for completion")
-      .option("--timeout <seconds>", "Timeout in seconds (ignored with --no-wait)", "300")
-  ).action(
-    async (
-      message: string,
-      opts: {
-        wait: boolean  // commander inverts --no-wait to opts.wait = false
-        timeout: string
-      } & AuthOptions
-    ) => {
+      .description(
+        "Send a message to the builder agent (returns immediately)"
+      )
+  )).addHelpText("after", `
+Returns { conversationId, accepted: true } once the agent accepts the message. Poll for the
+agent's response with 'cloudcruise builder status'.
+`).action(
+    async (message: string, opts: ConversationOptions) => {
       try {
-        const auth = await resolveBuilderAuth(opts)
+        const auth = await resolveAuth(opts)
         const client = new ApiClient(auth)
-        const session = requireSession()
+        const { conversationId, source } = await resolveConversation(
+          client,
+          opts,
+          auth.workspaceId
+        )
+        echoSession(conversationId, source)
 
-        if (opts.wait === false) {
-          let messageCountBefore: number | undefined
-          try {
-            const { messages } = await fetchMessages(
-              client,
-              session.conversationId
-            )
-            messageCountBefore = messages.length
-            updateSession({ lastMessageCount: messages.length })
-          } catch {
-            // Best effort — poll still works with the previous index.
-          }
-
-          // Async mode: fire request with a 5s abort — enough for the
-          // server to accept and start processing, but don't wait for
-          // the full response (which blocks until the agent turn ends).
-          const ac = new AbortController()
-          const timer = setTimeout(() => ac.abort(), 5000)
-          try {
-            const res = await fetch(
-              `${auth.baseUrl}${BASE}/${session.conversationId}/message`,
-              {
-                method: "POST",
-                headers: client.authHeaders({
-                  "Content-Type": "application/json"
-                }),
-                body: JSON.stringify({ text: message }),
-                signal: ac.signal
-              }
-            )
-            if (!res.ok) {
-              const body = await res.text()
-              throw new Error(
-                `Builder send failed (${res.status}): ${body}`
-              )
-            }
-          } catch (err: unknown) {
-            if (!(err instanceof DOMException && err.name === "AbortError")) {
-              throw err
-            }
-            // AbortError is expected — server accepted but we're not
-            // waiting for the full response.
-          } finally {
-            clearTimeout(timer)
-          }
-          outputJson({ status: "sent", messageCountBefore })
-          process.exit(0)
-        }
-
-        // Blocking mode: POST + stream SSE until done
-        const timeoutMs = parseTimeoutSeconds(opts.timeout) * 1000
-        const abortController = new AbortController()
-
-        const interruptAndExit = async () => {
-          progress("Interrupted — sending interrupt to builder agent...")
-          abortController.abort()
-          try {
-            await client.post(
-              `${BASE}/${session.conversationId}/interrupt`
-            )
-          } catch {
-            // Best effort — server may already be done
-          }
-          process.exit(130)
-        }
-        process.on("SIGINT", interruptAndExit)
-        process.on("SIGTERM", interruptAndExit)
-
-        const timeout = setTimeout(() => {
-          abortController.abort()
-          progress("Timeout waiting for builder agent")
-          process.exit(1)
-        }, timeoutMs)
-
-        try {
-          const sseUrl = `${BASE}/${session.conversationId}/stream`
-          const stream = streamSSE(client, sseUrl, abortController.signal)
-
-          let postError: string | undefined
-          client
-            .post(`${BASE}/${session.conversationId}/message`, {
-              text: message
-            })
-            .catch((err: unknown) => {
-              postError =
-                err instanceof Error ? err.message : String(err)
-              abortController.abort()
-            })
-
-          const result = await processBuilderStream(stream, {
-            onDone: () => abortController.abort()
+        // POST the message; the server accepts it and runs the agent turn
+        // detached, returning immediately. Poll for completion with
+        // `builder status`. Wrapped so a cleared conversation auto-follows to
+        // its successor (send: the continuation is what you meant).
+        const sendTo = async (id: string): Promise<void> => {
+          const res = await fetch(`${auth.baseUrl}${BASE}/${id}/message`, {
+            method: "POST",
+            headers: client.authHeaders({
+              "Content-Type": "application/json"
+            }),
+            body: JSON.stringify({ text: message })
           })
-
-          if (postError && !result.finalText) {
-            outputError(postError)
-            process.exit(1)
+          if (!res.ok) {
+            // Surface the coded taxonomy (SESSION_BUSY, CONVERSATION_NOT_FOUND)
+            // so the caller maps it to an exit code / auto-follows.
+            throw await ApiError.from("POST", `${BASE}/${id}/message`, res)
           }
-        } finally {
-          clearTimeout(timeout)
-          process.off("SIGINT", interruptAndExit)
-          process.off("SIGTERM", interruptAndExit)
         }
+
+        const { conversationId: tip, reconciledFrom } = await withAutoFollow(
+          client,
+          conversationId,
+          true,
+          auth.workspaceId,
+          sendTo
+        )
+        outputJson({
+          conversationId: tip,
+          accepted: true,
+          ...(reconciledFrom ? { reconciledFrom } : {})
+        })
       } catch (err: unknown) {
-        outputError(err instanceof Error ? err.message : String(err))
-        process.exit(1)
+        fail(err)
       }
     }
   )
 
-  // ── builder poll (helpers) ──────────────────────────────────────
-  interface PollFromMessagesResult {
-    status: "processing" | "done" | "error" | "waiting_for_input" | "idle"
-    text?: string
-    waitingForInput?: { messageId: string; description: string }
-    waitingForInputs?: { messageId: string; inputs: HumanInputField[] }
-    tools: { tool: string; status: string; text?: string }[]
-    newMessageCount: number
-    totalMessageCount: number
+  // ── builder status (helpers) ────────────────────────────────────
+  // Status taxonomy emitted by GET /:id/status. `terminal` marks the states
+  // that will never change without a new turn (completed, agent-errored, ended).
+  type BuilderStatus =
+    | "processing"
+    | "awaiting-human-input"
+    | "agent-errored"
+    | "completed"
+    | "idle"
+    | "ended"
+
+  interface StatusResponse {
+    conversationId: string
+    status: BuilderStatus
+    terminal: boolean
+    isProcessing: boolean
+    workflowId?: string
   }
 
   interface HumanInputField {
@@ -423,265 +416,115 @@ export function registerBuilderCommands(program: Command): void {
     options?: string[]
   }
 
+  interface HumanInput {
+    messageId: string
+    prompt: string
+    fields: HumanInputField[]
+  }
+
   interface MessagesResponse {
     messages: Record<string, unknown>[]
+    total?: number
+    offset?: number
+    limit?: number
+    tail?: boolean
+    hasMore?: boolean
     isProcessing: boolean
   }
 
   async function fetchMessages(
     client: ApiClient,
-    conversationId: string
+    conversationId: string,
+    query = ""
   ): Promise<MessagesResponse> {
     const raw = await client.get<MessagesResponse | Record<string, unknown>[]>(
-      `${BASE}/${conversationId}/messages`
+      `${BASE}/${conversationId}/messages${query}`
     )
 
     if (Array.isArray(raw)) {
       return { messages: raw, isProcessing: false }
     }
     return {
+      ...raw,
       messages: Array.isArray(raw.messages) ? raw.messages : [],
       isProcessing: Boolean(raw.isProcessing)
     }
   }
 
-  async function checkMessagesForStatus(
-    client: ApiClient,
-    conversationId: string,
-    sinceIndex: number
-  ): Promise<PollFromMessagesResult | null> {
-    const { messages: allMessages, isProcessing } = await fetchMessages(
-      client,
-      conversationId
-    )
-
-    const newMessages = allMessages.slice(sinceIndex)
-    const tools = newMessages
-      .filter((m) => m.role === "tool" && m.toolName)
-      .map((m) => ({
-        tool: m.toolName as string,
-        status: m.status as string,
-        text: (m.text as string)?.slice(0, 100)
-      }))
-
-    for (let i = newMessages.length - 1; i >= 0; i--) {
-      const msg = newMessages[i]
+  /**
+   * Pull the human-input request details out of the message log. The /status
+   * endpoint reports `awaiting-human-input` but not *what* is being asked, so we
+   * scan for the most recent interaction.inputs message to surface the
+   * messageId and field schema needed by `builder respond`.
+   */
+  function extractHumanInput(
+    messages: Record<string, unknown>[]
+  ): HumanInput | null {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const msg = messages[i]
       const msgStatus = msg.status as string
       const eventType = msg.event_type as string
-
       if (
-        eventType === "interaction.inputs" ||
-        msgStatus === "waiting_for_input"
+        eventType !== "interaction.inputs" &&
+        msgStatus !== "waiting_for_input"
       ) {
-        const content = msg.content as Record<string, unknown> | undefined
-        const humanInputs =
-          (content?.humanInputs as Record<string, unknown>[] | undefined) ?? []
-        const humanInput = content?.humanInput as
-          | Record<string, unknown>
-          | undefined ?? humanInputs[0]
-        const messageId = msg.id as string
-        const result: PollFromMessagesResult = {
-          status: "waiting_for_input",
-          waitingForInput: {
-            messageId,
-            description:
-              (humanInput?.description as string) ??
-              (humanInput?.name as string) ??
-              (msg.text as string) ??
-              "Input requested"
-          },
-          tools,
-          newMessageCount: newMessages.length,
-          totalMessageCount: allMessages.length
+        continue
+      }
+
+      const content = msg.content as Record<string, unknown> | undefined
+      const humanInputs =
+        (content?.humanInputs as Record<string, unknown>[] | undefined) ?? []
+      const humanInput =
+        (content?.humanInput as Record<string, unknown> | undefined) ??
+        humanInputs[0]
+      const messageId = msg.id as string
+      const prompt =
+        (humanInput?.description as string) ??
+        (humanInput?.name as string) ??
+        (msg.text as string) ??
+        "Input requested"
+      const fields: HumanInputField[] = humanInputs.map((input) => {
+        const field: HumanInputField = {
+          name: input.name as string,
+          type: input.type as string,
+          description: input.description as string
         }
-
-        if (humanInputs.length > 0) {
-          result.waitingForInputs = {
-            messageId,
-            inputs: humanInputs.map((input) => {
-              const field: HumanInputField = {
-                name: input.name as string,
-                type: input.type as string,
-                description: input.description as string
-              }
-              if (input.default !== undefined) {
-                field.default = input.default as string
-              }
-              if (input.options) field.options = input.options as string[]
-              return field
-            })
-          }
+        if (input.default !== undefined) {
+          field.default = input.default as string
         }
-
-        updateSession({ lastMessageCount: allMessages.length })
-        return result
-      }
+        if (input.options) field.options = input.options as string[]
+        return field
+      })
+      return { messageId, prompt, fields }
     }
+    return null
+  }
 
-    if (isProcessing) {
-      updateSession({ lastMessageCount: allMessages.length })
-      return {
-        status: "processing",
-        tools,
-        newMessageCount: newMessages.length,
-        totalMessageCount: allMessages.length
-      }
-    }
-
-    if (newMessages.length === 0) {
-      updateSession({ lastMessageCount: allMessages.length })
-      return {
-        status: "idle",
-        tools: [],
-        newMessageCount: 0,
-        totalMessageCount: allMessages.length
-      }
-    }
-
-    let status: PollFromMessagesResult["status"] = "idle"
-    let text: string | undefined
-
-    for (let i = newMessages.length - 1; i >= 0; i--) {
-      const msg = newMessages[i]
-      const role = msg.role as string
-      const msgStatus = msg.status as string
-
-      if (msgStatus === "error") {
-        status = "error"
-        text = msg.text as string
-        break
-      }
-
-      if (role === "assistant" && msgStatus === "success") {
-        status = "done"
-        text = msg.text as string
-        break
-      }
-    }
-
-    updateSession({ lastMessageCount: allMessages.length })
-
-    return {
-      status,
-      text,
-      tools,
-      newMessageCount: newMessages.length,
-      totalMessageCount: allMessages.length
+  /**
+   * Canonical status object returned by `status`: the /status taxonomy
+   * plus, when awaiting human input, the request details attached as
+   * `humanInput`. /status is also the keepalive (touches lastApiActivityAt).
+   */
+  async function fetchStatus(
+    client: ApiClient,
+    conversationId: string
+  ): Promise<StatusResponse & { humanInput?: HumanInput }> {
+    const status = await client.get<StatusResponse>(
+      `${BASE}/${conversationId}/status`
+    )
+    if (status.status !== "awaiting-human-input") return status
+    try {
+      const { messages } = await fetchMessages(client, conversationId)
+      const humanInput = extractHumanInput(messages)
+      return humanInput ? { ...status, humanInput } : status
+    } catch {
+      // Best effort — status is still returned without input detail.
+      return status
     }
   }
 
-  // ── builder poll ────────────────────────────────────────────────
-  addAuthOptions(
-    builder
-      .command("poll")
-      .description(
-        "Check builder agent status. With --wait, blocks until status changes."
-      )
-      .option(
-        "--wait <seconds>",
-        "Block until agent finishes, errors, or needs input (max seconds)"
-      )
-  ).action(
-    async (
-      opts: {
-        wait?: string
-      } & AuthOptions
-    ) => {
-      try {
-        const auth = await resolveBuilderAuth(opts)
-        const client = new ApiClient(auth)
-        const session = requireSession()
-        const sinceIndex = session.lastMessageCount ?? 0
-
-        if (opts.wait) {
-          // Step 1: Check messages first — terminal state may already exist
-          const immediate = await checkMessagesForStatus(
-            client,
-            session.conversationId,
-            sinceIndex
-          )
-          if (immediate && immediate.status !== "processing") {
-            outputJson(immediate)
-            return
-          }
-
-          // Step 2: Not done yet — open SSE stream and wait
-          const timeoutMs = parseInt(opts.wait) * 1000
-          const abortController = new AbortController()
-
-          const timeout = setTimeout(() => {
-            abortController.abort()
-          }, timeoutMs)
-
-          const interruptAndExit = async () => {
-            abortController.abort()
-            try {
-              await client.post(
-                `${BASE}/${session.conversationId}/interrupt`
-              )
-            } catch {
-              // Best effort
-            }
-            process.exit(130)
-          }
-          process.on("SIGINT", interruptAndExit)
-          process.on("SIGTERM", interruptAndExit)
-
-          try {
-            const sseUrl = `${BASE}/${session.conversationId}/stream`
-            const stream = streamSSE(
-              client,
-              sseUrl,
-              abortController.signal
-            )
-            const sseResult = await pollBuilderStream(
-              stream,
-              abortController.signal
-            )
-
-            // Step 3: SSE returned — if timeout, do final message check
-            if (sseResult.status === "timeout") {
-              const final = await checkMessagesForStatus(
-                client,
-                session.conversationId,
-                sinceIndex
-              )
-              if (final) {
-                outputJson(final)
-                return
-              }
-            }
-
-            outputJson(sseResult)
-          } finally {
-            clearTimeout(timeout)
-            process.off("SIGINT", interruptAndExit)
-            process.off("SIGTERM", interruptAndExit)
-          }
-          return
-        }
-
-        // Instant mode: just check messages
-        const result = await checkMessagesForStatus(
-          client,
-          session.conversationId,
-          sinceIndex
-        )
-        if (result) {
-          outputJson(result)
-        } else {
-          outputJson({ status: "error", error: "Unexpected response format" })
-          process.exit(1)
-        }
-      } catch (err: unknown) {
-        outputError(err instanceof Error ? err.message : String(err))
-        process.exit(1)
-      }
-    }
-  )
-
   // ── builder respond ────────────────────────────────────────────
-  addAuthOptions(
+  addConversationOption(addAuthOptions(
     builder
       .command("respond")
       .description("Respond to a human input request from the builder agent")
@@ -689,14 +532,14 @@ export function registerBuilderCommands(program: Command): void {
       .option("--value <value>", "Response value (rejected by default; use --value-stdin)")
       .option("--value-stdin", "Read response value from stdin")
       .option("--responses-stdin", "Read JSON object of name-to-value responses from stdin")
-  ).action(
+  )).action(
     async (
       opts: {
         messageId: string
         value?: string
         valueStdin?: boolean
         responsesStdin?: boolean
-      } & AuthOptions
+      } & ConversationOptions
     ) => {
       try {
         enforceNoArgSecrets({ "--value": opts.value }, "builder respond")
@@ -706,25 +549,25 @@ export function registerBuilderCommands(program: Command): void {
           Boolean(opts.responsesStdin)
         ].filter(Boolean).length
         if (providedCount === 0) {
-          throw new Error("Provide --value, --value-stdin, or --responses-stdin")
+          throw new UsageError("Provide --value, --value-stdin, or --responses-stdin")
         }
         if (providedCount > 1) {
-          throw new Error("Use only one of --value, --value-stdin, or --responses-stdin")
+          throw new UsageError("Use only one of --value, --value-stdin, or --responses-stdin")
         }
 
-        const auth = await resolveBuilderAuth(opts)
+        const auth = await resolveAuth(opts)
         const client = new ApiClient(auth)
-        const session = requireSession()
+        const { conversationId, source } = await resolveConversation(
+          client,
+          opts,
+          auth.workspaceId
+        )
+        echoSession(conversationId, source)
 
         let inputMessages: Record<string, unknown>[] = []
-        let fetchedMessageCount: number | undefined
         try {
-          const { messages } = await fetchMessages(
-            client,
-            session.conversationId
-          )
+          const { messages } = await fetchMessages(client, conversationId)
           inputMessages = messages
-          fetchedMessageCount = messages.length
         } catch {
           // Best effort — response can still be sent.
         }
@@ -736,14 +579,14 @@ export function registerBuilderCommands(program: Command): void {
           try {
             body.responses = JSON.parse(rawResponses)
           } catch {
-            throw new Error("--responses-stdin must contain valid JSON")
+            throw new UsageError("--responses-stdin must contain valid JSON")
           }
           if (
             body.responses === null ||
             Array.isArray(body.responses) ||
             typeof body.responses !== "object"
           ) {
-            throw new Error("--responses-stdin must contain a JSON object")
+            throw new UsageError("--responses-stdin must contain a JSON object")
           }
         } else {
           const rawValue = opts.valueStdin
@@ -792,7 +635,7 @@ export function registerBuilderCommands(program: Command): void {
                 typeof (value as Record<string, unknown>).domain === "string"
 
               if (!isValid) {
-                throw new Error(
+                throw new UsageError(
                   `Auth input "${name}" requires an object with "permissioned_user_id" and "domain" strings. Use --responses-stdin with {"${name}":{"permissioned_user_id":"<user_id>","domain":"<domain>"}}.`
                 )
               }
@@ -800,244 +643,416 @@ export function registerBuilderCommands(program: Command): void {
           }
         }
 
-        const result = await client.post(
-          `${BASE}/${session.conversationId}/respond`,
-          body
+        // Ineligible for auto-follow: the messageId belonged to the dead
+        // turn and won't match on the successor. Surface the successor on a
+        // gone-conversation 404 instead of silently following.
+        const { result } = await withAutoFollow(
+          client,
+          conversationId,
+          false,
+          auth.workspaceId,
+          (id) => client.post(`${BASE}/${id}/respond`, body)
         )
-        if (fetchedMessageCount !== undefined) {
-          updateSession({ lastMessageCount: fetchedMessageCount })
-        }
         outputJson(result)
       } catch (err: unknown) {
-        outputError(err instanceof Error ? err.message : String(err))
-        process.exit(1)
+        // Maps ALREADY_ANSWERED (lost the human-input race) to its exit code.
+        fail(err)
       }
     }
   )
 
   // ── builder status ─────────────────────────────────────────────
+  const statusAction = async (opts: ConversationOptions) => {
+    try {
+      const auth = await resolveAuth(opts)
+      const client = new ApiClient(auth)
+      const { conversationId, source } = await resolveConversation(
+        client,
+        opts,
+        auth.workspaceId
+      )
+      echoSession(conversationId, source)
+
+      // Canonical status object; /status is also the keepalive. Auto-follows a
+      // cleared conversation to its tip.
+      const r = await withAutoFollow(
+        client,
+        conversationId,
+        true,
+        auth.workspaceId,
+        (id) => fetchStatus(client, id)
+      )
+      outputJson(withReconcileFields(r.result, r))
+      // The exit code IS the observed status: a driver switches on it (7 answer,
+      // 8 intervene, 9 tick+re-arm, 0 proceed) without parsing stdout.
+      process.exit(exitCodeForStatus(r.result.status))
+    } catch (err: unknown) {
+      fail(err)
+    }
+  }
+
+  addConversationOption(addAuthOptions(
+    builder.command("status").description("Show current builder conversation status")
+  )).addHelpText("after", `
+Hits the /status endpoint, which reports the status taxonomy (processing,
+awaiting-human-input, agent-errored, completed, idle, ended) and doubles as the
+session keepalive. When the agent is awaiting human input, the request/field
+details for 'builder respond' are attached.
+
+The exit code IS the observed status, so a driver can switch on it without
+parsing stdout: 0 proceed (completed/idle/ended), 7 answer (awaiting-human-input),
+8 intervene (agent-errored), 9 tick+re-arm (processing). Some status
+observations therefore exit non-zero — a nonzero status is the state, not a failure.
+`).action(statusAction)
+
+  // Back-compat: `builder poll` was collapsed into `builder status`.
+  addConversationOption(addAuthOptions(
+    builder
+      .command("poll", { hidden: true })
+      .description("Deprecated alias for 'builder status'")
+  )).action(statusAction)
+
+  // ── builder open ───────────────────────────────────────────────
+  addConversationOption(addAuthOptions(
+    builder
+      .command("open")
+      .description("Open the current builder conversation in the default browser")
+  )).action(async (opts: ConversationOptions) => {
+      try {
+        const auth = await resolveAuth(opts)
+        const client = new ApiClient(auth)
+        const { conversationId, source } = await resolveConversation(
+          client,
+          opts,
+          auth.workspaceId
+        )
+        echoSession(conversationId, source)
+        const url = builderUrl(auth.appUrl, auth.baseUrl, conversationId)
+        openInBrowser(url)
+        progress(`Opened builder in default browser: ${url}`)
+        outputJson({ conversationId, url })
+      } catch (err: unknown) {
+        fail(err)
+      }
+    })
+
+  // ── builder conversations list ──────────────────────────────────
+  // The server roster is the single source of truth for which conversations
+  // exist and are live; the CLI keeps no local conversation store.
+  async function listConversations(opts: AuthOptions): Promise<void> {
+    const auth = await resolveAuth(opts)
+    const client = new ApiClient(auth)
+    const result = await client.get<{ sessions: RosterEntry[] }>(
+      `${BASE}/sessions`
+    )
+    outputJson({
+      sessions: result.sessions.map((s) => ({
+        ...s,
+        startedAt: toIso(s.startedAt)
+      }))
+    })
+  }
+
+  const conversations = builder
+    .command("conversations")
+    .description("Inspect builder conversations")
   addAuthOptions(
-    builder.command("status").description("Show current builder session status")
+    conversations
+      .command("list")
+      .description("List live builder conversations for the workspace (newest first)")
   ).action(async (opts: AuthOptions) => {
     try {
-      const session = loadSession()
-      if (!session) {
-        outputJson({ active: false })
-        return
-      }
-
-      // Verify session is still alive by fetching workflow
-      const auth = await resolveBuilderAuth(opts)
-      const client = new ApiClient(auth)
-      try {
-        const workflow = await client.get(
-          `${BASE}/${session.conversationId}/workflow`
-        )
-        outputJson({
-          active: true,
-          conversationId: session.conversationId,
-          name: session.name,
-          startedAt: session.startedAt,
-          ...(workflow as Record<string, unknown>)
-        })
-      } catch {
-        // Session expired on the server
-        deleteSession()
-        outputJson({ active: false, reason: "session_expired" })
-      }
+      await listConversations(opts)
     } catch (err: unknown) {
-      outputError(err instanceof Error ? err.message : String(err))
-      process.exit(1)
+      fail(err)
     }
   })
 
   // ── builder screenshot ─────────────────────────────────────────
-  addAuthOptions(
+  addConversationOption(addAuthOptions(
     builder
       .command("screenshot")
       .description("Get a screenshot of the current browser state")
       .option("--output <path>", "Write screenshot image to file")
-  ).action(
+  )).action(
     async (
       opts: {
         output?: string
-      } & AuthOptions
+      } & ConversationOptions
     ) => {
       try {
-        const auth = await resolveBuilderAuth(opts)
+        const auth = await resolveAuth(opts)
         const client = new ApiClient(auth)
-        const session = requireSession()
+        const { conversationId, source } = await resolveConversation(
+          client,
+          opts,
+          auth.workspaceId
+        )
+        echoSession(conversationId, source)
 
-        const result = await client.get<{
-          url: string | null
-          base64: string | null
-        }>(`${BASE}/${session.conversationId}/screenshot`)
+        const r = await withAutoFollow(
+          client,
+          conversationId,
+          true,
+          auth.workspaceId,
+          (id) =>
+            client.get<{ url: string | null; base64: string | null }>(
+              `${BASE}/${id}/screenshot`
+            )
+        )
+        const result = r.result
 
         if (opts.output && result.base64) {
           const raw = result.base64.replace(/^data:image\/[^;]+;base64,/, "")
           writeFileSync(opts.output, Buffer.from(raw, "base64"))
-          outputJson({ url: result.url, file: opts.output })
+          outputJson({
+            conversationId: r.conversationId,
+            url: result.url,
+            file: opts.output,
+            ...(r.reconciledFrom ? { reconciledFrom: r.reconciledFrom } : {})
+          })
         } else {
-          outputJson(result)
+          outputJson(withReconcileFields(result, r))
         }
       } catch (err: unknown) {
-        outputError(err instanceof Error ? err.message : String(err))
-        process.exit(1)
+        fail(err)
       }
     }
   )
 
   // ── builder html ───────────────────────────────────────────────
-  addAuthOptions(
+  addConversationOption(addAuthOptions(
     builder
       .command("html")
       .description("Get the HTML of the current page")
       .option("--output <path>", "Write HTML to file")
-  ).action(
+  )).action(
     async (
       opts: {
         output?: string
-      } & AuthOptions
+      } & ConversationOptions
     ) => {
       try {
-        const auth = await resolveBuilderAuth(opts)
+        const auth = await resolveAuth(opts)
         const client = new ApiClient(auth)
-        const session = requireSession()
+        const { conversationId, source } = await resolveConversation(
+          client,
+          opts,
+          auth.workspaceId
+        )
+        echoSession(conversationId, source)
 
-        const result = await client.get<{
-          url: string | null
-          html: string | null
-        }>(`${BASE}/${session.conversationId}/html`)
+        const r = await withAutoFollow(
+          client,
+          conversationId,
+          true,
+          auth.workspaceId,
+          (id) =>
+            client.get<{ url: string | null; html: string | null }>(
+              `${BASE}/${id}/html`
+            )
+        )
+        const result = r.result
 
         if (opts.output && result.html) {
           writeFileSync(opts.output, result.html)
-          outputJson({ url: result.url, file: opts.output })
+          outputJson({
+            conversationId: r.conversationId,
+            url: result.url,
+            file: opts.output,
+            ...(r.reconciledFrom ? { reconciledFrom: r.reconciledFrom } : {})
+          })
         } else {
-          outputJson(result)
+          outputJson(withReconcileFields(result, r))
         }
       } catch (err: unknown) {
-        outputError(err instanceof Error ? err.message : String(err))
-        process.exit(1)
+        fail(err)
       }
     }
   )
 
   // ── builder workflow ───────────────────────────────────────────
-  addAuthOptions(
+  addConversationOption(addAuthOptions(
     builder
       .command("workflow")
       .description("Get the current workflow definition")
-  ).action(async (opts: AuthOptions) => {
+  )).action(async (opts: ConversationOptions) => {
     try {
-      const auth = await resolveBuilderAuth(opts)
+      const auth = await resolveAuth(opts)
       const client = new ApiClient(auth)
-      const session = requireSession()
-
-      const result = await client.get(
-        `${BASE}/${session.conversationId}/workflow`
+      const { conversationId, source } = await resolveConversation(
+        client,
+        opts,
+        auth.workspaceId
       )
-      outputJson(result)
+      echoSession(conversationId, source)
+
+      const r = await withAutoFollow(
+        client,
+        conversationId,
+        true,
+        auth.workspaceId,
+        (id) => client.get<Record<string, unknown>>(`${BASE}/${id}/workflow`)
+      )
+      outputJson(withReconcileFields(r.result, r))
     } catch (err: unknown) {
-      outputError(err instanceof Error ? err.message : String(err))
-      process.exit(1)
+      fail(err)
     }
   })
 
   // ── builder messages ───────────────────────────────────────────
-  addAuthOptions(
+  addConversationOption(addAuthOptions(
     builder
       .command("messages")
       .description("Get conversation messages")
       .option("--limit <n>", "Max messages to return")
-  ).action(
+      .option("--offset <n>", "Skip N messages (from the end unless --no-tail)")
+      .option(
+        "--no-tail",
+        "Page from the start of the conversation instead of the end"
+      )
+  )).addHelpText("after", `
+Returns a pagination envelope: { messages, total, offset, limit, tail, hasMore,
+isProcessing }. By default offset counts from the newest message (tail); pass
+--no-tail to make offset count from the oldest.
+`).action(
     async (
       opts: {
         limit?: string
-      } & AuthOptions
+        offset?: string
+        tail: boolean
+      } & ConversationOptions
     ) => {
       try {
         const limit = parseLimit(opts.limit)
-        const auth = await resolveBuilderAuth(opts)
+        const offset = parseOffset(opts.offset)
+        const auth = await resolveAuth(opts)
         const client = new ApiClient(auth)
-        const session = requireSession()
-
-        const query = limit !== undefined ? `?limit=${limit}` : ""
-        const result = await client.get(
-          `${BASE}/${session.conversationId}/messages${query}`
+        const { conversationId, source } = await resolveConversation(
+          client,
+          opts,
+          auth.workspaceId
         )
-        outputJson(stripBase64(result))
+        echoSession(conversationId, source)
+
+        const params = new URLSearchParams()
+        if (limit !== undefined) params.set("limit", String(limit))
+        if (offset !== undefined) params.set("offset", String(offset))
+        // Only send `tail` when the caller cares (an offset is in play or they
+        // explicitly asked to page from the start); otherwise use the backend
+        // default (tail=true).
+        if (offset !== undefined || opts.tail === false) {
+          params.set("tail", String(opts.tail))
+        }
+
+        const query = params.toString() ? `?${params.toString()}` : ""
+        const r = await withAutoFollow(
+          client,
+          conversationId,
+          true,
+          auth.workspaceId,
+          (id) =>
+            client.get<Record<string, unknown>>(
+              `${BASE}/${id}/messages${query}`
+            )
+        )
+        const stripped = stripBase64(r.result) as object
+        outputJson(withReconcileFields(stripped, r))
       } catch (err: unknown) {
-        outputError(err instanceof Error ? err.message : String(err))
-        process.exit(1)
+        fail(err)
       }
     }
   )
 
   // ── builder save ───────────────────────────────────────────────
-  addAuthOptions(
+  addConversationOption(addAuthOptions(
     builder.command("save").description("Save the workflow to the database")
-  ).action(async (opts: AuthOptions) => {
+  )).action(async (opts: ConversationOptions) => {
     try {
-      const auth = await resolveBuilderAuth(opts)
+      const auth = await resolveAuth(opts)
       const client = new ApiClient(auth)
-      const session = requireSession()
-
-      const result = await client.post(
-        `${BASE}/${session.conversationId}/save`
+      const { conversationId, source } = await resolveConversation(
+        client,
+        opts,
+        auth.workspaceId
       )
-      outputJson(result)
+      echoSession(conversationId, source)
+
+      // Eligible: the successor reuses the same workflowId, so save builds the
+      // same workflow.
+      const r = await withAutoFollow(
+        client,
+        conversationId,
+        true,
+        auth.workspaceId,
+        (id) => client.post<Record<string, unknown>>(`${BASE}/${id}/save`)
+      )
+      outputJson(withReconcileFields(r.result, r))
     } catch (err: unknown) {
-      outputError(err instanceof Error ? err.message : String(err))
-      process.exit(1)
+      fail(err)
     }
   })
 
   // ── builder interrupt ──────────────────────────────────────────
-  addAuthOptions(
+  addConversationOption(addAuthOptions(
     builder
       .command("interrupt")
       .description("Interrupt the builder agent's current processing")
-  ).action(async (opts: AuthOptions) => {
+  )).action(async (opts: ConversationOptions) => {
     try {
-      const auth = await resolveBuilderAuth(opts)
+      const auth = await resolveAuth(opts)
       const client = new ApiClient(auth)
-      const session = requireSession()
+      const { conversationId, source } = await resolveConversation(
+        client,
+        opts,
+        auth.workspaceId
+      )
+      echoSession(conversationId, source)
 
-      const result = await client.post(
-        `${BASE}/${session.conversationId}/interrupt`
+      // Ineligible: following would interrupt an unrelated turn on the
+      // successor. Surface the successor on a gone-conversation 404 instead.
+      const { result } = await withAutoFollow(
+        client,
+        conversationId,
+        false,
+        auth.workspaceId,
+        (id) => client.post(`${BASE}/${id}/interrupt`)
       )
       outputJson(result)
     } catch (err: unknown) {
-      outputError(err instanceof Error ? err.message : String(err))
-      process.exit(1)
+      fail(err)
     }
   })
 
   // ── builder end ────────────────────────────────────────────────
-  addAuthOptions(
+  addConversationOption(addAuthOptions(
     builder
       .command("end")
-      .description("End the builder session and clean up")
-  ).action(async (opts: AuthOptions) => {
+      .description("End the builder conversation and clean up")
+  )).action(async (opts: ConversationOptions) => {
     try {
-      const auth = await resolveBuilderAuth(opts)
+      const auth = await resolveAuth(opts)
       const client = new ApiClient(auth)
-      const session = requireSession()
+      const { conversationId, source } = await resolveConversation(
+        client,
+        opts,
+        auth.workspaceId
+      )
+      echoSession(conversationId, source)
 
-      try {
-        const result = await client.delete(
-          `${BASE}/${session.conversationId}`
-        )
-        deleteSession()
-        outputJson(result)
-      } catch {
-        // Server may be down or session expired — clean up locally anyway
-        deleteSession()
-        outputJson({ status: "ended", note: "Local session cleared. Server cleanup may have failed." })
-      }
+      // Hard no on auto-follow: following `end` to the tip would destroy the
+      // live successor — the opposite of intent. Surface the successor on a
+      // gone-conversation 404 and never act.
+      const { result } = await withAutoFollow(
+        client,
+        conversationId,
+        false,
+        auth.workspaceId,
+        (id) => client.delete(`${BASE}/${id}`)
+      )
+      outputJson(result)
     } catch (err: unknown) {
-      outputError(err instanceof Error ? err.message : String(err))
-      process.exit(1)
+      fail(err)
     }
   })
 }

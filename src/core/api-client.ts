@@ -1,5 +1,47 @@
 import { ResolvedAuth } from "./auth.js"
 
+/**
+ * Error thrown for non-2xx API responses. Carries the HTTP status and, when the
+ * body is a JSON error envelope, the machine-readable `code` (e.g. SESSION_BUSY,
+ * ALREADY_ANSWERED) so callers can map it to a distinct exit code.
+ */
+export class ApiError extends Error {
+  readonly status: number
+  readonly code?: string
+  readonly body: string
+
+  constructor(message: string, status: number, body: string, code?: string) {
+    super(message)
+    this.name = "ApiError"
+    this.status = status
+    this.body = body
+    this.code = code
+  }
+
+  static async from(
+    method: string,
+    path: string,
+    res: Response
+  ): Promise<ApiError> {
+    const body = await res.text()
+    let code: string | undefined
+    try {
+      const parsed = JSON.parse(body) as { code?: unknown }
+      if (parsed && typeof parsed === "object" && typeof parsed.code === "string") {
+        code = parsed.code
+      }
+    } catch {
+      // Non-JSON body — no code to extract.
+    }
+    return new ApiError(
+      `${method} ${path} failed (${res.status}): ${body}`,
+      res.status,
+      body,
+      code
+    )
+  }
+}
+
 export class ApiClient {
   private auth: ResolvedAuth
 
@@ -25,8 +67,7 @@ export class ApiClient {
       headers: this.headers()
     })
     if (!res.ok) {
-      const body = await res.text()
-      throw new Error(`GET ${path} failed (${res.status}): ${body}`)
+      throw await ApiError.from("GET", path, res)
     }
     return res.json() as Promise<T>
   }
@@ -37,8 +78,7 @@ export class ApiClient {
       headers: this.headers()
     })
     if (!res.ok) {
-      const body = await res.text()
-      throw new Error(`GET ${path} failed (${res.status}): ${body}`)
+      throw await ApiError.from("GET", path, res)
     }
     return res
   }
@@ -55,8 +95,7 @@ export class ApiClient {
       body: hasBody ? JSON.stringify(body) : undefined
     })
     if (!res.ok) {
-      const text = await res.text()
-      throw new Error(`POST ${path} failed (${res.status}): ${text}`)
+      throw await ApiError.from("POST", path, res)
     }
     return res.json() as Promise<T>
   }
@@ -68,8 +107,7 @@ export class ApiClient {
       body: JSON.stringify(body)
     })
     if (!res.ok) {
-      const text = await res.text()
-      throw new Error(`PUT ${path} failed (${res.status}): ${text}`)
+      throw await ApiError.from("PUT", path, res)
     }
     return res.json() as Promise<T>
   }
@@ -81,8 +119,7 @@ export class ApiClient {
       body: JSON.stringify(body)
     })
     if (!res.ok) {
-      const text = await res.text()
-      throw new Error(`PATCH ${path} failed (${res.status}): ${text}`)
+      throw await ApiError.from("PATCH", path, res)
     }
     return res.json() as Promise<T>
   }
@@ -93,14 +130,9 @@ export class ApiClient {
       headers: this.headers()
     })
     if (!res.ok) {
-      const text = await res.text()
-      throw new Error(`DELETE ${path} failed (${res.status}): ${text}`)
+      throw await ApiError.from("DELETE", path, res)
     }
     return res.json() as Promise<T>
-  }
-
-  sseUrl(path: string): string {
-    return this.url(path)
   }
 
   authHeaders(extra?: Record<string, string>): Record<string, string> {

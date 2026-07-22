@@ -3,7 +3,8 @@ import { readFileSync } from "fs"
 import { resolveAuth, requireEncryptionKey } from "../core/auth.js"
 import { ApiClient } from "../core/api-client.js"
 import { encrypt, decrypt, validateHexKey } from "../core/crypto.js"
-import { outputJson, outputError } from "../core/output.js"
+import { outputJson } from "../core/output.js"
+import { fail, UsageError } from "../core/exit.js"
 import { addAuthOptions, type AuthOptions } from "../core/auth-options.js"
 import { enforceNoArgSecrets } from "../core/secret-args.js"
 import type { VaultEntry, VaultEntryPayload } from "../types/vault.js"
@@ -35,7 +36,7 @@ function encryptFields(
     result.proxy_value.length > 0 &&
     (result.proxy_setting === undefined || result.proxy_setting === null)
   ) {
-    throw new Error(
+    throw new UsageError(
       "proxy_value requires proxy_setting. Pass --proxy custom for a bring-your-own " +
         "proxy URL (encrypted before sending), or --proxy static/country for a managed proxy."
     )
@@ -108,31 +109,31 @@ function buildPayloadFromFlags(opts: {
   if (opts.tfaMethod !== undefined) payload.tfa_method = opts.tfaMethod
   if (opts.secretProviderId !== undefined) {
     if (!opts.secretRef) {
-      throw new Error("--secret-provider-id requires --secret-ref")
+      throw new UsageError("--secret-provider-id requires --secret-ref")
     }
     payload.secret_provider_id = opts.secretProviderId
   }
   if (opts.secretRef !== undefined) {
     if (!opts.secretProviderId) {
-      throw new Error("--secret-ref requires --secret-provider-id")
+      throw new UsageError("--secret-ref requires --secret-provider-id")
     }
     payload.secret_ref = opts.secretRef
   }
   if (opts.secretCacheTtlSeconds !== undefined) {
     if (!opts.secretProviderId || !opts.secretRef) {
-      throw new Error(
+      throw new UsageError(
         "--secret-cache-ttl-seconds requires --secret-provider-id and --secret-ref"
       )
     }
     const ttl = Number(opts.secretCacheTtlSeconds)
     if (!Number.isInteger(ttl) || ttl < 0) {
-      throw new Error("--secret-cache-ttl-seconds must be a non-negative integer")
+      throw new UsageError("--secret-cache-ttl-seconds must be a non-negative integer")
     }
     payload.secret_cache_ttl_seconds = ttl
   }
   if (opts.proxy !== undefined) {
     if (!PROXY_SETTINGS.includes(opts.proxy as (typeof PROXY_SETTINGS)[number])) {
-      throw new Error(
+      throw new UsageError(
         `Invalid --proxy value "${opts.proxy}". Must be one of: ${PROXY_SETTINGS.join(", ")}.`
       )
     }
@@ -196,7 +197,7 @@ async function applySecretStdinOptions(opts: {
     opts.proxyValueStdin,
   ].filter(Boolean)
   if (stdinFlags.length > 1) {
-    throw new Error(
+    throw new UsageError(
       "Use only one of --password-stdin, --tfa-secret-stdin, or --proxy-value-stdin"
     )
   }
@@ -251,8 +252,7 @@ Examples:
         outputJson(summary)
       }
     } catch (err: unknown) {
-      outputError(err instanceof Error ? err.message : String(err))
-      process.exit(1)
+      fail(err)
     }
   })
 
@@ -295,8 +295,7 @@ Examples:
           outputJson(data)
         }
       } catch (err: unknown) {
-        outputError(err instanceof Error ? err.message : String(err))
-        process.exit(1)
+        fail(err)
       }
     }
   )
@@ -374,7 +373,7 @@ Examples:
           payload = JSON.parse(readFileSync(opts.file, "utf-8"))
         } else {
           if (!opts.userId || !opts.domain) {
-            throw new Error(
+            throw new UsageError(
               "Provide --user-id and --domain, or use --file/--stdin"
             )
           }
@@ -392,8 +391,7 @@ Examples:
         const data = await client.post<VaultEntry>("/vault", payload)
         outputJson(data)
       } catch (err: unknown) {
-        outputError(err instanceof Error ? err.message : String(err))
-        process.exit(1)
+        fail(err)
       }
     }
   )
@@ -471,7 +469,7 @@ Examples:
           payload = JSON.parse(readFileSync(opts.file, "utf-8"))
         } else {
           if (!opts.userId || !opts.domain) {
-            throw new Error(
+            throw new UsageError(
               "Provide --user-id and --domain, or use --file/--stdin"
             )
           }
@@ -489,8 +487,7 @@ Examples:
         const data = await client.put<VaultEntry>("/vault", payload)
         outputJson(data)
       } catch (err: unknown) {
-        outputError(err instanceof Error ? err.message : String(err))
-        process.exit(1)
+        fail(err)
       }
     }
   )
@@ -519,8 +516,7 @@ Examples:
         )
         outputJson(data)
       } catch (err: unknown) {
-        outputError(err instanceof Error ? err.message : String(err))
-        process.exit(1)
+        fail(err)
       }
     }
   )
@@ -555,14 +551,13 @@ Examples:
         } else if (plaintext !== undefined) {
           value = plaintext
         } else {
-          throw new Error("Provide <plaintext> argument or --stdin")
+          throw new UsageError("Provide <plaintext> argument or --stdin")
         }
 
         const toEncrypt = opts.raw ? value : JSON.stringify(value)
         outputJson({ ciphertext: encrypt(toEncrypt, key) })
       } catch (err: unknown) {
-        outputError(err instanceof Error ? err.message : String(err))
-        process.exit(1)
+        fail(err)
       }
     }
   )
@@ -594,15 +589,14 @@ Examples:
         } else if (ciphertext !== undefined) {
           value = ciphertext
         } else {
-          throw new Error("Provide <ciphertext> argument or --stdin")
+          throw new UsageError("Provide <ciphertext> argument or --stdin")
         }
 
         const decrypted = decrypt(value, key)
         const result = opts.raw ? decrypted : JSON.parse(decrypted)
         outputJson({ plaintext: result })
       } catch (err: unknown) {
-        outputError(err instanceof Error ? err.message : String(err))
-        process.exit(1)
+        fail(err)
       }
     }
   )

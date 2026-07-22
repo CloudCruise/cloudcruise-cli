@@ -37,13 +37,13 @@ cloudcruise workflows list
 # Get a workflow
 cloudcruise workflows get <workflow_id> > workflow.json
 
-# Start a run and wait for completion
-cloudcruise run start <workflow_id> --wait
+# Start a run (returns { session_id } immediately; poll run get for completion)
+cloudcruise run start <workflow_id>
 
 # Start a debug run with snapshots on every node
-cloudcruise run start <workflow_id> --wait --debug
+cloudcruise run start <workflow_id> --debug
 
-# Inspect a failed run
+# Inspect a run (poll until the status is terminal)
 cloudcruise run get <session_id>
 
 # Update a workflow
@@ -98,8 +98,8 @@ cloudcruise snapshot test '//input[@name="email"]' --file ./snapshots/page.html
 | `components rename <id>` | Rename a component (`--name`) |
 | `components update <id>` | Update component (`--file`, `--stdin`, `--version-note`, `--no-propagate`, `--source-workflow-id`) |
 | `components delete <id>` | Delete a component |
-| `run start <id>` | Start a run (`--wait`, `--debug`, `--input`) |
-| `run get <id>` | Get run status and results |
+| `run start <id>` | Start a run, returns session_id immediately (`--debug`, `--input`) |
+| `run get <id>` | Get run status and results (poll until terminal) |
 | `run list` | List runs (`--workflow`, `--status`, `--limit`, `--since`) |
 | `run interrupt <id>` | Stop a running session |
 | `run errors <id>` | Error analytics (`--since`, `--limit`) |
@@ -115,16 +115,16 @@ cloudcruise snapshot test '//input[@name="email"]' --file ./snapshots/page.html
 | `vault encrypt` / `decrypt` | Encrypt or decrypt values locally |
 | `secret-providers list` | List secret-provider connections |
 | `secret-providers items <provider-id>` | List items visible to a secret-provider connection |
-| `builder start` | Start builder session (`--start-url`, `--name`, `--vault-user-id`) |
+| `builder start` | Start builder conversation (`--start-url`, `--name`, `--vault-user-id`) |
 | `builder send <message>` | Send instruction to builder agent |
-| `builder poll` | Check agent status and new messages |
 | `builder respond` | Reply to agent input requests (`--message-id`, `--value-stdin`) |
-| `builder status` | Check session status |
+| `builder status` | Check conversation status (`/status` taxonomy + keepalive; exit code encodes the state — 0/7/8/9) |
+| `builder conversations list` | List live builder conversations for the workspace |
 | `builder workflow` | Get current workflow definition |
-| `builder messages` | Get conversation history (`--limit`) |
+| `builder messages` | Get conversation history (`--limit`, `--offset`, `--no-tail`) |
 | `builder save` | Persist workflow to database |
 | `builder interrupt` | Stop agent processing |
-| `builder end` | End session and clean up |
+| `builder end` | End conversation and clean up |
 | `utils uuid` | Generate UUIDs for node IDs (`--count`) |
 | `install --skills` | Install skill files for coding agents (`--target`) |
 

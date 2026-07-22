@@ -20,6 +20,7 @@ export interface ResolvedAuth {
   token: string;
   authScheme: "bearer" | "api-key";
   baseUrl: string;
+  appUrl?: string;
   workspaceId?: string;
   encryptionKey?: string;
 }
@@ -33,6 +34,18 @@ function resolveBaseUrl(options: { baseUrl?: string }, profile: { baseUrl?: stri
     profile.baseUrl ||
     process.env.CLOUDCRUISE_BASE_URL ||
     DEFAULT_BASE_URL
+  );
+}
+
+function resolveAppUrl(
+  options: { appUrl?: string },
+  profile: { appUrl?: string },
+): string | undefined {
+  return (
+    options.appUrl ||
+    profile.appUrl ||
+    process.env.CLOUDCRUISE_APP_URL ||
+    undefined
   );
 }
 
@@ -73,6 +86,7 @@ function oauthRefreshSettings(
 export async function resolveAuth(options: {
   apiKey?: string;
   baseUrl?: string;
+  appUrl?: string;
   profile?: string;
   workspaceId?: string;
   encryptionKey?: string;
@@ -119,6 +133,7 @@ export async function resolveAuth(options: {
       token: machineToken,
       authScheme: "bearer",
       baseUrl: resolveBaseUrl(options, profile),
+      appUrl: resolveAppUrl(options, profile),
       workspaceId,
       encryptionKey:
         options.encryptionKey ||
@@ -202,6 +217,7 @@ export async function resolveAuth(options: {
       token: accessToken,
       authScheme: "bearer",
       baseUrl: resolveBaseUrl(options, profile),
+      appUrl: resolveAppUrl(options, profile),
       workspaceId,
       encryptionKey:
         options.encryptionKey ||
@@ -235,6 +251,7 @@ export async function resolveAuth(options: {
   }
 
   const baseUrl = resolveBaseUrl(options, profile);
+  const appUrl = resolveAppUrl(options, profile);
 
   const encryptionKey =
     options.encryptionKey ||
@@ -242,7 +259,7 @@ export async function resolveAuth(options: {
     storedEncryptionKey ||
     undefined;
 
-  return { token: apiKey, authScheme: "api-key", baseUrl, workspaceId, encryptionKey };
+  return { token: apiKey, authScheme: "api-key", baseUrl, appUrl, workspaceId, encryptionKey };
 }
 
 export function requireEncryptionKey(auth: ResolvedAuth): string {

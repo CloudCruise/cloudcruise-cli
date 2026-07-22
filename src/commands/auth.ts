@@ -57,6 +57,7 @@ interface LoginOptions {
   apiKey?: string
   apiKeyStdin?: boolean
   baseUrl?: string
+  appUrl?: string
   encryptionKey?: string
   encryptionKeyStdin?: boolean
   profile?: string
@@ -181,6 +182,7 @@ function addOAuthLoginOptions(cmd: Command): Command {
     .option("--anon-key <key>", "Supabase anon key (public) for MFA step-up")
     .option("--mfa-code <code>", "TOTP code for non-interactive MFA step-up (skips the prompt)")
     .option("--base-url <url>", "Base URL for CloudCruise API")
+    .option("--app-url <url>", "Frontend app URL for builder links (overrides inference from --base-url)")
     .option("--redirect-uri <uri>", "OAuth redirect URI")
     .option("--redirect-port <port>", "Local callback port", "9999")
     .option("--scope <scope>", "OAuth scope", "email")
@@ -295,6 +297,7 @@ async function performOAuthLogin(opts: LoginOptions): Promise<void> {
     anonKey: settings.anonKey,
     tokenEndpointAuthMethod: settings.tokenEndpointAuthMethod,
     baseUrl: settings.baseUrl,
+    appUrl: opts.appUrl ?? existing.appUrl,
     scope: tokenResponse.scope ?? settings.scope,
     tokenAccount,
     tokenExpiresAt: expiresAt,
@@ -396,6 +399,7 @@ async function saveProfileUpdates(opts: LoginOptions): Promise<void> {
   const envEncryptionKey = process.env.CLOUDCRUISE_ENCRYPTION_KEY
 
   if (opts.workspaceId) profile.currentWorkspaceId = opts.workspaceId
+  if (opts.appUrl) profile.appUrl = opts.appUrl
   if (opts.anonKey) profile.anonKey = opts.anonKey
   if (opts.encryptionKey || envEncryptionKey) {
     profile = saveProfileEncryptionKey(
@@ -458,6 +462,7 @@ async function saveLegacyProfile(opts: LoginOptions): Promise<void> {
     profile = saveProfileApiKey(profileName, profile, opts.apiKey ?? envApiKey as string)
   }
   if (opts.baseUrl) profile.baseUrl = opts.baseUrl
+  if (opts.appUrl) profile.appUrl = opts.appUrl
   if (opts.workspaceId) profile.currentWorkspaceId = opts.workspaceId
   if (opts.encryptionKey || envEncryptionKey) {
     profile = saveProfileEncryptionKey(
