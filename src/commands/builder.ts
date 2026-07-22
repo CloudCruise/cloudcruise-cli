@@ -352,37 +352,22 @@ agent's response with 'cloudcruise builder status'.
         )
         echoSession(conversationId, source)
 
-        // Fire the request with a 5s abort — enough for the server to
-        // accept and start processing, but don't wait for the full
-        // response (which blocks until the agent turn ends). Poll for
-        // completion with `builder status`. Wrapped so a cleared conversation
-        // auto-follows to its successor (send: the continuation is what you
-        // meant); each attempt gets a fresh abort.
+        // POST the message; the server accepts it and runs the agent turn
+        // detached, returning immediately. Poll for completion with
+        // `builder status`. Wrapped so a cleared conversation auto-follows to
+        // its successor (send: the continuation is what you meant).
         const sendTo = async (id: string): Promise<void> => {
-          const ac = new AbortController()
-          const timer = setTimeout(() => ac.abort(), 1500)
-          try {
-            const res = await fetch(`${auth.baseUrl}${BASE}/${id}/message`, {
-              method: "POST",
-              headers: client.authHeaders({
-                "Content-Type": "application/json"
-              }),
-              body: JSON.stringify({ text: message }),
-              signal: ac.signal
-            })
-            if (!res.ok) {
-              // Surface the coded taxonomy (SESSION_BUSY, CONVERSATION_NOT_FOUND)
-              // so the caller maps it to an exit code / auto-follows.
-              throw await ApiError.from("POST", `${BASE}/${id}/message`, res)
-            }
-          } catch (err: unknown) {
-            if (!(err instanceof DOMException && err.name === "AbortError")) {
-              throw err
-            }
-            // AbortError is expected — server accepted but we're not
-            // waiting for the full response.
-          } finally {
-            clearTimeout(timer)
+          const res = await fetch(`${auth.baseUrl}${BASE}/${id}/message`, {
+            method: "POST",
+            headers: client.authHeaders({
+              "Content-Type": "application/json"
+            }),
+            body: JSON.stringify({ text: message })
+          })
+          if (!res.ok) {
+            // Surface the coded taxonomy (SESSION_BUSY, CONVERSATION_NOT_FOUND)
+            // so the caller maps it to an exit code / auto-follows.
+            throw await ApiError.from("POST", `${BASE}/${id}/message`, res)
           }
         }
 
@@ -687,8 +672,8 @@ details for 'builder respond' are attached.
 
 The exit code IS the observed status, so a driver can switch on it without
 parsing stdout: 0 proceed (completed/idle/ended), 7 answer (awaiting-human-input),
-8 intervene (agent-errored), 9 tick+re-arm (processing). Terminal-state runs
-therefore exit non-zero — a nonzero status is the state, not a failure.
+8 intervene (agent-errored), 9 tick+re-arm (processing). Some status
+observations therefore exit non-zero — a nonzero status is the state, not a failure.
 `).action(async (opts: ConversationOptions) => {
     try {
       const auth = await resolveAuth(opts)
