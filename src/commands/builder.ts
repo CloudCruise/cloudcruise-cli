@@ -662,19 +662,7 @@ agent's response with 'cloudcruise builder status'.
   )
 
   // ── builder status ─────────────────────────────────────────────
-  addConversationOption(addAuthOptions(
-    builder.command("status").description("Show current builder conversation status")
-  )).addHelpText("after", `
-Hits the /status endpoint, which reports the status taxonomy (processing,
-awaiting-human-input, agent-errored, completed, idle, ended) and doubles as the
-session keepalive. When the agent is awaiting human input, the request/field
-details for 'builder respond' are attached.
-
-The exit code IS the observed status, so a driver can switch on it without
-parsing stdout: 0 proceed (completed/idle/ended), 7 answer (awaiting-human-input),
-8 intervene (agent-errored), 9 tick+re-arm (processing). Some status
-observations therefore exit non-zero — a nonzero status is the state, not a failure.
-`).action(async (opts: ConversationOptions) => {
+  const statusAction = async (opts: ConversationOptions) => {
     try {
       const auth = await resolveAuth(opts)
       const client = new ApiClient(auth)
@@ -701,7 +689,28 @@ observations therefore exit non-zero — a nonzero status is the state, not a fa
     } catch (err: unknown) {
       fail(err)
     }
-  })
+  }
+
+  addConversationOption(addAuthOptions(
+    builder.command("status").description("Show current builder conversation status")
+  )).addHelpText("after", `
+Hits the /status endpoint, which reports the status taxonomy (processing,
+awaiting-human-input, agent-errored, completed, idle, ended) and doubles as the
+session keepalive. When the agent is awaiting human input, the request/field
+details for 'builder respond' are attached.
+
+The exit code IS the observed status, so a driver can switch on it without
+parsing stdout: 0 proceed (completed/idle/ended), 7 answer (awaiting-human-input),
+8 intervene (agent-errored), 9 tick+re-arm (processing). Some status
+observations therefore exit non-zero — a nonzero status is the state, not a failure.
+`).action(statusAction)
+
+  // Back-compat: `builder poll` was collapsed into `builder status`.
+  addConversationOption(addAuthOptions(
+    builder
+      .command("poll", { hidden: true })
+      .description("Deprecated alias for 'builder status'")
+  )).action(statusAction)
 
   // ── builder open ───────────────────────────────────────────────
   addConversationOption(addAuthOptions(
