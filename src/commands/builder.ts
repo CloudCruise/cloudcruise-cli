@@ -672,8 +672,8 @@ details for 'builder respond' are attached.
 
 The exit code IS the observed status, so a driver can switch on it without
 parsing stdout: 0 proceed (completed/idle/ended), 7 answer (awaiting-human-input),
-8 intervene (agent-errored), 9 tick+re-arm (processing). Terminal-state runs
-therefore exit non-zero — a nonzero status is the state, not a failure.
+8 intervene (agent-errored), 9 tick+re-arm (processing). Some status
+observations therefore exit non-zero — a nonzero status is the state, not a failure.
 `).action(async (opts: ConversationOptions) => {
     try {
       const auth = await resolveAuth(opts)
