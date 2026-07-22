@@ -16,7 +16,8 @@ export const ExitCode = {
   SESSION_BUSY: 6,
   AWAITING_HUMAN_INPUT: 7,
   AGENT_ERROR: 8,
-  TIMEOUT: 9
+  TIMEOUT: 9,
+  NO_BROWSER_ATTACHED: 10
 } as const
 
 export type ExitCodeValue = (typeof ExitCode)[keyof typeof ExitCode]
@@ -65,6 +66,8 @@ export function exitCodeForApiError(err: ApiError): ExitCodeValue {
       return ExitCode.AUTH
     case "TIMEOUT":
       return ExitCode.TIMEOUT
+    case "NO_BROWSER_ATTACHED":
+      return ExitCode.NO_BROWSER_ATTACHED
   }
   switch (err.status) {
     case 400:
@@ -84,7 +87,7 @@ export function exitCodeForApiError(err: ApiError): ExitCodeValue {
 
 /**
  * Map an observed conversation status to an exit code (for observe commands like
- * `poll`). `processing` only reaches here when a long-poll expired without
+ * `status`). `processing` only reaches here when a long-poll expired without
  * settling — the driver ticks and re-arms (exit 9).
  */
 export function exitCodeForStatus(status: string): ExitCodeValue {

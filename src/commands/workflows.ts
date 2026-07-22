@@ -2,7 +2,8 @@ import { Command, InvalidArgumentError } from "commander"
 import { readFileSync } from "fs"
 import { resolveAuth } from "../core/auth.js"
 import { ApiClient } from "../core/api-client.js"
-import { outputJson, outputError } from "../core/output.js"
+import { outputJson } from "../core/output.js"
+import { fail, UsageError } from "../core/exit.js"
 import { addAuthOptions, type AuthOptions } from "../core/auth-options.js"
 
 export function registerWorkflowCommands(program: Command): void {
@@ -51,8 +52,7 @@ Examples:
           outputJson(summary)
         }
       } catch (err: unknown) {
-        outputError(err instanceof Error ? err.message : String(err))
-        process.exit(1)
+        fail(err)
       }
     }
   )
@@ -82,8 +82,7 @@ Examples:
       const data = await client.get(path)
       outputJson(data)
     } catch (err: unknown) {
-      outputError(err instanceof Error ? err.message : String(err))
-      process.exit(1)
+      fail(err)
     }
   })
 
@@ -111,8 +110,7 @@ Examples:
         opts.limit !== undefined ? data.slice(0, opts.limit) : data
       outputJson(sliced)
     } catch (err: unknown) {
-      outputError(err instanceof Error ? err.message : String(err))
-      process.exit(1)
+      fail(err)
     }
   })
 
@@ -160,7 +158,7 @@ Examples:
         } else if (opts.file) {
           body = JSON.parse(readFileSync(opts.file, "utf-8"))
         } else {
-          throw new Error("Provide --file <path> or --stdin")
+          throw new UsageError("Provide --file <path> or --stdin")
         }
 
         for (const field of READONLY_FIELDS) {
@@ -176,8 +174,7 @@ Examples:
         const data = await client.put(`/workflows/${id}`, body)
         outputJson(data)
       } catch (err: unknown) {
-        outputError(err instanceof Error ? err.message : String(err))
-        process.exit(1)
+        fail(err)
       }
     }
   )
