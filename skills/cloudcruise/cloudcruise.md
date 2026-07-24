@@ -239,6 +239,8 @@ cloudcruise builder interrupt   # Stop the agent's current processing
 cloudcruise builder end         # End the conversation and clean up
 ```
 
+**Credentials for builder sessions.** A workflow with a non-empty `vault_schema` needs its credential supplied, or login fails at the password step. Both `builder start` and `builder edit` take `--vault-user-id <permissioned_user_id>` + `--vault-domain <domain>` (both-or-neither) for a single credential; edit matches the domain to the workflow's `vault_schema` alias. For a multi-credential workflow, bind extra aliases via `builder edit --input '{"<alias>":"<permissioned_user_id>"}'`. `builder edit` also takes `--use-example-inputs` to pre-fill non-credential inputs from the workflow's `input_schema` examples (server-side).
+
 **Conversation resolution is server-driven** — there is no local session file. `start` prints the `conversationId`; the server roster (`builder conversations list`) is the source of truth for what's live. When exactly one conversation is live in your workspace, every other builder command resolves to it automatically. When more than one is live, commands error with exit 5 (ambiguous) and you must pass `--conversation <id>` (or set `CLOUDCRUISE_CONVERSATION`). With none live, they exit 2. `--conversation` overrides everything, including workspace scope. Each command echoes `conversation <id> (via flag|env|roster)` to stderr so you can tell how it resolved.
 
 **Important guidelines:**

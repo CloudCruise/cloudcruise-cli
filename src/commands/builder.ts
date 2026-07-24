@@ -28,6 +28,21 @@ function addConversationOption(cmd: Command): Command {
 
 const BASE = "/workflow-builder/agent"
 
+export function editCredentialFields(opts: {
+  vaultUserId?: string
+  vaultDomain?: string
+}): { permissionedUserId?: string; authUrl?: string } {
+  if (Boolean(opts.vaultUserId) !== Boolean(opts.vaultDomain)) {
+    throw new UsageError(
+      "--vault-user-id and --vault-domain must be used together. Pass both to pre-configure login, or omit both to let the builder prompt for credentials."
+    )
+  }
+  const fields: { permissionedUserId?: string; authUrl?: string } = {}
+  if (opts.vaultUserId) fields.permissionedUserId = opts.vaultUserId
+  if (opts.vaultDomain) fields.authUrl = opts.vaultDomain
+  return fields
+}
+
 /** Normalize a timestamp to ISO 8601. The backend stores epoch ms; the contract
  * emits ISO strings so timestamps are one type across every command. */
 function toIso(value: unknown): unknown {
@@ -286,6 +301,18 @@ export function registerBuilderCommands(program: Command): void {
       .option("--target-node <id>", "Start from a specific node")
       .option("--input <json>", "Input variables as JSON")
       .option(
+        "--use-example-inputs",
+        "Pre-fill inputs from the workflow's input_schema and vault_schema examples (server-side)"
+      )
+      .option(
+        "--vault-user-id <id>",
+        "Vault entry's permissioned_user_id to log in with (requires --vault-domain; see `vault list`)"
+      )
+      .option(
+        "--vault-domain <domain>",
+        "Vault entry's domain (required with --vault-user-id; must match the domain from `vault list`)"
+      )
+      .option(
         "--use-last-browser-state",
         "Continue from previous browser state"
       )
@@ -296,19 +323,26 @@ export function registerBuilderCommands(program: Command): void {
         workflow: string
         targetNode?: string
         input?: string
+        useExampleInputs?: boolean
+        vaultUserId?: string
+        vaultDomain?: string
         useLastBrowserState?: boolean
         openBuilder?: boolean
       } & AuthOptions
     ) => {
       try {
+        const credentialFields = editCredentialFields(opts)
+
         const auth = await resolveAuth(opts)
         const client = new ApiClient(auth)
 
         const body: Record<string, unknown> = {
-          workflowId: opts.workflow
+          workflowId: opts.workflow,
+          ...credentialFields
         }
         if (opts.targetNode) body.targetNodeId = opts.targetNode
         if (opts.input) body.inputVariables = JSON.parse(opts.input)
+        if (opts.useExampleInputs) body.useExampleInputs = true
         if (opts.useLastBrowserState) body.useLastBrowserState = true
 
         const result = await client.post<{
