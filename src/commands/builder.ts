@@ -302,7 +302,7 @@ export function registerBuilderCommands(program: Command): void {
       .option("--input <json>", "Input variables as JSON")
       .option(
         "--use-example-inputs",
-        "Pre-fill inputs from the workflow's input_schema examples (server-side; top-level fields only, credentials excluded)"
+        "Pre-fill inputs from the workflow's input_schema and vault_schema examples (server-side)"
       )
       .option(
         "--vault-user-id <id>",
