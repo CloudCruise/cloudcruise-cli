@@ -18,6 +18,10 @@ function getSkillSourceDir(): string {
   return join(__dirname, "..", "..", "..", "skills", "cloudcruise")
 }
 
+function stripFrontmatter(content: string): string {
+  return content.replace(/^---\n[\s\S]*?\n---\n+/, "")
+}
+
 function installClaudeSkills(cwd: string): string {
   const destDir = join(cwd, ".claude", "skills", "cloudcruise")
   const sourceDir = getSkillSourceDir()
@@ -31,8 +35,8 @@ function installCursorSkills(cwd: string): string[] {
   mkdirSync(destDir, { recursive: true })
   const installed: string[] = []
 
-  const sourceFile = join(getSkillSourceDir(), "cloudcruise.md")
-  const content = readFileSync(sourceFile, "utf-8")
+  const sourceFile = join(getSkillSourceDir(), "SKILL.md")
+  const content = stripFrontmatter(readFileSync(sourceFile, "utf-8"))
 
   const mainMdc = `---
 description: CloudCruise CLI usage reference for managing workflows and runs

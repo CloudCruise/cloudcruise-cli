@@ -1,3 +1,8 @@
+---
+name: cloudcruise
+description: CloudCruise CLI reference for building, editing, and debugging CloudCruise workflows — builder agent sessions, workflow/component CRUD, vault credentials, runs, and debug snapshots. Use whenever a task involves the `cloudcruise` CLI or CloudCruise workflows.
+---
+
 # CloudCruise CLI
 
 Command-line tool for managing CloudCruise workflows and runs. All output is JSON to stdout; errors go to stderr.
@@ -239,7 +244,7 @@ cloudcruise builder interrupt   # Stop the agent's current processing
 cloudcruise builder end         # End the conversation and clean up
 ```
 
-**Credentials for builder sessions.** A workflow with a non-empty `vault_schema` needs its credential supplied, or login fails at the password step. Both `builder start` and `builder edit` take `--vault-user-id <permissioned_user_id>` + `--vault-domain <domain>` (both-or-neither) for a single credential; edit matches the domain to the workflow's `vault_schema` alias. For a multi-credential workflow, bind extra aliases via `builder edit --input '{"<alias>":"<permissioned_user_id>"}'`. `builder edit` also takes `--use-example-inputs` to pre-fill non-credential inputs from the workflow's `input_schema` examples (server-side).
+**Credentials for builder sessions.** A workflow with a non-empty `vault_schema` needs its credential supplied, or login fails at the password step. For `builder start` (no workflow/`vault_schema` exists yet), use `--vault-user-id <permissioned_user_id>` + `--vault-domain <domain>` (both-or-neither) to log the builder in during exploration. For `builder edit` on an existing workflow, always bind by alias instead: `builder edit --input '{"<alias>":"<permissioned_user_id>"}'`, one entry per alias, using the exact alias name from the workflow's `vault_schema` (check `workflows get <id>` if unsure) and the `permissioned_user_id` from `vault list`. This works the same way whether the workflow needs one credential or several, and never runs into alias ambiguity. (`--vault-user-id`/`--vault-domain` also work on `edit`, but only when exactly one `vault_schema` alias maps to that domain — two aliases sharing a domain, e.g. after a rename whose old alias was never cleaned up, makes it error 400 `Multiple vault_schema aliases share domain "<domain>" (<alias1>, <alias2>)`. Bind by alias via `--input` to avoid this entirely.) `builder edit --use-example-inputs` pre-fills non-credential inputs from the workflow's `input_schema`/`vault_schema` examples (server-side) — safe to combine with explicit `--input` credential bindings, since `--input` values always take precedence over example values for the same key.
 
 **Conversation resolution is server-driven** — there is no local session file. `start` prints the `conversationId`; the server roster (`builder conversations list`) is the source of truth for what's live. When exactly one conversation is live in your workspace, every other builder command resolves to it automatically. When more than one is live, commands error with exit 5 (ambiguous) and you must pass `--conversation <id>` (or set `CLOUDCRUISE_CONVERSATION`). With none live, they exit 2. `--conversation` overrides everything, including workspace scope. Each command echoes `conversation <id> (via flag|env|roster)` to stderr so you can tell how it resolved.
 
