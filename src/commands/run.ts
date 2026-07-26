@@ -176,6 +176,35 @@ Examples:
 
   addAuthOptions(
     run
+      .command("live-view <session_id>")
+      .description("Get a fresh live-view connection (viewer URL + one-time auth token) for an active session")
+  ).addHelpText("after", `
+The returned auth token is single-use. If the viewer link was already opened
+(reloaded, or reopened later), it will fail to connect — run this command
+again to mint a fresh token/link rather than reusing the old one.
+
+Only works while the session is still active.
+
+Examples:
+  $ cloudcruise run live-view sess_abc123
+`).action(
+    async (
+      sessionId: string,
+      opts: AuthOptions
+    ) => {
+      try {
+        const auth = await resolveAuth(opts)
+        const client = new ApiClient(auth)
+        const data = await client.get(`/live/sessions/${sessionId}/connection`)
+        outputJson(data)
+      } catch (err: unknown) {
+        fail(err)
+      }
+    }
+  )
+
+  addAuthOptions(
+    run
       .command("errors <workflow_id>")
       .description("Get error analytics for a workflow")
       .option("--since <duration>", "Time range (e.g. 24h, 7d, 30m)", "24h")

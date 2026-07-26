@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.9.0
+
+### Added
+
+- `run live-view <session_id>` fetches a fresh live-view connection (viewer URL + single-use auth token) for an active session. Re-run it to renew after a previously issued token has been consumed.
+
 ## 1.7.0
 
 ### Added
