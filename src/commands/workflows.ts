@@ -121,9 +121,15 @@ Examples:
         "Export a workflow as a portable bundle for import into another environment"
       )
   ).addHelpText("after", `
+Workspace resolution: --workspace-id, else CLOUDCRUISE_WORKSPACE_ID, else the
+profile's default workspace. On export the workspace asserts the workflow
+belongs to it (a mismatch fails rather than exporting a different workflow);
+admins may resolve to no workspace and export any workflow.
+
 Examples:
   $ cloudcruise workflows export wf_abc123 --profile staging > bundle.json
   $ cloudcruise workflows export wf_abc123 --profile prod
+  $ cloudcruise workflows export wf_abc123 --profile prod --workspace-id ws_123
 `).action(async (id: string, opts: AuthOptions) => {
     try {
       const auth = await resolveAuth(opts)
@@ -139,13 +145,20 @@ Examples:
     workflows
       .command("import")
       .description(
-        "Import a workflow bundle, creating a new workflow in the profile's workspace"
+        "Import a workflow bundle, creating a new workflow in the target workspace"
       )
       .option("--file <path>", "Path to bundle JSON file")
       .option("--stdin", "Read bundle JSON from stdin")
   ).addHelpText("after", `
+Workspace resolution: --workspace-id, else CLOUDCRUISE_WORKSPACE_ID, else the
+profile's default workspace. On import the workspace is the target the new
+workflow lands in. The bundle's own workspace_id/created_by are ignored and
+re-derived server-side, so a bundle exported from another environment can never
+smuggle in a stale workspace.
+
 Examples:
   $ cloudcruise workflows import --file bundle.json --profile prod
+  $ cloudcruise workflows import --file bundle.json --profile prod --workspace-id ws_123
   $ cloudcruise workflows export wf_abc123 --profile staging | cloudcruise workflows import --stdin --profile prod
 `).action(
     async (opts: { file?: string; stdin?: boolean } & AuthOptions) => {
