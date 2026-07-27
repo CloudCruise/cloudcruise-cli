@@ -350,9 +350,6 @@ export function registerBuilderCommands(program: Command): void {
           [k: string]: unknown
         }>(`${BASE}/session/from-workflow`, body)
 
-        // The response embeds the full workflow graph, which the builder UI
-        // hydrates over the websocket and CLI consumers don't need. Drop it so
-        // stdout stays a compact session descriptor instead of the whole JSON.
         const { workflow: _omitWorkflow, ...session } = result
 
         echoSession(result.conversationId)
