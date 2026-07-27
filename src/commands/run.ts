@@ -34,12 +34,14 @@ export function registerRunCommands(program: Command): void {
       .description("Start a new run")
       .option("--input <json>", "Input variables as JSON string", "{}")
       .option("--debug", "Enable debug snapshots on every node")
+      .option("--dry-run", "Validate and plan the run without executing it")
   ).addHelpText("after", `
 Returns { session_id } immediately. Poll status with 'cloudcruise run get <session_id>'.
 
 Examples:
   $ cloudcruise run start wf_abc123
   $ cloudcruise run start wf_abc123 --debug
+  $ cloudcruise run start wf_abc123 --dry-run
   $ cloudcruise run start wf_abc123 --input '{"USER":"f47ac10b-58cc-4372-a567-0e02b2c3d479"}'
 `).action(
     async (
@@ -47,6 +49,7 @@ Examples:
       opts: {
         input: string
         debug?: boolean
+        dryRun?: boolean
       } & AuthOptions
     ) => {
       try {
@@ -65,6 +68,7 @@ Examples:
           run_input_variables: inputVariables
         }
         if (opts.debug) body.debug = true
+        if (opts.dryRun) body.dry_run = true
 
         const result = await client.post<{ session_id: string }>("/run", body)
         outputJson(result)

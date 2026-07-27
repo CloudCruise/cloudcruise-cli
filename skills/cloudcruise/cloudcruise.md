@@ -154,6 +154,7 @@ cloudcruise utils uuid --count 5    # Generate multiple UUIDs
 ```bash
 cloudcruise run start <workflow_id>                          # Start run, returns { session_id } immediately (non-blocking)
 cloudcruise run start <workflow_id> --debug                  # Start with debug snapshots on every node
+cloudcruise run start <workflow_id> --dry-run                # Validate and plan the run without executing it
 cloudcruise run start <workflow_id> --input '{"key":"val"}'  # Start with input variables
 cloudcruise run get <session_id>                             # Get run status, errors, screenshots, output (poll until status is terminal)
 cloudcruise run list --workflow <id> --status <s> --since 7d --limit 50 # List runs with filters

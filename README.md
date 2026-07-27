@@ -43,6 +43,9 @@ cloudcruise run start <workflow_id>
 # Start a debug run with snapshots on every node
 cloudcruise run start <workflow_id> --debug
 
+# Validate and plan a run without executing it
+cloudcruise run start <workflow_id> --dry-run
+
 # Inspect a run (poll until the status is terminal)
 cloudcruise run get <session_id>
 
