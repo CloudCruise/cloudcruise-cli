@@ -158,6 +158,9 @@ Examples:
 `).action(
     async (opts: { file?: string; stdin?: boolean } & AuthOptions) => {
       try {
+        if (opts.stdin && opts.file) {
+          throw new UsageError("Pass either --file or --stdin, not both")
+        }
         let body: Record<string, unknown>
         if (opts.stdin) {
           const chunks: Buffer[] = []
@@ -215,6 +218,9 @@ Examples:
       } & AuthOptions
     ) => {
       try {
+        if (opts.stdin && opts.file) {
+          throw new UsageError("Pass either --file or --stdin, not both")
+        }
         let body: Record<string, unknown>
         if (opts.stdin) {
           const chunks: Buffer[] = []
