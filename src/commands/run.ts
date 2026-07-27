@@ -34,7 +34,7 @@ export function registerRunCommands(program: Command): void {
       .description("Start a new run")
       .option("--input <json>", "Input variables as JSON string", "{}")
       .option("--debug", "Enable debug snapshots on every node")
-      .option("--dry-run", "Validate and plan the run without executing it")
+      .option("--dry-run", "Run the workflow but skip final submit/save actions (nodes marked end_here_on_dry_run)")
   ).addHelpText("after", `
 Returns { session_id } immediately. Poll status with 'cloudcruise run get <session_id>'.
 

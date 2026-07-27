@@ -43,7 +43,7 @@ cloudcruise run start <workflow_id>
 # Start a debug run with snapshots on every node
 cloudcruise run start <workflow_id> --debug
 
-# Validate and plan a run without executing it
+# Run the workflow but skip final submit/save actions (validates writes without submitting)
 cloudcruise run start <workflow_id> --dry-run
 
 # Inspect a run (poll until the status is terminal)
