@@ -122,9 +122,7 @@ Examples:
       )
   ).addHelpText("after", `
 Workspace resolution: --workspace-id, else CLOUDCRUISE_WORKSPACE_ID, else the
-profile's default workspace. On export the workspace asserts the workflow
-belongs to it (a mismatch fails rather than exporting a different workflow);
-admins may resolve to no workspace and export any workflow.
+profile's default workspace.
 
 Examples:
   $ cloudcruise workflows export wf_abc123 --profile staging > bundle.json
@@ -151,10 +149,7 @@ Examples:
       .option("--stdin", "Read bundle JSON from stdin")
   ).addHelpText("after", `
 Workspace resolution: --workspace-id, else CLOUDCRUISE_WORKSPACE_ID, else the
-profile's default workspace. On import the workspace is the target the new
-workflow lands in. The bundle's own workspace_id/created_by are ignored and
-re-derived server-side, so a bundle exported from another environment can never
-smuggle in a stale workspace.
+profile's default workspace. 
 
 Examples:
   $ cloudcruise workflows import --file bundle.json --profile prod
