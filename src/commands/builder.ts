@@ -43,6 +43,26 @@ export function editCredentialFields(opts: {
   return fields
 }
 
+/** Max length of a version note (mirrors the DB CHECK on
+ * workflow_versions.version_note). */
+export const MAX_VERSION_NOTE = 2048
+
+/** Build the optional save body from --message. A trimmed, non-empty note
+ * becomes { versionNote }; anything empty returns undefined so the backend
+ * applies its "Saved from API" default. Over-length rejects client-side. */
+export function buildSaveBody(opts: {
+  message?: string
+}): { versionNote: string } | undefined {
+  const note = opts.message?.trim()
+  if (!note) return undefined
+  if (note.length > MAX_VERSION_NOTE) {
+    throw new UsageError(
+      `--message is ${note.length} characters; the limit is ${MAX_VERSION_NOTE}.`
+    )
+  }
+  return { versionNote: note }
+}
+
 /** Normalize a timestamp to ISO 8601. The backend stores epoch ms; the contract
  * emits ISO strings so timestamps are one type across every command. */
 function toIso(value: unknown): unknown {
@@ -1000,11 +1020,18 @@ isProcessing }. By default offset counts from the newest message (tail); pass
 
   // ── builder save ───────────────────────────────────────────────
   addConversationOption(addAuthOptions(
-    builder.command("save").description("Save the workflow to the database")
-  )).action(async (opts: ConversationOptions) => {
+    builder
+      .command("save")
+      .description("Save the workflow to the database")
+      .option(
+        "-m, --message <string>",
+        `Version note for this save (max ${MAX_VERSION_NOTE} chars); defaults server-side to "Saved from API"`
+      )
+  )).action(async (opts: ConversationOptions & { message?: string }) => {
     try {
       const auth = await resolveAuth(opts)
       const client = new ApiClient(auth)
+      const body = buildSaveBody(opts)
       const { conversationId, source } = await resolveConversation(
         client,
         opts,
@@ -1019,7 +1046,7 @@ isProcessing }. By default offset counts from the newest message (tail); pass
         conversationId,
         true,
         auth.workspaceId,
-        (id) => client.post<Record<string, unknown>>(`${BASE}/${id}/save`)
+        (id) => client.post<Record<string, unknown>>(`${BASE}/${id}/save`, body)
       )
       outputJson(withReconcileFields(r.result, r))
     } catch (err: unknown) {

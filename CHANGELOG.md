@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.8.5
+
+### Added
+
+- `builder save` accepts `-m/--message <string>` to set the version note for the save (max 2048 chars). Omitted or empty, the backend defaults the note to "Saved from API". Over-length messages are rejected client-side before the request.
+
 ## 1.8.3
 
 ### Added
