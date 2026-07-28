@@ -370,8 +370,10 @@ export function registerBuilderCommands(program: Command): void {
           [k: string]: unknown
         }>(`${BASE}/session/from-workflow`, body)
 
+        const { workflow: _omitWorkflow, ...session } = result
+
         echoSession(result.conversationId)
-        outputJson(normalizeStartedAt(result))
+        outputJson(normalizeStartedAt(session))
 
         if (opts.openBuilder) {
           const url = builderUrl(auth.appUrl, auth.baseUrl, result.conversationId)
