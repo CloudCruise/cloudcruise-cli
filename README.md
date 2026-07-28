@@ -126,7 +126,7 @@ cloudcruise snapshot test '//input[@name="email"]' --file ./snapshots/page.html
 | `builder conversations list` | List live builder conversations for the workspace |
 | `builder workflow` | Get current workflow definition |
 | `builder messages` | Get conversation history (`--limit`, `--offset`, `--no-tail`) |
-| `builder save` | Persist workflow to database |
+| `builder save` | Persist workflow to database (`-m/--message` sets the version note) |
 | `builder interrupt` | Stop agent processing |
 | `builder end` | End conversation and clean up |
 | `utils uuid` | Generate UUIDs for node IDs (`--count`) |
