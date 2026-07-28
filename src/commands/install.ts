@@ -7,27 +7,39 @@ import {
   readFileSync,
   writeFileSync
 } from "fs"
-import { join, dirname, basename } from "path"
+import { join, dirname } from "path"
 import { fileURLToPath } from "url"
 import { outputJson, outputError } from "../core/output.js"
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
 
-function getSkillSourceDir(): string {
-  return join(__dirname, "..", "..", "..", "skills", "cloudcruise")
+function getSkillsRootDir(): string {
+  return join(__dirname, "..", "..", "..", "skills")
+}
+
+function listSkillDirs(): { name: string; dir: string }[] {
+  const root = getSkillsRootDir()
+  if (!existsSync(root)) return []
+  return readdirSync(root, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => ({ name: entry.name, dir: join(root, entry.name) }))
+    .filter((skill) => existsSync(join(skill.dir, "SKILL.md")))
 }
 
 function stripFrontmatter(content: string): string {
   return content.replace(/^---\n[\s\S]*?\n---\n+/, "")
 }
 
-function installClaudeSkills(cwd: string): string {
-  const destDir = join(cwd, ".claude", "skills", "cloudcruise")
-  const sourceDir = getSkillSourceDir()
-  mkdirSync(destDir, { recursive: true })
-  cpSync(sourceDir, destDir, { recursive: true })
-  return destDir
+function installClaudeSkills(cwd: string): string[] {
+  const installed: string[] = []
+  for (const skill of listSkillDirs()) {
+    const destDir = join(cwd, ".claude", "skills", skill.name)
+    mkdirSync(destDir, { recursive: true })
+    cpSync(skill.dir, destDir, { recursive: true })
+    installed.push(destDir)
+  }
+  return installed
 }
 
 function installCursorSkills(cwd: string): string[] {
@@ -35,40 +47,27 @@ function installCursorSkills(cwd: string): string[] {
   mkdirSync(destDir, { recursive: true })
   const installed: string[] = []
 
-  const sourceFile = join(getSkillSourceDir(), "SKILL.md")
-  const content = stripFrontmatter(readFileSync(sourceFile, "utf-8"))
+  for (const skill of listSkillDirs()) {
+    const content = stripFrontmatter(
+      readFileSync(join(skill.dir, "SKILL.md"), "utf-8")
+    )
+    const isMain = skill.name === "cloudcruise"
+    const fileName = isMain ? "cloudcruise-cli.mdc" : `${skill.name}.mdc`
+    const description = isMain
+      ? "CloudCruise CLI usage reference for managing workflows and runs"
+      : `CloudCruise ${skill.name} reference - read this when building, editing, or debugging CloudCruise workflows`
 
-  const mainMdc = `---
-description: CloudCruise CLI usage reference for managing workflows and runs
+    const mdc = `---
+description: ${description}
 globs:
-alwaysApply: true
+alwaysApply: ${isMain}
 ---
 
 ${content}`
 
-  const mainDest = join(destDir, "cloudcruise-cli.mdc")
-  writeFileSync(mainDest, mainMdc)
-  installed.push(mainDest)
-
-  const refsDir = join(getSkillSourceDir(), "references")
-  if (existsSync(refsDir)) {
-    for (const file of readdirSync(refsDir)) {
-      if (!file.endsWith(".md")) continue
-      const refContent = readFileSync(join(refsDir, file), "utf-8")
-      const name = basename(file, ".md")
-
-      const refMdc = `---
-description: CloudCruise ${name} reference - read this when editing or debugging CloudCruise workflows
-globs:
-alwaysApply: false
----
-
-${refContent}`
-
-      const refDest = join(destDir, `cloudcruise-${name}.mdc`)
-      writeFileSync(refDest, refMdc)
-      installed.push(refDest)
-    }
+    const dest = join(destDir, fileName)
+    writeFileSync(dest, mdc)
+    installed.push(dest)
   }
 
   return installed
@@ -104,8 +103,8 @@ Examples:
         const target = opts.target.toLowerCase()
 
         if (target === "claude" || target === "all") {
-          const dest = installClaudeSkills(cwd)
-          installed.push(dest)
+          const dests = installClaudeSkills(cwd)
+          installed.push(...dests)
         }
 
         if (target === "cursor" || target === "all") {

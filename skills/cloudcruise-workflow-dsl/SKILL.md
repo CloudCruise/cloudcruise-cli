@@ -1,6 +1,22 @@
+---
+name: cloudcruise-workflow-dsl
+description: CloudCruise workflow DSL and execution model — the node-type catalog (CLICK, INPUT_TEXT, INPUT_SELECT, BOOL_CONDITION, LOOP, EXTRACT_DATAMODEL, NAVIGATE, DELAY, TAB_MANAGEMENT, etc.), the TWO and only execution modes (STATIC XPath and LLM_VISION), edges, variables, XPath rules, and error classification. Read this BEFORE writing, editing, or debugging any workflow node. Nodes are the only way to act on or observe the page — there is no arbitrary JavaScript, CDP, or console access in the runtime; when a STATIC selector is stuck, switch that node to LLM_VISION rather than hand-rolling a workaround. Use whenever building, editing, or debugging a CloudCruise workflow's graph or nodes.
+---
+
 # CloudCruise Workflow DSL Reference
 
 A workflow is a directed graph of nodes (actions) connected by edges. The browser agent executes nodes sequentially, following edges, to automate a business process.
+
+**Execution model (closed world).** A node acts on or observes the page ONLY through its
+execution mode, and there are exactly two: `STATIC` (explicit XPath) and `LLM_VISION`
+(natural-language target resolved from a screenshot). There is no arbitrary JavaScript
+execution, no CDP, and no console/devtools access in the runtime. To test an interaction,
+create and execute a node — that IS the diagnostic; a throwaway node is not a hack. A
+STATIC selector matching exactly one element is necessary but NOT sufficient — confirm the
+action produced the intended page effect (a unique match can still be the wrong element).
+When a STATIC selector is fragile or resolves to the wrong thing, switch the node to
+`LLM_VISION` (it acts on what is visually rendered). If a check cannot be expressed as a
+node action, that is a system limitation to surface — never a cue to work around it.
 
 ## Workflow Structure
 

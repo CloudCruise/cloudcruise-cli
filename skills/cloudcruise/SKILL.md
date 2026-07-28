@@ -215,6 +215,12 @@ cloudcruise builder start --start-url "https://app.example.com" \
   --vault-user-id "f47ac10b-58cc-4372-a567-0e02b2c3d479" --vault-domain "https://app.example.com" \
   --proxy country --proxy-value US
 
+# ── Edit an existing workflow ──
+# Default both flags on: --use-example-inputs pre-fills inputs, --use-last-browser-state resumes the prior page.
+cloudcruise builder edit --workflow <id> \
+  --use-example-inputs --use-last-browser-state \
+  --input '{"<alias>":"<permissioned_user_id>"}'
+
 # ── Interact with the builder agent ──
 cloudcruise builder send "Click the login button"              # Returns immediately
 cloudcruise builder status                                     # Check status (hits /status; also the keepalive)
@@ -245,6 +251,8 @@ cloudcruise builder end         # End the conversation and clean up
 ```
 
 **Credentials for builder sessions.** A workflow with a non-empty `vault_schema` needs its credential supplied, or login fails at the password step. For `builder start` (no workflow/`vault_schema` exists yet), use `--vault-user-id <permissioned_user_id>` + `--vault-domain <domain>` (both-or-neither) to log the builder in during exploration. For `builder edit` on an existing workflow, always bind by alias instead: `builder edit --input '{"<alias>":"<permissioned_user_id>"}'`, one entry per alias, using the exact alias name from the workflow's `vault_schema` (check `workflows get <id>` if unsure) and the `permissioned_user_id` from `vault list`. This works the same way whether the workflow needs one credential or several, and never runs into alias ambiguity. (`--vault-user-id`/`--vault-domain` also work on `edit`, but only when exactly one `vault_schema` alias maps to that domain — two aliases sharing a domain, e.g. after a rename whose old alias was never cleaned up, makes it error 400 `Multiple vault_schema aliases share domain "<domain>" (<alias1>, <alias2>)`. Bind by alias via `--input` to avoid this entirely.) `builder edit --use-example-inputs` pre-fills non-credential inputs from the workflow's `input_schema`/`vault_schema` examples (server-side) — safe to combine with explicit `--input` credential bindings, since `--input` values always take precedence over example values for the same key.
+
+**Default flags for `builder edit`.** Pass both `--use-example-inputs` and `--use-last-browser-state` by default. `--use-example-inputs` pre-fills non-credential inputs so selectors don't time out on empty template vars, and is nearly always safe (explicit `--input` still wins per key). `--use-last-browser-state` resumes the previous browser session instead of reloading — drop it only when you need a clean page (rebuilding a segment from a fresh state, or the prior state is stale or mid-error).
 
 **Conversation resolution is server-driven** — there is no local session file. `start` prints the `conversationId`; the server roster (`builder conversations list`) is the source of truth for what's live. When exactly one conversation is live in your workspace, every other builder command resolves to it automatically. When more than one is live, commands error with exit 5 (ambiguous) and you must pass `--conversation <id>` (or set `CLOUDCRUISE_CONVERSATION`). With none live, they exit 2. `--conversation` overrides everything, including workspace scope. Each command echoes `conversation <id> (via flag|env|roster)` to stderr so you can tell how it resolved.
 
@@ -327,7 +335,7 @@ cloudcruise builder end
 
 ## Workflow DSL Reference
 
-See `references/workflow-dsl.md` for the complete workflow DSL reference: all node types, parameters, edge structure, variable system, execution types, XPath best practices, data model schema extensions, and error classification.
+For the workflow DSL and execution model — node types, the two execution modes (`STATIC` / `LLM_VISION`), edge structure, variables, XPath rules, data model schema extensions, and error classification — use the **cloudcruise-workflow-dsl** skill. Read it before writing, editing, or debugging any workflow node. Nodes are the only way to act on or observe the page; there is no arbitrary JavaScript, CDP, or console access in the runtime.
 
 ## Error-Fix-Verify Loop
 
