@@ -5,6 +5,17 @@ import { outputJson } from "../core/output.js"
 import { fail, UsageError } from "../core/exit.js"
 import { addAuthOptions, type AuthOptions } from "../core/auth-options.js"
 
+export function buildDecideBody(opts: {
+  option?: string
+  save?: boolean
+}): { chosen_option: string; save_decision: boolean } {
+  const option = (opts.option ?? "").trim()
+  if (!option) {
+    throw new UsageError("--option <label> is required for 'run decide'")
+  }
+  return { chosen_option: option, save_decision: opts.save === true }
+}
+
 function parseSince(since: string): Date {
   const match = since.match(/^(\d+)(h|d|m)$/)
   if (!match) {
@@ -269,6 +280,42 @@ Examples:
           `/run/${sessionId}/debug-snapshots/${nodeId}`
         )
         outputJson(data)
+      } catch (err: unknown) {
+        fail(err)
+      }
+    }
+  )
+
+  addAuthOptions(
+    run
+      .command("decide <session_id>")
+      .description("Answer a run paused on a DECISION_REQUIRED popup")
+      .option("--option <label>", "The exact option label to choose")
+      .option(
+        "--save",
+        "Save this decision to auto-apply on future matching runs"
+      )
+  ).addHelpText("after", `
+Respond to a run that paused on a decision popup by choosing one of its
+options. Use --save to auto-apply the same choice on future matching runs.
+
+Examples:
+  $ cloudcruise run decide sess_abc123 --option "Reschedule"
+  $ cloudcruise run decide sess_abc123 --option "Reschedule" --save
+`).action(
+    async (
+      sessionId: string,
+      opts: { option?: string; save?: boolean } & AuthOptions
+    ) => {
+      try {
+        const body = buildDecideBody(opts)
+        const auth = await resolveAuth(opts)
+        const client = new ApiClient(auth)
+        const result = await client.post(
+          `/run/${sessionId}/new_input_variables`,
+          body
+        )
+        outputJson(result)
       } catch (err: unknown) {
         fail(err)
       }
