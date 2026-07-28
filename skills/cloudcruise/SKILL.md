@@ -159,10 +159,12 @@ cloudcruise utils uuid --count 5    # Generate multiple UUIDs
 ```bash
 cloudcruise run start <workflow_id>                          # Start run, returns { session_id } immediately (non-blocking)
 cloudcruise run start <workflow_id> --debug                  # Start with debug snapshots on every node
+cloudcruise run start <workflow_id> --dry-run                # Run but skip final submit/save actions (nodes marked end_here_on_dry_run)
 cloudcruise run start <workflow_id> --input '{"key":"val"}'  # Start with input variables
 cloudcruise run get <session_id>                             # Get run status, errors, screenshots, output (poll until status is terminal)
 cloudcruise run list --workflow <id> --status <s> --since 7d --limit 50 # List runs with filters
 cloudcruise run interrupt <session_id>                       # Stop a running session
+cloudcruise run live-view <session_id>                       # Fresh viewer URL + one-time auth token to watch an active session (re-run to renew after the previous token is used)
 cloudcruise run errors <workflow_id> --since 24h             # Error analytics (24h, 7d, 30m)
 cloudcruise run snapshots <session_id> <node_id>             # Debug snapshots for a specific node
 ```

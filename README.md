@@ -43,6 +43,9 @@ cloudcruise run start <workflow_id>
 # Start a debug run with snapshots on every node
 cloudcruise run start <workflow_id> --debug
 
+# Run the workflow but skip final submit/save actions (validates writes without submitting)
+cloudcruise run start <workflow_id> --dry-run
+
 # Inspect a run (poll until the status is terminal)
 cloudcruise run get <session_id>
 
@@ -102,6 +105,7 @@ cloudcruise snapshot test '//input[@name="email"]' --file ./snapshots/page.html
 | `run get <id>` | Get run status and results (poll until terminal) |
 | `run list` | List runs (`--workflow`, `--status`, `--limit`, `--since`) |
 | `run interrupt <id>` | Stop a running session |
+| `run live-view <id>` | Get a fresh live-view connection (viewer URL + one-time auth token) for an active session |
 | `run errors <id>` | Error analytics (`--since`, `--limit`) |
 | `run snapshots <id> <node_id>` | Get debug snapshot metadata |
 | `snapshot fetch <sid> <nid>` | Download HTML, screenshots, metadata (`--html`, `--image`) |

@@ -34,12 +34,14 @@ export function registerRunCommands(program: Command): void {
       .description("Start a new run")
       .option("--input <json>", "Input variables as JSON string", "{}")
       .option("--debug", "Enable debug snapshots on every node")
+      .option("--dry-run", "Run the workflow but skip final submit/save actions (nodes marked end_here_on_dry_run)")
   ).addHelpText("after", `
 Returns { session_id } immediately. Poll status with 'cloudcruise run get <session_id>'.
 
 Examples:
   $ cloudcruise run start wf_abc123
   $ cloudcruise run start wf_abc123 --debug
+  $ cloudcruise run start wf_abc123 --dry-run
   $ cloudcruise run start wf_abc123 --input '{"USER":"f47ac10b-58cc-4372-a567-0e02b2c3d479"}'
 `).action(
     async (
@@ -47,6 +49,7 @@ Examples:
       opts: {
         input: string
         debug?: boolean
+        dryRun?: boolean
       } & AuthOptions
     ) => {
       try {
@@ -65,6 +68,7 @@ Examples:
           run_input_variables: inputVariables
         }
         if (opts.debug) body.debug = true
+        if (opts.dryRun) body.dry_run = true
 
         const result = await client.post<{ session_id: string }>("/run", body)
         outputJson(result)
@@ -167,6 +171,35 @@ Examples:
         const auth = await resolveAuth(opts)
         const client = new ApiClient(auth)
         const data = await client.post(`/run/${sessionId}/interrupt`)
+        outputJson(data)
+      } catch (err: unknown) {
+        fail(err)
+      }
+    }
+  )
+
+  addAuthOptions(
+    run
+      .command("live-view <session_id>")
+      .description("Get a fresh live-view connection (viewer URL + one-time auth token) for an active session")
+  ).addHelpText("after", `
+The returned auth token is single-use. If the viewer link was already opened
+(reloaded, or reopened later), it will fail to connect — run this command
+again to mint a fresh token/link rather than reusing the old one.
+
+Only works while the session is still active.
+
+Examples:
+  $ cloudcruise run live-view sess_abc123
+`).action(
+    async (
+      sessionId: string,
+      opts: AuthOptions
+    ) => {
+      try {
+        const auth = await resolveAuth(opts)
+        const client = new ApiClient(auth)
+        const data = await client.get(`/live/sessions/${sessionId}/connection`)
         outputJson(data)
       } catch (err: unknown) {
         fail(err)
