@@ -114,6 +114,76 @@ Examples:
     }
   })
 
+  addAuthOptions(
+    workflows
+      .command("export <id>")
+      .description(
+        "Export a workflow as a portable bundle for import into another environment"
+      )
+  ).addHelpText("after", `
+Workspace resolution: --workspace-id, else CLOUDCRUISE_WORKSPACE_ID, else the
+profile's default workspace.
+
+Examples:
+  $ cloudcruise workflows export wf_abc123 --profile staging > bundle.json
+  $ cloudcruise workflows export wf_abc123 --profile prod
+  $ cloudcruise workflows export wf_abc123 --profile prod --workspace-id ws_123
+`).action(async (id: string, opts: AuthOptions) => {
+    try {
+      const auth = await resolveAuth(opts)
+      const client = new ApiClient(auth)
+      const data = await client.get(`/workflows/${id}/export`)
+      outputJson(data)
+    } catch (err: unknown) {
+      fail(err)
+    }
+  })
+
+  addAuthOptions(
+    workflows
+      .command("import")
+      .description(
+        "Import a workflow bundle, creating a new workflow in the target workspace"
+      )
+      .option("--file <path>", "Path to bundle JSON file")
+      .option("--stdin", "Read bundle JSON from stdin")
+  ).addHelpText("after", `
+Workspace resolution: --workspace-id, else CLOUDCRUISE_WORKSPACE_ID, else the
+profile's default workspace. 
+
+Examples:
+  $ cloudcruise workflows import --file bundle.json --profile prod
+  $ cloudcruise workflows import --file bundle.json --profile prod --workspace-id ws_123
+  $ cloudcruise workflows export wf_abc123 --profile staging | cloudcruise workflows import --stdin --profile prod
+`).action(
+    async (opts: { file?: string; stdin?: boolean } & AuthOptions) => {
+      try {
+        if (opts.stdin && opts.file) {
+          throw new UsageError("Pass either --file or --stdin, not both")
+        }
+        let body: Record<string, unknown>
+        if (opts.stdin) {
+          const chunks: Buffer[] = []
+          for await (const chunk of process.stdin) {
+            chunks.push(chunk as Buffer)
+          }
+          body = JSON.parse(Buffer.concat(chunks).toString("utf-8"))
+        } else if (opts.file) {
+          body = JSON.parse(readFileSync(opts.file, "utf-8"))
+        } else {
+          throw new UsageError("Provide --file <path> or --stdin")
+        }
+
+        const auth = await resolveAuth(opts)
+        const client = new ApiClient(auth)
+        const data = await client.post("/workflows/import", body)
+        outputJson(data)
+      } catch (err: unknown) {
+        fail(err)
+      }
+    }
+  )
+
   const READONLY_FIELDS = [
     "id",
     "version_id",
@@ -148,6 +218,9 @@ Examples:
       } & AuthOptions
     ) => {
       try {
+        if (opts.stdin && opts.file) {
+          throw new UsageError("Pass either --file or --stdin, not both")
+        }
         let body: Record<string, unknown>
         if (opts.stdin) {
           const chunks: Buffer[] = []
