@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.10.0
+
+### Added
+
+- `workflows folders` lists workflow folders. Default output includes `allFolderPaths` (the complete folder tree) and the direct subfolders under the current path with a per-folder `workflow_count`. Supports `--path <path>` to scope to a subfolder, `--search <query>`, and `--full` for the raw API response.
+- `workflows list --folder <path>` lists the workflows in a specific folder. It calls `GET /workflows/folders` and auto-paginates so every workflow in the folder is returned. Folders are the backend's path-based virtual folders (`workflows.folder_path` plus `workflow_virtual_folders` placeholders); `--folder` matches the path exactly (non-recursive).
+
 ## 1.9.0
 
 ### Added
