@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.9.0
+
+### Added
+
+- `run respond <session_id>` submits user interaction data to a run paused on a `USER_INTERACTION` node (`POST /run/{session_id}/user_interaction`). The key-value payload is provided via exactly one of `--data <json>`, `--file <path>`, or `--stdin`, and must be a JSON object matching the node's `expected_datamodel`.
+
 ## 1.8.5
 
 ### Added

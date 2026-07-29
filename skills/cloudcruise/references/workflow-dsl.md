@@ -669,6 +669,8 @@ Pause for human input. Triggers `interaction.waiting` webhook.
 | `expected_datamodel` | object | Yes      | JSON Schema for data to collect             |
 | `server_message`     | string | No       | Message shown to user (supports variables)  |
 | `timeout`            | number | No       | Max ms to wait for response. Default: 10000 |
+
+While a run is paused on this node, submit the collected data with `cloudcruise run respond <session_id> --data '{"approval_code":"123456"}'` (keys must match `expected_datamodel`). The user's input becomes available to later nodes via `{{context.<key>}}`.
 | `error_message`      | string | No       | Custom error code on timeout                |
 
 ### EXTRACT_NETWORK

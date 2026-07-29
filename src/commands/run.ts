@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs"
 import { Command } from "commander"
 import { resolveAuth } from "../core/auth.js"
 import { ApiClient } from "../core/api-client.js"
@@ -171,6 +172,72 @@ Examples:
         const auth = await resolveAuth(opts)
         const client = new ApiClient(auth)
         const data = await client.post(`/run/${sessionId}/interrupt`)
+        outputJson(data)
+      } catch (err: unknown) {
+        fail(err)
+      }
+    }
+  )
+
+  addAuthOptions(
+    run
+      .command("respond <session_id>")
+      .description("Submit user interaction data to a run waiting on a USER_INTERACTION node")
+      .option("--data <json>", "Interaction data as a JSON object string")
+      .option("--file <path>", "Path to a JSON file with the interaction data")
+      .option("--stdin", "Read interaction data JSON from stdin")
+  ).addHelpText("after", `
+The body is a flexible key-value JSON object matching the node's expected_datamodel.
+Provide it via exactly one of --data, --file, or --stdin.
+
+Examples:
+  $ cloudcruise run respond sess_abc123 --data '{"approval_code":"123456"}'
+  $ cloudcruise run respond sess_abc123 --file interaction.json
+  $ echo '{"approval_code":"123456"}' | cloudcruise run respond sess_abc123 --stdin
+`).action(
+    async (
+      sessionId: string,
+      opts: {
+        data?: string
+        file?: string
+        stdin?: boolean
+      } & AuthOptions
+    ) => {
+      try {
+        const sources = [opts.data, opts.file, opts.stdin].filter(Boolean)
+        if (sources.length === 0) {
+          throw new UsageError("Provide interaction data via --data, --file, or --stdin")
+        }
+        if (sources.length > 1) {
+          throw new UsageError("Pass only one of --data, --file, or --stdin")
+        }
+
+        let raw: string
+        if (opts.stdin) {
+          const chunks: Buffer[] = []
+          for await (const chunk of process.stdin) {
+            chunks.push(chunk as Buffer)
+          }
+          raw = Buffer.concat(chunks).toString("utf-8")
+        } else if (opts.file) {
+          raw = readFileSync(opts.file, "utf-8")
+        } else {
+          raw = opts.data as string
+        }
+
+        let body: unknown
+        try {
+          body = JSON.parse(raw)
+        } catch {
+          throw new UsageError(`Invalid interaction data JSON: ${raw}`)
+        }
+        if (typeof body !== "object" || body === null || Array.isArray(body)) {
+          throw new UsageError("Interaction data must be a JSON object of key-value pairs")
+        }
+
+        const auth = await resolveAuth(opts)
+        const client = new ApiClient(auth)
+        const data = await client.post(`/run/${sessionId}/user_interaction`, body)
         outputJson(data)
       } catch (err: unknown) {
         fail(err)
