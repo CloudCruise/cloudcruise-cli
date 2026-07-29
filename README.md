@@ -89,7 +89,8 @@ cloudcruise snapshot test '//input[@name="email"]' --file ./snapshots/page.html
 | `workspaces show` | Show the active workspace for a profile |
 | `workspaces use <id>` | Set the active workspace for a profile |
 | `workspaces clear` | Clear the active workspace for a profile |
-| `workflows list` | List workflows (`--full` for details) |
+| `workflows list` | List workflows (`--full` for details, `--folder <path>` to scope to a folder) |
+| `workflows folders` | List workflow folders (`--path` to scope, `--search`) |
 | `workflows get <id>` | Get workflow definition |
 | `workflows versions <id>` | List workflow version history |
 | `workflows update <id>` | Update workflow (`--file`, `--stdin`, `--version-note`) |
