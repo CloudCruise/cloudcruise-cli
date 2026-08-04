@@ -1,3 +1,8 @@
+---
+name: cloudcruise
+description: CloudCruise CLI reference for building, editing, and debugging CloudCruise workflows — builder agent sessions, workflow/component CRUD, vault credentials, runs, and debug snapshots. Use whenever a task involves the `cloudcruise` CLI or CloudCruise workflows.
+---
+
 # CloudCruise CLI
 
 Command-line tool for managing CloudCruise workflows and runs. All output is JSON to stdout; errors go to stderr.
@@ -324,7 +329,7 @@ cloudcruise builder end
 
 ## Workflow DSL Reference
 
-See `references/workflow-dsl.md` for the complete workflow DSL reference: all node types, parameters, edge structure, variable system, execution types, XPath best practices, data model schema extensions, and error classification.
+See the **cloudcruise-workflow-dsl** skill for the complete workflow DSL reference: all node types, parameters, edge structure, variable system, execution types, XPath best practices, data model schema extensions, and error classification. Read it before writing, editing, or debugging any workflow node.
 
 ## Error-Fix-Verify Loop
 

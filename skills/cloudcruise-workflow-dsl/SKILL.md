@@ -1,3 +1,8 @@
+---
+name: cloudcruise-workflow-dsl
+description: CloudCruise workflow DSL reference — node types and parameters, STATIC vs LLM_VISION execution, edge structure, variables and JSONata, run_if guards, XPath rules, data-model schema extensions, and error classification. Read before writing, editing, or debugging any CloudCruise workflow node.
+---
+
 # CloudCruise Workflow DSL Reference
 
 A workflow is a directed graph of nodes (actions) connected by edges. The browser agent executes nodes sequentially, following edges, to automate a business process.
