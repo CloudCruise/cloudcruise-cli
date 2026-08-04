@@ -22,20 +22,96 @@ export function registerWorkflowCommands(program: Command): void {
     return n
   }
 
+  interface FolderSummary {
+    name: string
+    path: string
+    workflow_count: number
+  }
+
+  interface FolderListResponse {
+    folderPath: string
+    folders: FolderSummary[]
+    allFolderPaths: string[]
+    workflows: Record<string, unknown>[]
+    workflowTotal: number
+    page: number
+    pageSize: number
+  }
+
+  const summarizeWorkflow = (w: Record<string, unknown>) => ({
+    id: w.id,
+    name: w.name,
+    description: w.description,
+    folder_path: w.folder_path,
+    created_at: w.created_at,
+    updated_at: w.updated_at
+  })
+
+  // Fetch every workflow in a folder, paging through GET /workflows/folders.
+  const fetchWorkflowsInFolder = async (
+    client: ApiClient,
+    folderPath: string
+  ): Promise<{ folderPath: string; workflows: Record<string, unknown>[] }> => {
+    const pageSize = 100
+    let page = 0
+    let total = Infinity
+    const collected: Record<string, unknown>[] = []
+    let resolvedPath = folderPath
+    while (collected.length < total) {
+      const params = new URLSearchParams({
+        folder_path: folderPath,
+        page: String(page),
+        page_size: String(pageSize)
+      })
+      const data = await client.get<FolderListResponse>(
+        `/workflows/folders?${params.toString()}`
+      )
+      resolvedPath = data.folderPath
+      total = data.workflowTotal
+      collected.push(...data.workflows)
+      if (data.workflows.length === 0) break
+      page += 1
+    }
+    return { folderPath: resolvedPath, workflows: collected }
+  }
+
   addAuthOptions(
     workflows
       .command("list")
       .description("List all workflows in your workspace")
+      .option(
+        "--folder <path>",
+        "List only workflows in this folder (e.g. \"Claims/EOB\")"
+      )
       .option("--full", "Show all fields (default shows summary only)")
   ).addHelpText("after", `
+Without --folder, lists every workflow in the workspace. With --folder, lists
+the workflows whose folder_path matches exactly (non-recursive); use
+\`workflows folders\` to discover folder paths.
+
 Examples:
   $ cloudcruise workflows list
   $ cloudcruise workflows list --full
+  $ cloudcruise workflows list --folder "Claims/EOB"
 `).action(
-    async (opts: { full?: boolean } & AuthOptions) => {
+    async (opts: { folder?: string; full?: boolean } & AuthOptions) => {
       try {
         const auth = await resolveAuth(opts)
         const client = new ApiClient(auth)
+
+        if (opts.folder !== undefined) {
+          const { folderPath, workflows } = await fetchWorkflowsInFolder(
+            client,
+            opts.folder
+          )
+          outputJson({
+            folder_path: folderPath,
+            workflow_total: workflows.length,
+            workflows: opts.full ? workflows : workflows.map(summarizeWorkflow)
+          })
+          return
+        }
+
         const data = await client.get<Record<string, unknown>[]>(
           "/workflows"
         )
@@ -50,6 +126,55 @@ Examples:
             updated_at: w.updated_at
           }))
           outputJson(summary)
+        }
+      } catch (err: unknown) {
+        fail(err)
+      }
+    }
+  )
+
+  addAuthOptions(
+    workflows
+      .command("folders")
+      .description("List workflow folders in your workspace")
+      .option(
+        "--path <path>",
+        "List the direct subfolders under this folder path (default: workspace root)"
+      )
+      .option("--search <query>", "Filter folders/workflows by name or id")
+      .option("--full", "Show the full API response (includes workflows at the path)")
+  ).addHelpText("after", `
+Folders are virtual: they are derived from each workflow's folder_path plus any
+empty placeholder folders. \`allFolderPaths\` is the complete folder tree for the
+workspace; \`folders\` lists the direct subfolders under --path with per-folder
+workflow counts (this count is not returned when --search is used).
+
+Examples:
+  $ cloudcruise workflows folders
+  $ cloudcruise workflows folders --path "Claims"
+  $ cloudcruise workflows folders --search invoice
+`).action(
+    async (
+      opts: { path?: string; search?: string; full?: boolean } & AuthOptions
+    ) => {
+      try {
+        const auth = await resolveAuth(opts)
+        const client = new ApiClient(auth)
+        const params = new URLSearchParams()
+        if (opts.path) params.set("folder_path", opts.path)
+        if (opts.search) params.set("search", opts.search)
+        const query = params.toString()
+        const data = await client.get<FolderListResponse>(
+          `/workflows/folders${query ? `?${query}` : ""}`
+        )
+        if (opts.full) {
+          outputJson(data)
+        } else {
+          outputJson({
+            path: data.folderPath,
+            folders: data.folders,
+            allFolderPaths: data.allFolderPaths
+          })
         }
       } catch (err: unknown) {
         fail(err)
@@ -114,6 +239,76 @@ Examples:
     }
   })
 
+  addAuthOptions(
+    workflows
+      .command("export <id>")
+      .description(
+        "Export a workflow as a portable bundle for import into another environment"
+      )
+  ).addHelpText("after", `
+Workspace resolution: --workspace-id, else CLOUDCRUISE_WORKSPACE_ID, else the
+profile's default workspace.
+
+Examples:
+  $ cloudcruise workflows export wf_abc123 --profile staging > bundle.json
+  $ cloudcruise workflows export wf_abc123 --profile prod
+  $ cloudcruise workflows export wf_abc123 --profile prod --workspace-id ws_123
+`).action(async (id: string, opts: AuthOptions) => {
+    try {
+      const auth = await resolveAuth(opts)
+      const client = new ApiClient(auth)
+      const data = await client.get(`/workflows/${id}/export`)
+      outputJson(data)
+    } catch (err: unknown) {
+      fail(err)
+    }
+  })
+
+  addAuthOptions(
+    workflows
+      .command("import")
+      .description(
+        "Import a workflow bundle, creating a new workflow in the target workspace"
+      )
+      .option("--file <path>", "Path to bundle JSON file")
+      .option("--stdin", "Read bundle JSON from stdin")
+  ).addHelpText("after", `
+Workspace resolution: --workspace-id, else CLOUDCRUISE_WORKSPACE_ID, else the
+profile's default workspace. 
+
+Examples:
+  $ cloudcruise workflows import --file bundle.json --profile prod
+  $ cloudcruise workflows import --file bundle.json --profile prod --workspace-id ws_123
+  $ cloudcruise workflows export wf_abc123 --profile staging | cloudcruise workflows import --stdin --profile prod
+`).action(
+    async (opts: { file?: string; stdin?: boolean } & AuthOptions) => {
+      try {
+        if (opts.stdin && opts.file) {
+          throw new UsageError("Pass either --file or --stdin, not both")
+        }
+        let body: Record<string, unknown>
+        if (opts.stdin) {
+          const chunks: Buffer[] = []
+          for await (const chunk of process.stdin) {
+            chunks.push(chunk as Buffer)
+          }
+          body = JSON.parse(Buffer.concat(chunks).toString("utf-8"))
+        } else if (opts.file) {
+          body = JSON.parse(readFileSync(opts.file, "utf-8"))
+        } else {
+          throw new UsageError("Provide --file <path> or --stdin")
+        }
+
+        const auth = await resolveAuth(opts)
+        const client = new ApiClient(auth)
+        const data = await client.post("/workflows/import", body)
+        outputJson(data)
+      } catch (err: unknown) {
+        fail(err)
+      }
+    }
+  )
+
   const READONLY_FIELDS = [
     "id",
     "version_id",
@@ -148,6 +343,9 @@ Examples:
       } & AuthOptions
     ) => {
       try {
+        if (opts.stdin && opts.file) {
+          throw new UsageError("Pass either --file or --stdin, not both")
+        }
         let body: Record<string, unknown>
         if (opts.stdin) {
           const chunks: Buffer[] = []

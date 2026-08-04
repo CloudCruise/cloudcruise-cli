@@ -58,6 +58,11 @@ After OAuth login, the CLI auto-selects the only available workspace. If multipl
 Use `workflows` commands to edit existing workflows. For new workflows, use the builder instead.
 
 ```bash
+cloudcruise workflows list                                                       # List all workflows in the workspace
+cloudcruise workflows list --folder "Claims/EOB"                                # List workflows inside a specific folder
+cloudcruise workflows folders                                                    # List all folders (allFolderPaths = full tree)
+cloudcruise workflows folders --path "Claims"                                   # List direct subfolders under a folder (with workflow counts)
+cloudcruise workflows folders --search invoice                                  # Search folders/workflows by name or id
 cloudcruise workflows get <workflow_id>                                          # Get latest workflow definition with nodes
 cloudcruise workflows get <workflow_id> --version-number 18                      # Get a specific historical version
 cloudcruise workflows versions <workflow_id>                                     # List version history (newest first)
@@ -65,6 +70,8 @@ cloudcruise workflows versions <workflow_id> --limit 10                         
 cloudcruise workflows update <workflow_id> --file w.json --version-note "..."   # Update workflow (creates new version)
 cloudcruise workflows update <workflow_id> --stdin --version-note "..."          # Update from piped JSON
 ```
+
+**Workflow folders** are virtual: they are derived from each workflow's `folder_path` (a slash-separated string like `Claims/EOB`, max 5 levels) plus placeholder rows for empty folders. There is no folder ID. `workflows folders` returns `allFolderPaths` (the complete folder tree) and `folders` (direct subfolders under `--path`, with per-folder `workflow_count`). `workflows list --folder <path>` returns every workflow whose `folder_path` matches that path exactly (non-recursive).
 
 **When adding new nodes, always generate UUIDs with `cloudcruise utils uuid`.** Node IDs must be valid UUIDs -- do not use natural language IDs like `"click-submit-button"`.
 
@@ -159,6 +166,7 @@ cloudcruise run start <workflow_id> --input '{"key":"val"}'  # Start with input 
 cloudcruise run get <session_id>                             # Get run status, errors, screenshots, output (poll until status is terminal)
 cloudcruise run list --workflow <id> --status <s> --since 7d --limit 50 # List runs with filters
 cloudcruise run interrupt <session_id>                       # Stop a running session
+cloudcruise run respond <session_id> --data '{"approval_code":"123456"}' # Submit user interaction data to a run paused on a USER_INTERACTION node (--data/--file/--stdin)
 cloudcruise run live-view <session_id>                       # Fresh viewer URL + one-time auth token to watch an active session (re-run to renew after the previous token is used)
 cloudcruise run errors <workflow_id> --since 24h             # Error analytics (24h, 7d, 30m)
 cloudcruise run snapshots <session_id> <node_id>             # Debug snapshots for a specific node
