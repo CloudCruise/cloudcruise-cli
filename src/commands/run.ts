@@ -68,7 +68,7 @@ Examples:
           run_input_variables: inputVariables
         }
         if (opts.debug) body.debug = true
-        if (opts.dryRun) body.dry_run = true
+        if (opts.dryRun) body.dry_run = { enabled: true }
 
         const result = await client.post<{ session_id: string }>("/run", body)
         outputJson(result)
