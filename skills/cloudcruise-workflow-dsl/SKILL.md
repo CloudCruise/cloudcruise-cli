@@ -95,11 +95,12 @@ For STATIC execution on Click, Input Text, and Input Select: **the XPath must ma
 
 1. **Stable attributes first**: Use semantic `@id`, `@name`, `@data-*`, `@aria-label`, `@placeholder` attributes when they are human-readable and stable. Ignore scrambled/generated IDs (e.g., `app-title-5ubdNjG9AIzOgXfv0b1J2`).
 
-2. **Text content**: Use `normalize-space()` for matching visible text. Never use bare `text()`. Use `lower-case(normalize-space())` for case-insensitive matching when needed.
+2. **Text content**: Use `normalize-space()` for matching visible text. Never use bare `text()`. Use `translate()` to fold case for case-insensitive matching — selectors run through the browser's `document.evaluate`, which is XPath 1.0 and has no `lower-case()`.
 
    ```
    //button[normalize-space()='Submit']
    //a[contains(normalize-space(), 'View Details')]
+   //button[translate(normalize-space(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')='submit']
    ```
 
 3. **Structural anchors**: When attributes/text are insufficient, anchor to nearby semantic elements (labels, headings, section titles).

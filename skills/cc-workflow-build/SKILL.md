@@ -112,6 +112,18 @@ session pointed at the plan resumes from the first unfinished component.
    `run_if` skips it for this payload reports `no longer reachable from current
    position` — a false failure that reads exactly like a broken node.
 5. **Save as component** — pass or fail, not blocking.
+
+   Name it for reuse across the portal: plain text, portal first, then page and
+   section. Where the reusable part is the shape rather than the section, name the
+   shape too.
+
+   ```
+   Hospice Tools Login
+   Hospice Tools Recertification Page 6 Cardiac Status
+   Hospice Tools Recertification Page 8 Medications with nested modal
+   ```
+
+   List a portal's existing components before building against it again.
 6. **Mark and advance.** Update the plan marker, move to the next component.
 
 ## How much to verify, and when

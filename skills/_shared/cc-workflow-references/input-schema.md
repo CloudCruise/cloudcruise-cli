@@ -23,7 +23,9 @@ The standard covers, with the platform's actual AJV config as ground truth:
 5. `run_if` runtime guards mirroring the schema's gating (`IS_NOT_NULL` skip-if-empty,
    `EQUAL`/`CONTAINS` for conditional sub-fields).
 6. Per-leaf `description` (on-form label, reveal provenance in prose) and `example`
-   (real accepted value; `null` example on commonly-hidden fields).
+   — every leaf carries one, and it is the value the component was executed with:
+   an enum member where there's an enum, realistic dummy data otherwise, `null` on
+   commonly-hidden fields. Sibling leaves carry distinguishable examples.
 7. `additionalProperties: false` everywhere; anchored `pattern` for formatted strings.
 8. Validator facts (draft-07, `allErrors:false`, strict mode on). Two rules bite at
    compile time, so a schema that breaks them is rejected on save, not at run time:
