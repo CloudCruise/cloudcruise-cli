@@ -24,7 +24,69 @@ component (or one exploration), one builder turn, one verifiable outcome.
 - Default completion: a debug execution succeeds and the component's done-means
   invariant holds. Spell out extras only for unusual components.
 
+## Worked example: branching track
+
+Component `cardiac_status.cardiac_assessment`:
+
+> **Goal:** Fill the Cardiac Assessment findings checklist and every field each
+> selected finding reveals. Done: `findings` matches the on-form selections; each
+> revealed detail field is filled; nothing left revealed-but-empty.
+>
+> **Location:** Cardiac Status page, Cardiac Assessment section.
+>
+> **Inputs:**
+> - `context.inputs.cardiac_status.cardiac_assessment.findings` (array, known)
+> - `context.inputs.cardiac_status.cardiac_assessment.abnormal_pulses_type`,
+>   `.abnormal_pulses_location` — revealed when `findings` contains
+>   `"Abnormal pulses:"` (paths known; to-discover: whether the location field is
+>   free text or a fixed-option select — confirm live)
+> - `context.inputs.cardiac_status.cardiac_assessment.chest_pain.quality` —
+>   revealed when `findings` contains `"Chest pain:"` (path and enum both known)
+>
+> **Status:** page 6 of 14 (Cardiac Status) · 2 of 9 components on this page ·
+> 41 of 63 overall.
+>
+> **Conventions:** inputs via `{{context.inputs...}}`, never literals. `run_if`
+> gates every reveal-dependent node on `findings` per the schema's `contains` rule.
+> Node names: `cardiac_status.cardiac_assessment.findings — check findings`,
+> `cardiac_status.cardiac_assessment.abnormal_pulses_type — enter type`.
+
+## Worked example: linear track with input variables (illustrative)
+
+Plain navigation and clicks:
+
+> "navigate to the benefits claim lookup page" · "click search" · "click save"
+
+A first touch on a new input variable names it once, with its shape:
+
+> "enter the claim ID into the claim number field — register a new input variable
+> `context.inputs.claim_id` (string, example `CLM-2049123`)"
+>
+> "enter the caller's phone number — register `context.inputs.caller_phone` (string,
+> example `312-555-0142`)"
+
+A locally-resolved decision point stays inside one message:
+
+> "if no claim is found, click save-as-not-found and end; otherwise continue to the
+> follow-up note"
+
+A later reference to an already-registered variable names it back, verbatim, and
+says explicitly that it isn't new:
+
+> "the follow-up note field should read 'Callback confirmed for ' followed by the
+> existing `context.inputs.caller_phone` — don't register a second phone variable"
+
+Drop that last clause and "the caller's phone number from before" resolves fine in
+a human's memory but isn't a path — the builder can't distinguish "the thing three
+steps back" from "a new field that happens to sound similar," and it'll either mint
+a stray `phone_number` variable while `caller_phone` sits unused, or the reverse.
+
+Output uses the linear track's fixed convention, so the message only needs to name
+the fields, not the mechanism:
+
+> "extract the claim status and confirmation number, the standard way" — "the
+> standard way" is `track-linear.md`'s fixed screenshot-plus-extract-datamodel pair.
+
 ## Status
 
-STUB — port from the internal task-messages doc (content above is the settled
-contract; worked examples pending).
+DONE.

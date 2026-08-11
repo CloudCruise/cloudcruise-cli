@@ -5,7 +5,7 @@ description: CloudCruise CLI reference for building, editing, and debugging Clou
 
 # CloudCruise CLI
 
-Command-line tool for managing CloudCruise workflows and runs. All output is JSON to stdout; errors go to stderr.
+Command-line tool for managing CloudCruise workflows and runs. All output is JSON to stdout; errors go to stderr — consume stdout only, never merge with `2>&1` when parsing, and branch poll loops on exit codes rather than matching strings in the JSON.
 
 ## Setup
 

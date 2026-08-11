@@ -1,5 +1,5 @@
 ---
-kind: scrape
+complexity: linear     # branching | linear — derived from the drafted skeleton
 profile: ""            # CLI auth profile; pass --profile on every command
 workspace_id: ""
 vault_user_id: ""
@@ -7,25 +7,26 @@ vault_domain: ""
 start_url: ""
 workflow_id: ""        # written by the build session after builder start — never asked
 conversation_id: ""    # written at builder start, cleared at builder end
-goal: ""               # input key · output fields · where it stops — settled at intake
+goal: ""               # what the workflow does and where it stops — settled at intake
+skeleton_status: pending   # pending | accepted | rejected — set by setup's confirm gate
 ---
 
 # <Workflow name> — build plan
 
 ## Goal
 
-Input key · output fields · where it stops. (From intake, not exploration.)
+What the workflow does and where it stops. (From intake, not exploration.)
 
 ## Steps
 
-<!-- one line per move toward the data, in order; [ ] / [→] / [x] markers -->
+<!-- one line per move toward the goal, in order; [ ] / [→] / [x] markers -->
 
 - [ ] step 1 …
 - [ ] step 2 …
 
 ## Data
 
-Which screen holds it · which fields are the output.
+Which screen holds it, which fields matter.
 
 ## Open
 

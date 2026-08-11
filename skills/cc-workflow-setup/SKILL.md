@@ -1,6 +1,6 @@
 ---
 name: cc-workflow-setup
-description: Set up a new CloudCruise workflow build - declare kind (form or scrape), take the goal, gather config and credentials, explore the target site, and hand-author the component skeleton into a plan file the build stage consumes. Use after cc-workflow routes a new or stub workflow here.
+description: Set up a new CloudCruise workflow build - take the goal, gather config and credentials, and hand-author the skeleton (branching components or linear steps) into a plan file the build stage consumes. Use after cc-workflow routes a new or stub workflow here.
 ---
 
 # cc-workflow-setup — from intent to plan
@@ -10,50 +10,57 @@ downstream re-asks what the plan already answers.
 
 ## Inputs
 
-- Workflow name and the user's goal.
-- Kind: `form` (writes data into the target site) or `scrape` (read-only extraction).
-- Access to the target site — via a builder session for live exploration.
-- Optional: a screen recording of a human doing the task (supplementary context, not
-  a required step).
+- Workflow name and the user's goal — specific enough to state its own scope and
+  stopping point; nothing else gets asked separately.
+- Context to build the skeleton from — one or more of: a typed/pasted description,
+  screenshots, a screen recording. Gathered explicitly at step 3, not assumed.
 
 ## Process
 
-1. **Kind + goal intake.** Branch by kind:
-   - `scrape` → ★ human gate, settled before anything else: the input key, the output
-     fields, where the workflow stops. Everything outside that scope is out of scope
-     and does not get documented.
-   - `form` → light; the skeleton authoring below carries it.
-2. **Stub on disk first.** Write the plan header (kind, goal, config keys) before any
+1. **Goal intake.** Take the goal.
+2. **Stub on disk first.** Write the plan header (goal, config keys) before any
    exploration — an interruption never loses the goal.
 3. **Gather config.** Profile, workspace, `vault_user_id` + `vault_domain`, start URL.
    Ask only for keys the header is missing. Never ask for `workflow_id` — the build
    stage writes it after `builder start`.
-4. **Explore and hand-author the skeleton.** Interact with the site (through a builder
-   session) and/or watch the recording, then author into the plan:
-   - the **component list** in order (pages/sections for a form; steps-to-the-data
-     for a scrape) — this becomes the build loop's work list,
-   - **scope**: what gets built and what explicitly does not,
-   - **patterns**: interaction mechanisms, stated abstractly (→ patterns library),
-   - **quirks**: portal behaviors that change how the build must be driven, each
-     routed to its consumer (done-means invariant, driving rule, or residual note).
-   Inventory (field lists, enum values) is NOT transcribed here — census gets it
-   fresher at build time. Relations and structure are; inventory is not.
-5. **Emit the plan** from the kind's template. Hand off to `cc-workflow-build`.
+4. **Gather context, draft the skeleton, confirm.** Ask the user which of typed
+   description / screenshots / screen recording they want to give — one or several,
+   combined is fine — and whether it's strict steps or the shape of the path to
+   the goal (skip the ask when it's already obvious from what's given). See the
+   matching `references/input-*.md` for how each modality maps in under that mode.
+   Draft skeleton content in whichever shape the gathered context actually
+   calls for — flat ordered steps per `track-linear.md`, or goal-oriented
+   components at the granularity `track-branching.md` pins down — and set
+   `complexity` to match what got drafted; it's observed, not asked, even though
+   the extraction mode was. Present the draft back and record the outcome as
+   `skeleton_status` in the plan header:
+   - **Accept** → `accepted`, proceed to step 5.
+   - **Amend** → redraft with the feedback (including a wrong `complexity` call —
+     that's an amendment like any other), present again — loop until accepted or
+     rejected.
+   - **Reject** → `rejected`, stop. This is persisted state, not a retry; a human
+     revisits it later.
+   A user who states they want auto-accept skips presenting the draft — mark
+   `accepted` and proceed straight to step 5.
+5. **Emit the plan** from the `complexity`'s template, only once
+   `skeleton_status: accepted`. Hand off to `cc-workflow-build`.
 
 ## Outputs
 
-- `cc-workflows/<name>/plan.md` — header + skeleton with `[ ]` markers, per the
-  kind's template.
+- `cc-workflows/<name>/plan.md` — header (`complexity`, `skeleton_status`) +
+  skeleton with `[ ]` markers, per the `complexity`'s template.
 - New/updated entries in `cc-workflows/patterns/` when a pattern was explicitly
   observed or stated.
 
 ## References
 
-- `references/track-form.md` or `track-scrape.md` — the plan body
-  contract for the declared kind.
-- `references/templates/plan-form.md` / `plan-scrape.md`.
-- `references/operating-rules.md`.
+- `references/track-branching.md` or `references/track-linear.md` — the plan body
+  contract for the drafted `complexity`.
+- `references/templates/plan-branching.md` or `references/templates/plan-linear.md`.
+- `references/input-text.md`, `references/input-screenshots.md`,
+  `references/input-recording.md` — how each gather modality maps into the
+  skeleton, under the declared extraction mode.
 
 ## Status
 
-STUB — contract settled, body to be written.
+DONE.

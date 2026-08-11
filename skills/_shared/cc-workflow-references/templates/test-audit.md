@@ -6,9 +6,9 @@ One line per run. Newest last.
 |---|---------|-----------|---------|-------------|
 | 1 | payloads/happy-path.json | | | |
 
-Verdict: `green` (run succeeded + expectation held) · `run-failed` · `mismatch`.
-Disposition: what was done about it — `fixed: <what>` · `payload-error` ·
-`known-issue: <ref>` · `open`.
+Verdict: `green` (completed) · `run-failed` · `blocked` (needs a human decision).
+Disposition: which of the three options applied — `logged` (noted, moved on) ·
+`fixed: <what>` (mechanical fix, rewound, resumed) · `blocked: <what's needed>`.
 
 Rules discovered while testing (value constraints, null semantics, timing) are
 codified back into the input_schema — a rule that lives only in this file is a miss.
