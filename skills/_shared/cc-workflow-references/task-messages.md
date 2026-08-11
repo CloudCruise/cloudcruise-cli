@@ -19,6 +19,12 @@ component (or one exploration), one builder turn, one verifiable outcome.
 
 - Goal, not clicks. Never selectors, execution types, or node structure.
 - One component per task; "and then" means split.
+- **A task that explores carries the literal token `/interact`.** That token, and
+  nothing else, arms the builder's `interact` tool — describing exploration in prose
+  does not. Unarmed, the builder falls back to authoring and deleting a throwaway
+  node per probe, silently. Arming lasts the conversation but lapses after an idle
+  hour, so put it in the first explore message and again after any long gap; a
+  repeat is free.
 - Text only — the builder's page access beats any image.
 - Exact paths verbatim; a paraphrased path wires the wrong variable silently.
 - Default completion: a debug execution succeeds and the component's done-means
