@@ -25,8 +25,10 @@ The standard covers, with the platform's actual AJV config as ground truth:
 6. Per-leaf `description` (on-form label, reveal provenance in prose) and `example`
    (real accepted value; `null` example on commonly-hidden fields).
 7. `additionalProperties: false` everywhere; anchored `pattern` for formatted strings.
-8. Validator facts (draft-07, `allErrors:false`, `strictRequired` throws at compile —
-   never `then.required`, narrow types instead).
+8. Validator facts (draft-07, `allErrors:false`, strict mode on). Two rules bite at
+   compile time, so a schema that breaks them is rejected on save, not at run time:
+   `strictRequired` — never `then.required`, narrow types instead; `strictTypes` —
+   every schema object using `contains` must carry a sibling `"type": "array"`.
 
 ## Worked example
 
@@ -60,7 +62,7 @@ revealed composite appears in the schema:
 `"Abnormal pulses:"` reveals two detail fields, else they're hidden:
 ```json
 {"if": {"required": ["findings"],
-        "properties": {"findings": {"contains": {"const": "Abnormal pulses:"}}}},
+        "properties": {"findings": {"type": "array", "contains": {"const": "Abnormal pulses:"}}}},
  "else": {"properties": {"abnormal_pulses_type": {"$ref": "#/definitions/hidden"},
                           "abnormal_pulses_location": {"$ref": "#/definitions/hidden"}}},
  "then": {"properties": {"abnormal_pulses_type": {"type": "string"},
@@ -70,11 +72,11 @@ Backward — the converse of the same relationship:
 ```json
 {"if": {"required": ["abnormal_pulses_type"],
         "properties": {"abnormal_pulses_type": {"not": {"$ref": "#/definitions/hidden"}}}},
- "then": {"properties": {"findings": {"contains": {"const": "Abnormal pulses:"}}}}}
+ "then": {"properties": {"findings": {"type": "array", "contains": {"const": "Abnormal pulses:"}}}}}
 ```
 Exclusive "none" option, via `maxItems`:
 ```json
-{"if": {"contains": {"const": "No problems identified"}}, "then": {"maxItems": 1}}
+{"if": {"type": "array", "contains": {"const": "No problems identified"}}, "then": {"maxItems": 1}}
 ```
 
 **5. `run_if` guards mirror the schema.** A node entering an unconditional field

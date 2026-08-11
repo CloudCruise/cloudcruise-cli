@@ -45,6 +45,12 @@ downstream re-asks what the plan already answers.
 5. **Emit the plan** from the `complexity`'s template, only once
    `skeleton_status: accepted`. Hand off to `cc-workflow-build`.
 
+Don't infer the starting state from the gathered context. A recording almost always
+begins already logged in and already inside the target, so a skeleton drafted from
+it opens mid-journey and silently omits everything before the first frame. The
+skeleton starts where a cold run starts, not where the recording does; build
+confirms the real entry state on the live page and amends if they differ.
+
 ## Outputs
 
 - `cc-workflows/<name>/plan.md` — header (`complexity`, `skeleton_status`) +

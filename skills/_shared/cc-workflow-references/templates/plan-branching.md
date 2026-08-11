@@ -34,6 +34,14 @@ skeleton_status: pending   # pending | accepted | rejected — set by setup's co
         gated in; `quality` is one of Burning/Dull/Pressure/Sharp.
   - [ ] cardiac_status.vital_signs — …
 
+## Build notes
+
+<!-- Facts resolved DURING the build that later components depend on: accepted
+     input formats, selector rules for this target, platform traps hit, a
+     convention locked mid-build. Distinct from Open below — Open is what is still
+     unknown, this is what is now known and must not be rediscovered. A resumed
+     session reads this before dispatching anything. -->
+
 ## Open
 
 <!-- census questions for the build session — never asked of the human -->
