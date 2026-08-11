@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.10.1
+
+### Fixed
+
+- OAuth tokens are stored in the OS keychain as a raw secret (`setSecret`/`getSecret`) instead of a password string, so the Windows Credential Manager keeps the full JSON payload. Reads fall back to `getPassword()` so tokens written by earlier versions still load.
+- `cc login` opens the browser correctly on Windows. The `cmd /c start` invocation now quotes the empty window title and the URL with `windowsVerbatimArguments`, so URLs containing `&` are no longer truncated by the shell.
+
 ## 1.10.0
 
 ### Added

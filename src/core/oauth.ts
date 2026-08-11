@@ -279,14 +279,18 @@ export function buildAuthorizeUrl(
 }
 
 export function openBrowser(url: string): void {
-  const command =
-    process.platform === "darwin"
-      ? "open"
-      : process.platform === "win32"
-        ? "cmd"
-        : "xdg-open";
-  const args = process.platform === "win32" ? ["/c", "start", "", url] : [url];
-  const child = spawn(command, args, {
+  if (process.platform === "win32") {
+    const child = spawn("cmd", ["/c", "start", '""', `"${url}"`], {
+      detached: true,
+      stdio: "ignore",
+      windowsVerbatimArguments: true,
+    });
+    child.unref();
+    return;
+  }
+
+  const command = process.platform === "darwin" ? "open" : "xdg-open";
+  const child = spawn(command, [url], {
     detached: true,
     stdio: "ignore",
   });
