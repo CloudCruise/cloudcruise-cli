@@ -28,6 +28,13 @@ What the workflow does and where it stops. (From intake, not exploration.)
 
 Which screen holds it, which fields matter.
 
+## Build notes
+
+<!-- Facts resolved DURING the build that later steps depend on: accepted input
+     formats, selector rules for this target, platform traps hit. Distinct from
+     Open below — Open is what is still unknown, this is what is now known and
+     must not be rediscovered. A resumed session reads this first. -->
+
 ## Open
 
 <!-- census questions for the build session — never asked of the human -->

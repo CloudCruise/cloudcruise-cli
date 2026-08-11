@@ -114,6 +114,28 @@ session pointed at the plan resumes from the first unfinished component.
 5. **Save as component** — pass or fail, not blocking.
 6. **Mark and advance.** Update the plan marker, move to the next component.
 
+## How much to verify, and when
+
+Per component, the check is the done-means invariant and nothing more. Grading a
+component is not the same as auditing the graph, and the builder's own report is
+not evidence — read the artifact when the claim matters (a schema slice it says it
+wrote, a guard it says it added), skip the ceremony when it doesn't.
+
+Save the mechanical sweep for boundaries — the end of a page, or a run of
+components sharing one shape — and once before handoff. Sweeping every component
+costs more than it finds, because most components repeat the shape the last one
+established; the value is in catching the shape that drifted, which a boundary
+check catches just as well and forty times less often.
+
+The sweep is: reachability from Start (orphans, non-END nodes with no outgoing
+edge), a `run_if` on every field node, guard value ↔ enum member ↔ selector text
+compared character-for-character (a curly apostrophe in a label matches nothing and
+fails silently), and the schema compiled under the platform's validator with a
+null-everything payload and a full payload. That last pair is the one that earns
+its place: `save` rejects a schema that fails to *compile*, but a slice that
+compiles and still contradicts its own guards — a non-nullable leaf under an
+`IS_NOT_NULL` skip — passes save and dies at run start.
+
 ## Handoff-ready
 
 - All components `[x]`; one clean full in-browser execute completes.

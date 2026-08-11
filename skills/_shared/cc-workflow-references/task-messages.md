@@ -30,6 +30,27 @@ component (or one exploration), one builder turn, one verifiable outcome.
 - Default completion: a debug execution succeeds and the component's done-means
   invariant holds. Spell out extras only for unusual components.
 
+## The schema block
+
+A task that registers or extends `input_schema` carries the conventions with it.
+They live in `input-schema.md`, but a builder composing a slice does not re-derive
+them from the standard unprompted — it produces something reasonable-looking and
+locally wrong, and the divergence only surfaces when a payload is rejected at run
+start. Restating them costs five lines per message:
+
+> **Schema conventions:** scalar leaves a `run_if IS_NOT_NULL` can skip are typed
+> `["<type>","null"]` — null is the absence value, empty string never is. Every key
+> appears in its object's `required`, at every level. `additionalProperties: false`
+> on every object. Anchored `pattern` on formatted strings, matching your own
+> examples. Never `required` inside a `then` — narrow types in `then.properties`
+> instead. Every object using `contains` carries a sibling `"type": "array"`.
+
+This is the default, not a law. A component whose shape genuinely wants something
+else — a leaf that must never be null, an object that legitimately takes unknown
+keys — diverges deliberately and **says so in the task message**, so the difference
+reads as a decision rather than an oversight. What the block prevents is the silent
+kind: a slice that diverges because nobody stated the default.
+
 ## Worked example: branching track
 
 Component `cardiac_status.cardiac_assessment`:

@@ -303,6 +303,37 @@ printf '%s' '{"Portal Credentials":{"permissioned_user_id":"d2b9d80e-...","domai
 cloudcruise builder status
 ```
 
+**Driving one turn from a script.** Branch on the `status` exit code; don't parse
+stdout to decide whether a turn is over. Pass the message via `"$(cat file)"` —
+composing a long message inline invites the shell to eat it (backticks inside a
+double-quoted argument get command-substituted, truncating the message silently).
+
+```bash
+CID=conv-abc123
+cloudcruise builder send --conversation "$CID" "$(cat task.txt)"   # returns immediately
+while :; do
+  cloudcruise builder status --conversation "$CID" >/dev/null 2>&1; rc=$?
+  case $rc in
+    0) break ;;                      # completed / idle / ended — turn is over
+    9) sleep 15 ;;                   # processing — re-check (this also keeps the session alive)
+    7) echo "needs input";  break ;; # awaiting-human-input — relay, then `builder respond`
+    8) echo "agent errored"; break ;;# inspect `builder messages`, send a correction
+    *) echo "status exit $rc"; break ;;
+  esac
+done
+```
+
+**Reading the agent's report.** `builder messages` records carry
+`{ role, type, status, text }`. The report you want is the **last record with
+`role: "assistant"` and non-empty `text`**; `role: "tool"` rows have no `text`, and
+`type: "reasoning"` rows are the agent thinking rather than reporting. Use `--limit`
+rather than pulling the whole history — a long build accumulates hundreds of records.
+
+**Opening the builder UI.** `builder open` opens the current conversation. The app
+URL is inferred from the API base URL and can be overridden with `--app-url`
+(`--app-url http://localhost:3000` against a local API). The page is
+`<app-url>/workflows/builder/<conversationId>`.
+
 **Full example: Login → Navigate → Search**
 
 ```bash
