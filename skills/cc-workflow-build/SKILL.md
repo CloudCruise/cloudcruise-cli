@@ -111,7 +111,10 @@ session pointed at the plan resumes from the first unfinished component.
    Pick an **unguarded** node as the execution target. Targeting a node whose own
    `run_if` skips it for this payload reports `no longer reachable from current
    position` — a false failure that reads exactly like a broken node.
-5. **Save as component** — pass or fail, not blocking.
+5. **Create a reusable component** — pass or fail, not blocking. Send the builder a
+   follow-up task explicitly asking it to create a reusable component from the
+   nodes built for this plan component. Give the component name and identify the
+   exact node set. This is distinct from saving the workflow.
 6. **Mark and advance.** Update the plan marker, move to the next component.
 
 ## How much to verify, and when

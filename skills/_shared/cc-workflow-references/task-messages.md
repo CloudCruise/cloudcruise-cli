@@ -18,6 +18,8 @@ component (or one exploration), one builder turn, one verifiable outcome.
 ## Rules (settled)
 
 - Goal, not clicks. Never selectors, execution types, or node structure.
+- State required actions directly. Use conditional phrasing only when evaluating
+  that condition is itself part of the workflow behavior.
 - One component per task; "and then" means split.
 - **A task that explores carries the literal token `/interact`.** That token, and
   nothing else, arms the builder's `interact` tool — describing exploration in prose
@@ -36,7 +38,8 @@ A task that registers or extends `input_schema` carries the conventions with it.
 They live in `input-schema.md`, but a builder composing a slice does not re-derive
 them from the standard unprompted — it produces something reasonable-looking and
 locally wrong, and the divergence only surfaces when a payload is rejected at run
-start. Restating them costs five lines per message:
+start. Prefer registering new inputs beneath the consuming component's dotted path.
+Restating the conventions costs five lines per message:
 
 > **Schema conventions:** scalar leaves a `run_if IS_NOT_NULL` can skip are typed
 > `["<type>","null"]` — null is the absence value, empty string never is. Every key
@@ -50,6 +53,10 @@ else — a leaf that must never be null, an object that legitimately takes unkno
 keys — diverges deliberately and **says so in the task message**, so the difference
 reads as a decision rather than an oversight. What the block prevents is the silent
 kind: a slice that diverges because nobody stated the default.
+
+After grading, component creation is a separate builder task: “Create a reusable
+component named <name> from the nodes built for <plan component>.” Do not treat
+`saveWorkflow` as component creation.
 
 ## Worked example: branching track
 

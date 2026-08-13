@@ -8,7 +8,9 @@ form is reconstructable from payload inspection alone.
 
 The standard covers, with the platform's actual AJV config as ground truth:
 
-1. Object shape: pages → sections → fields; orchestration scalars at top level.
+1. Object shape generally follows the plan structure: pages → components or
+   sections → fields. Prefer grouping an input with the component that consumes it;
+   root-level leaves remain valid when they are the clearer contract.
 2. Enums: complete, verbatim, case-exact; nullable enum leaves carry a trailing
    `null` member.
 3. Required + absence: every key required. Absence values by type — `null` for
