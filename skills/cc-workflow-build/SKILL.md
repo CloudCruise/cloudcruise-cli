@@ -117,6 +117,25 @@ session pointed at the plan resumes from the first unfinished component.
    exact node set. This is distinct from saving the workflow.
 6. **Mark and advance.** Update the plan marker, move to the next component.
 
+## Awaiting a builder turn
+
+After sending the builder a task, await its result with
+`scripts/wait-builder-turn.sh` — it returns once the turn settles and prints the
+final report to stdout:
+
+```bash
+cloudcruise builder send --conversation "$CID" "$(cat task.txt)"
+bash <skill>/scripts/wait-builder-turn.sh --conversation "$CID" --profile "$PROFILE"
+```
+
+The exit code is the outcome — branch on it, don't parse stdout:
+
+- `0` — completed; stdout is the report. Grade the component, mark the plan, send the next.
+- `7` — awaiting human input (prompt on stdout); relay it, `builder respond`, await again.
+- `8` — agent errored (status on stdout); diagnose with `builder messages`.
+- `124` — timed out; the turn may still be running — await again.
+- other — a CLI failure on stderr; stop.
+
 ## How much to verify, and when
 
 Per component, the check is the done-means invariant and nothing more. Grading a
@@ -149,6 +168,8 @@ Hand off to `cc-workflow-test`. Firing real runs belongs to the test stage, not 
 
 ## References
 
+- `scripts/wait-builder-turn.sh` — await one builder turn; the exit code is the
+  turn's outcome (see "Awaiting a builder turn").
 - `references/input-schema.md` — the schema standard (workflows that write).
 - `references/task-messages.md` — every builder message.
 - `references/node-naming.md` — node naming (branching workflows).
@@ -162,4 +183,6 @@ Hand off to `cc-workflow-test`. Firing real runs belongs to the test stage, not 
 Loop settled. Explore is documented against the real `interact` tool, which is
 opt-in per conversation (`/interact`) and ships on the monorepo `interact-tool`
 branch. Where it isn't available the step still works — the builder falls back to
-the transient-node probe, slower and one version bump per probe.
+the transient-node probe, slower and one version bump per probe. The per-turn wait
+is backed by `scripts/wait-builder-turn.sh` (exit code = turn outcome), covered by
+`test/wait-builder-turn.test.ts`.

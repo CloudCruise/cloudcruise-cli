@@ -14,6 +14,7 @@ skills/
 ├── cc-workflow-setup/        goal intake, config, gather → draft skeleton
 │                             (derives complexity) → confirm → plan
 ├── cc-workflow-build/        per-component loop: explore → schema → implement → execute once
+│   └── scripts/wait-builder-turn.sh   await one builder turn; exit code = turn outcome
 ├── cc-workflow-test/         one dry-run loop: generate → dry-run → disposition →
 │                             grade on completion
 └── _shared/cc-workflow-references/   family contracts, owned by no single skill
@@ -29,7 +30,10 @@ skills/
 ```
 
 A pack is any top-level `skills/` dir with a `SKILL.md`; `install --skills` copies
-each to `.claude/skills/<name>/`. The four `cc-workflow*` packs carry
+each to `.claude/skills/<name>/`. The copy is recursive, so a pack's `scripts/` dir
+(e.g. `cc-workflow-build`'s `wait-builder-turn.sh`, `cc-workflow-test`'s payload
+generators) rides along; scripts ship non-executable and are run with an explicit
+interpreter (`bash <skill>/scripts/…`, `node <skill>/scripts/…`). The four `cc-workflow*` packs carry
 `references -> ../_shared/cc-workflow-references` symlinks; the installer
 materializes them into real files per pack. npm strips symlinks from tarballs, so
 each pack also declares `sharedReferences` in its `skill.meta.json` sidecar and the
