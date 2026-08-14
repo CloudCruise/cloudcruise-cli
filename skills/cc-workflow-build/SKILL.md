@@ -53,6 +53,11 @@ session pointed at the plan resumes from the first unfinished component.
    confirm the result from the diff. That is state-declarative in practice even
    though the tool takes no desired-state argument.
 
+   A reveal may or may not already be in the static DOM before you actuate the
+   control that triggers it — absence of conditional markup is not absence of a
+   reveal. So "no reveal" is only ever an observed result, a `page.kind: none` diff
+   from actually clicking, never an inference from how the unactuated page looks.
+
    Act, read what appeared and disappeared, follow it, back out, try the next thing.
    Depth and order are judgment calls, not a fixed procedure. Undo test state the
    way you set it (re-click the box you ticked). Backing out is best-effort — if a
