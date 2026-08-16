@@ -20,7 +20,6 @@ Rules:
 - **Source:** <where it was stated/demonstrated>
 - **Recognize:** structural signature in the DOM
 - **Fill:** the interaction contract (order, guards, timing, traps)
-- **Verify:** do-confirm invariant when correctly filled
 - **Schema shape:** which input-schema construct this maps to
 - **Variants:** known cosmetic differences, if any
 ```

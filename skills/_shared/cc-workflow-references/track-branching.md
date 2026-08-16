@@ -24,9 +24,9 @@ implement spends it; node names mirror it (see `node-naming.md`).
 
 ## Verify
 
-Every component's done-means invariant holds simultaneously. Build's execute-once
-check verifies each one as it's built; `cc-workflow-test`'s loop re-verifies the
-whole graph together — did the workflow complete.
+`cc-workflow-test`'s loop verifies the whole graph together — did the workflow
+complete. Build does not grade per component; it explores, executes each once, and
+advances.
 
 ## Patterns
 

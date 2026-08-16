@@ -7,8 +7,7 @@ One rule: **every node's name starts with the dotted schema path it serves.**
 ```
 
 Same string, four places: schema key, input template, `run_if.field`, node name.
-Graph and schema become grep-searchable in both directions; coverage is checkable by
-inspection (every schema leaf appears in at least one node name). Structural nodes
+Graph and schema become grep-searchable in both directions. Structural nodes
 (save, nav, settle) use the page/section path alone.
 
 Linear workflows are exempt — small graphs, where isomorphic naming buys nothing

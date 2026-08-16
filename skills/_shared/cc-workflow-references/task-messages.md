@@ -29,8 +29,8 @@ component (or one exploration), one builder turn, one verifiable outcome.
   repeat is free.
 - Text only — the builder's page access beats any image.
 - Exact paths verbatim; a paraphrased path wires the wrong variable silently.
-- Default completion: a debug execution succeeds and the component's done-means
-  invariant holds. Spell out extras only for unusual components.
+- Default completion: a debug execution succeeds. Spell out extras only for unusual
+  components.
 
 ## The schema block
 
@@ -54,7 +54,7 @@ keys — diverges deliberately and **says so in the task message**, so the diffe
 reads as a decision rather than an oversight. What the block prevents is the silent
 kind: a slice that diverges because nobody stated the default.
 
-After grading, component creation is a separate builder task: “Create a reusable
+After the component executes, component creation is a separate builder task: “Create a reusable
 component named <name> from the nodes built for <plan component>.” Do not treat
 `saveWorkflow` as component creation.
 

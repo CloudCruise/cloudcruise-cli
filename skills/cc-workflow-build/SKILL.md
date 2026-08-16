@@ -64,12 +64,6 @@ session pointed at the plan resumes from the first unfinished component.
    probe can't be cleanly undone, keep exploring from the drifted-but-known state
    rather than pretending a clean baseline.
 
-   For branching components, confirm both directions of every reveal per
-   `track-branching.md` and the input-schema standard's bidirectional encoding —
-   live wherever the page lets you act it back out, mirrored from the forward
-   observation only when the action is genuinely irreversible (navigation, submit,
-   a one-way add-without-remove, or selecting a radio option).
-
    **Off limits while probing:** destructive and final-submit controls — delete,
    place order, send. Dismissing a dialog or saving a form is usually fine and
    sometimes necessary.
@@ -96,8 +90,8 @@ session pointed at the plan resumes from the first unfinished component.
    contract: goal + exact input paths + status skeleton. Goal, not clicks. Register
    scales with the track — branching's fuller anatomy or linear's bare dispatch, per
    `task-messages.md`'s two worked examples.
-4. **Execute once.** A single in-browser `executeWorkflow`, watched synchronously,
-   graded against the component's done-means invariant. **Once means once:** a failed
+4. **Execute once.** A single in-browser `executeWorkflow`, watched synchronously —
+   it runs to the target without erroring. **Once means once:** a failed
    fill has already mutated the page, so re-running the same action fails on
    side-effect state, not node correctness — it lies about the fix. Log fail and move
    to the next component; free to inspect the failed page via DOM fetch or
@@ -135,38 +129,15 @@ bash <skill>/scripts/wait-builder-turn.sh --conversation "$CID" --profile "$PROF
 
 The exit code is the outcome — branch on it, don't parse stdout:
 
-- `0` — completed; stdout is the report. Grade the component, mark the plan, send the next.
+- `0` — completed; stdout is the report. Mark the plan, send the next.
 - `7` — awaiting human input (prompt on stdout); relay it, `builder respond`, await again.
 - `8` — agent errored (status on stdout); diagnose with `builder messages`.
 - `124` — timed out; the turn may still be running — await again.
 - other — a CLI failure on stderr; stop.
 
-## How much to verify, and when
-
-Per component, the check is the done-means invariant and nothing more. Grading a
-component is not the same as auditing the graph, and the builder's own report is
-not evidence — read the artifact when the claim matters (a schema slice it says it
-wrote, a guard it says it added), skip the ceremony when it doesn't.
-
-Save the mechanical sweep for boundaries — the end of a page, or a run of
-components sharing one shape — and once before handoff. Sweeping every component
-costs more than it finds, because most components repeat the shape the last one
-established; the value is in catching the shape that drifted, which a boundary
-check catches just as well and forty times less often.
-
-The sweep is: reachability from Start (orphans, non-END nodes with no outgoing
-edge), a `run_if` on every field node, guard value ↔ enum member ↔ selector text
-compared character-for-character (a curly apostrophe in a label matches nothing and
-fails silently), and the schema compiled under the platform's validator with a
-null-everything payload and a full payload. That last pair is the one that earns
-its place: `save` rejects a schema that fails to *compile*, but a slice that
-compiles and still contradicts its own guards — a non-nullable leaf under an
-`IS_NOT_NULL` skip — passes save and dies at run start.
-
 ## Handoff-ready
 
-- All components `[x]`; one clean full in-browser execute completes.
-- If `complexity: branching`: every schema leaf appears in a node name (grep check).
+- All components `[x]`.
 - If the workflow has a final submit/save node: it carries `end_here_on_dry_run: true`.
 
 Hand off to `cc-workflow-test`. Firing real runs belongs to the test stage, not here.
@@ -178,8 +149,8 @@ Hand off to `cc-workflow-test`. Firing real runs belongs to the test stage, not 
 - `references/input-schema.md` — the schema standard (workflows that write).
 - `references/task-messages.md` — every builder message.
 - `references/node-naming.md` — node naming (branching workflows).
-- `references/track-branching.md` / `track-linear.md` — spine + verify
-  definitions for the drafted `complexity`.
+- `references/track-branching.md` / `track-linear.md` — spine definitions for the
+  drafted `complexity`.
 - The `cloudcruise` CLI skill for command mechanics; the `cloudcruise-workflow-dsl`
   skill for node semantics.
 
