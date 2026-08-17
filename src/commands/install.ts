@@ -1,4 +1,4 @@
-import { Command } from "commander"
+import { Command } from "commander";
 import {
   cpSync,
   existsSync,
@@ -8,15 +8,15 @@ import {
   readFileSync,
   realpathSync,
   rmSync,
-  writeFileSync
-} from "fs"
-import { join, dirname } from "path"
-import { fileURLToPath } from "url"
-import { outputJson, outputError } from "../core/output.js"
-import { CLI_VERSION } from "../core/version.js"
+  writeFileSync,
+} from "fs";
+import { join, dirname } from "path";
+import { fileURLToPath } from "url";
+import { outputJson, outputError } from "../core/output.js";
+import { CLI_VERSION } from "../core/version.js";
 
-const __filename = fileURLToPath(import.meta.url)
-const __dirname = dirname(__filename)
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 // Each target agent reads skills from its own project-level dir. Several agents
 // share the cross-agent `.agents/skills/` convention (Codex, Devin, and Cursor as
@@ -31,40 +31,40 @@ const TARGET_ROOTS: Record<string, string[]> = {
   all: [
     join(".claude", "skills"),
     join(".cursor", "skills"),
-    join(".agents", "skills")
-  ]
-}
+    join(".agents", "skills"),
+  ],
+};
 
-const VALID_TARGETS = Object.keys(TARGET_ROOTS).join(", ")
+const VALID_TARGETS = Object.keys(TARGET_ROOTS).join(", ");
 
 function getSkillsRootDir(): string {
-  return join(__dirname, "..", "..", "..", "skills")
+  return join(__dirname, "..", "..", "..", "skills");
 }
 
 // A pack is any top-level dir under skills/ that contains a SKILL.md.
 function listSourcePacks(): string[] {
-  const root = getSkillsRootDir()
+  const root = getSkillsRootDir();
   return readdirSync(root, { withFileTypes: true })
     .filter(
-      (e) => e.isDirectory() && existsSync(join(root, e.name, "SKILL.md"))
+      (e) => e.isDirectory() && existsSync(join(root, e.name, "SKILL.md")),
     )
-    .map((e) => e.name)
+    .map((e) => e.name);
 }
 
 // Read the pack's `sharedReferences` sidecar field: the name of a directory
 // under skills/_shared/ to install as the pack's references/ when the repo
 // symlink didn't survive packaging (npm strips symlinks from tarballs).
 function readSharedReferences(sourcePackDir: string): string | undefined {
-  const metaPath = join(sourcePackDir, "skill.meta.json")
-  if (!existsSync(metaPath)) return undefined
+  const metaPath = join(sourcePackDir, "skill.meta.json");
+  if (!existsSync(metaPath)) return undefined;
   try {
     return (
       JSON.parse(readFileSync(metaPath, "utf-8")) as {
-        sharedReferences?: string
+        sharedReferences?: string;
       }
-    ).sharedReferences
+    ).sharedReferences;
   } catch {
-    return undefined
+    return undefined;
   }
 }
 
@@ -73,15 +73,15 @@ function readSharedReferences(sourcePackDir: string): string | undefined {
 function writeSkillManifest(
   sourcePackDir: string,
   destPackDir: string,
-  pack: string
+  pack: string,
 ): void {
-  let requiresCli: string | undefined
-  const metaPath = join(sourcePackDir, "skill.meta.json")
+  let requiresCli: string | undefined;
+  const metaPath = join(sourcePackDir, "skill.meta.json");
   if (existsSync(metaPath)) {
     try {
       requiresCli = (
         JSON.parse(readFileSync(metaPath, "utf-8")) as { requiresCli?: string }
-      ).requiresCli
+      ).requiresCli;
     } catch {
       // Missing/malformed sidecar — omit requiresCli.
     }
@@ -90,12 +90,12 @@ function writeSkillManifest(
     pack,
     cliVersion: CLI_VERSION,
     ...(requiresCli ? { requiresCli } : {}),
-    installedAt: new Date().toISOString()
-  }
+    installedAt: new Date().toISOString(),
+  };
   writeFileSync(
     join(destPackDir, ".cloudcruise-skill.json"),
-    `${JSON.stringify(manifest, null, 2)}\n`
-  )
+    `${JSON.stringify(manifest, null, 2)}\n`,
+  );
 }
 
 // Copy every source pack into one target's skills root. Every agent that reads
@@ -110,34 +110,35 @@ function writeSkillManifest(
 // - npm tarball: npm strips symlinks entirely, so the pack declares its shared
 //   dir in skill.meta.json (`sharedReferences`) and it's copied from _shared/.
 function installPacksToRoot(skillsRoot: string): string[] {
-  const installed: string[] = []
+  const installed: string[] = [];
 
   for (const pack of listSourcePacks()) {
-    const source = join(getSkillsRootDir(), pack)
-    const dest = join(skillsRoot, pack)
-    mkdirSync(dest, { recursive: true })
-    cpSync(source, dest, { recursive: true })
+    const source = join(getSkillsRootDir(), pack);
+    const dest = join(skillsRoot, pack);
+    rmSync(dest, { recursive: true, force: true });
+    mkdirSync(dest, { recursive: true });
+    cpSync(source, dest, { recursive: true });
     for (const entry of readdirSync(dest, { withFileTypes: true })) {
-      const entryPath = join(dest, entry.name)
+      const entryPath = join(dest, entry.name);
       if (lstatSync(entryPath).isSymbolicLink()) {
-        const target = realpathSync(join(source, entry.name))
-        rmSync(entryPath)
-        cpSync(target, entryPath, { recursive: true })
+        const target = realpathSync(join(source, entry.name));
+        rmSync(entryPath);
+        cpSync(target, entryPath, { recursive: true });
       }
     }
-    const sharedRefs = readSharedReferences(source)
-    const destRefs = join(dest, "references")
+    const sharedRefs = readSharedReferences(source);
+    const destRefs = join(dest, "references");
     if (sharedRefs && !existsSync(destRefs)) {
-      const sharedSource = join(getSkillsRootDir(), "_shared", sharedRefs)
+      const sharedSource = join(getSkillsRootDir(), "_shared", sharedRefs);
       if (existsSync(sharedSource)) {
-        cpSync(sharedSource, destRefs, { recursive: true })
+        cpSync(sharedSource, destRefs, { recursive: true });
       }
     }
-    writeSkillManifest(source, dest, pack)
-    installed.push(dest)
+    writeSkillManifest(source, dest, pack);
+    installed.push(dest);
   }
 
-  return installed
+  return installed;
 }
 
 // Prior `--target cursor` installs wrote `.cursor/rules/cloudcruise-*.mdc`
@@ -145,14 +146,14 @@ function installPacksToRoot(skillsRoot: string): string[] {
 // replaces that path; the installer no longer manages the old files, so surface
 // them for the user to delete by hand rather than silently leaving cruft.
 function staleCursorRuleNotes(cwd: string): string[] {
-  const rulesDir = join(cwd, ".cursor", "rules")
+  const rulesDir = join(cwd, ".cursor", "rules");
   const legacy = ["cloudcruise-cli.mdc", "cloudcruise-workflow-dsl.mdc"].filter(
-    (f) => existsSync(join(rulesDir, f))
-  )
-  if (legacy.length === 0) return []
+    (f) => existsSync(join(rulesDir, f)),
+  );
+  if (legacy.length === 0) return [];
   return [
-    `Cursor skills now install to .cursor/skills/ (native). Old rule files remain at ${join(".cursor", "rules")}/${legacy.join(", ")} — remove them by hand if unused.`
-  ]
+    `Cursor skills now install to .cursor/skills/ (native). Old rule files remain at ${join(".cursor", "rules")}/${legacy.join(", ")} — remove them by hand if unused.`,
+  ];
 }
 
 export function registerInstallCommands(program: Command): void {
@@ -163,9 +164,11 @@ export function registerInstallCommands(program: Command): void {
     .option(
       "--target <agent>",
       `Target agent: ${VALID_TARGETS} (default: all)`,
-      "all"
+      "all",
     )
-    .addHelpText("after", `
+    .addHelpText(
+      "after",
+      `
 Targets:
   claude              → .claude/skills/
   cursor              → .cursor/skills/
@@ -176,44 +179,45 @@ Examples:
   $ cloudcruise install --skills
   $ cloudcruise install --skills --target cursor
   $ cloudcruise install --skills --target codex
-`)
+`,
+    )
     .action((opts: { skills?: boolean; target: string }) => {
       if (!opts.skills) {
         outputError(
-          "No install target specified. Use --skills to install skill files."
-        )
-        process.exit(1)
+          "No install target specified. Use --skills to install skill files.",
+        );
+        process.exit(1);
       }
 
-      const target = opts.target.toLowerCase()
-      const relRoots = TARGET_ROOTS[target]
+      const target = opts.target.toLowerCase();
+      const relRoots = TARGET_ROOTS[target];
       if (!relRoots) {
-        outputError(`Unknown target "${opts.target}". Use: ${VALID_TARGETS}`)
-        process.exit(1)
+        outputError(`Unknown target "${opts.target}". Use: ${VALID_TARGETS}`);
+        process.exit(1);
       }
 
       try {
-        const cwd = process.cwd()
+        const cwd = process.cwd();
         // Dedupe by resolved root so aliases sharing a root (codex/devin/agents,
         // or `all`) install it once.
-        const roots = [...new Set(relRoots.map((r) => join(cwd, r)))]
-        const installed: string[] = []
+        const roots = [...new Set(relRoots.map((r) => join(cwd, r)))];
+        const installed: string[] = [];
         for (const root of roots) {
-          installed.push(...installPacksToRoot(root))
+          installed.push(...installPacksToRoot(root));
         }
 
         const notes = relRoots.some((r) => r === join(".cursor", "skills"))
           ? staleCursorRuleNotes(cwd)
-          : []
+          : [];
 
         outputJson({
           status: "ok",
           installed,
-          ...(notes.length ? { notes } : {})
-        })
+          ...(notes.length ? { notes } : {}),
+        });
       } catch (err: unknown) {
-        outputError(err instanceof Error ? err.message : String(err))
-        process.exit(1)
+        outputError(err instanceof Error ? err.message : String(err));
+        process.exit(1);
       }
-    })
+    });
 }
