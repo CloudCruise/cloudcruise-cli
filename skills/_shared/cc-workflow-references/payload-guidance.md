@@ -97,6 +97,9 @@ and re-run until clean) · `2` schema does not compile (fix the schema, not the 
 It validates against the *saved* schema — push schema edits (`workflows update`) before
 validating against them. `<alias>` placeholders pass validation.
 
+Exit 0 means schema-valid, not run-will-succeed: whether values are semantically right for
+the site and whether the envelope reaches the task is what the dry-run is for.
+
 Do not probe other endpoints as validators: `run start` fires a real run when the payload is
 valid, and builder session creation validates shape-only (`required` stripped), so it accepts
 payloads a run would reject.
