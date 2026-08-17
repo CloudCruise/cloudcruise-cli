@@ -260,8 +260,8 @@ cloudcruise builder end         # End the conversation and clean up
 - Poll `builder status` in a loop — if it returns `processing`, wait a few seconds and call it again. `status` also keeps the session alive (it hits `/status`), so keep polling rather than letting an idle session get reaped.
 - **`awaiting-human-input` is how the builder asks for information it needs** (e.g. email, password, 2FA code). When you see it, relay the question to the user, then pass their answer back with `builder respond`. The agent may request multiple inputs at once — check `humanInput.fields` for the full list and pipe a JSON object keyed by field name to `--responses-stdin`. Never pre-emptively browse the site or ask the user for form values — let the builder discover what it needs.
 - For a human-input field with `type: "error"`, respond with a structured JSON object, never a primitive such as `"accepted"`. To accept the proposed code, send `{"kind":"accept_suggestion"}`. To choose another workspace code, send `{"kind":"existing","error_code_id":"<id>"}`. To confirm removal, send `{"kind":"remove_confirmed"}`. Use `--value-stdin` for a single field or place the object under the field's name with `--responses-stdin` for multiple fields.
-- Only fall back to direct DSL editing after the builder reaches a terminal state (`terminal: true` — i.e. `completed`, `agent-errored`, or `ended`).
-- **Wait for a terminal status before sending the next message** — sending while the agent is processing interrupts the current turn, and a busy send returns HTTP 409 `SESSION_BUSY` (exit code 6)
+- Treat `terminal: true` as "this turn has settled; stop polling," then branch on `status`: respond to `awaiting-human-input`, proceed after `completed`, intervene after `agent-errored`, or stop after `ended`. Only fall back to direct DSL editing after `completed`, `agent-errored`, or `ended` — not while input is pending.
+- **Wait for the turn to settle before sending the next message** — sending while the agent is processing interrupts the current turn, and a busy send returns HTTP 409 `SESSION_BUSY` (exit code 6)
 
 **Writing effective builder messages:**
 
@@ -269,7 +269,7 @@ cloudcruise builder end         # End the conversation and clean up
 - **Don't tell the builder how to build** — never specify execution types ("use STATIC"), selector strategies ("use an XPath with @id"), or node structure ("add a LOOP node"). The builder has access to the page DOM and knows the workflow DSL; let it make implementation decisions.
 - **Reference credentials naturally** — "Log in using the vault credentials" is enough. The builder knows to use vault credential templates.
 
-**Status codes** (`builder status` — exit code in parens): `completed` (0) → proceed to next step. `awaiting-human-input` (7) → respond then re-check. `agent-errored` (8) → inspect messages, send corrective instruction. `processing` (9) → wait and re-check. `idle` (0) → no pending work. `ended` (0) → session is over. `terminal: true` marks the states that won't change without a new turn (`completed`, `agent-errored`, `ended`). A driver can branch on the exit code alone without parsing stdout — note that a non-zero `status` exit (7/8/9) is the *state*, not a command failure.
+**Status codes** (`builder status` — exit code in parens): `completed` (0) → proceed to next step. `awaiting-human-input` (7) → respond then re-check. `agent-errored` (8) → inspect messages, send corrective instruction. `processing` (9) → wait and re-check. `idle` (0) → no pending work. `ended` (0) → session is over. `terminal: true` means the current turn has settled and needs no more polling (`completed`, `awaiting-human-input`, `agent-errored`, or `ended`); it does not mean the conversation has ended. A driver can branch on the exit code alone without parsing stdout — note that a non-zero `status` exit (7/8/9) is the *state*, not a command failure.
 
 **409 exit codes:** `builder send` on a busy session → `SESSION_BUSY` (exit 6). `builder respond` after the input was already answered → `ALREADY_ANSWERED` (exit 7). The code is printed to stderr.
 
@@ -281,7 +281,7 @@ cloudcruise builder end         # End the conversation and clean up
 cloudcruise builder send "Log me in"
 # → {"conversationId":"conv-abc123","accepted":true}
 
-# Poll until agent reaches a terminal state (terminal: true)
+# Poll until the current turn settles (terminal: true), then branch on status
 cloudcruise builder status
 # → {"status":"processing","terminal":false,"isProcessing":true}
 
@@ -289,17 +289,17 @@ cloudcruise builder status
 # → {"status":"completed","terminal":true,"isProcessing":false,"workflowId":"wf_..."}
 
 # If agent needs input (single value):
-# → {"status":"awaiting-human-input","terminal":false,"conversationId":"conv-abc123","humanInput":{"messageId":"m1","prompt":"What's the 2FA code?","fields":[{"name":"code","type":"text"}]}}
+# → {"status":"awaiting-human-input","terminal":true,"conversationId":"conv-abc123","humanInput":{"messageId":"m1","prompt":"What's the 2FA code?","fields":[{"name":"code","type":"text"}]}}
 printf '%s' "123456" | cloudcruise builder respond --message-id m1 --value-stdin
 cloudcruise builder status
 
 # If agent needs multiple inputs at once:
-# → {"status":"awaiting-human-input","terminal":false,"humanInput":{"messageId":"m1","prompt":"...","fields":[{"name":"npi",...},{"name":"last_name",...}]}}
+# → {"status":"awaiting-human-input","terminal":true,"humanInput":{"messageId":"m1","prompt":"...","fields":[{"name":"npi",...},{"name":"last_name",...}]}}
 printf '%s' '{"npi":"1234567890","last_name":"Ziegler"}' | cloudcruise builder respond --message-id m1 --responses-stdin
 cloudcruise builder status
 
 # If agent needs credentials (type: "auth"):
-# → {"status":"awaiting-human-input","terminal":false,"humanInput":{"messageId":"m1","prompt":"...","fields":[{"name":"Portal Credentials","type":"auth",...}]}}
+# → {"status":"awaiting-human-input","terminal":true,"humanInput":{"messageId":"m1","prompt":"...","fields":[{"name":"Portal Credentials","type":"auth",...}]}}
 # 1. Look up the vault entry to get the domain:
 cloudcruise vault list
 # 2. Respond with { permissioned_user_id, domain }:

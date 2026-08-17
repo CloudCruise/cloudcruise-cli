@@ -471,8 +471,9 @@ agent's response with 'cloudcruise builder status'.
   )
 
   // ── builder status (helpers) ────────────────────────────────────
-  // Status taxonomy emitted by GET /:id/status. `terminal` marks the states
-  // that will never change without a new turn (completed, agent-errored, ended).
+  // Status taxonomy emitted by GET /:id/status. `terminal` means the current
+  // turn has settled and needs no more polling; awaiting input is terminal
+  // because progress requires a caller response.
   type BuilderStatus =
     | "processing"
     | "awaiting-human-input"
