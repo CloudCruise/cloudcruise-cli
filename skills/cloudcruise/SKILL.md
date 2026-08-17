@@ -74,7 +74,10 @@ cloudcruise workflows versions <workflow_id>                                    
 cloudcruise workflows versions <workflow_id> --limit 10                          # Cap the list
 cloudcruise workflows update <workflow_id> --file w.json --version-note "..."   # Update workflow (creates new version)
 cloudcruise workflows update <workflow_id> --stdin --version-note "..."          # Update from piped JSON
+cloudcruise workflows validate-input <workflow_id> --file payload.json           # Validate a run input payload against the saved input schema
 ```
+
+**validate-input** checks a payload against the workflow's *saved* `input_schema` (push schema edits first). Exit `0` = valid; `1` = payload invalid, with per-field errors on stdout; `2` = the schema itself does not compile — fix the schema, no payload can pass. `<alias>` vault placeholders pass validation. Exit 0 means schema-valid, not run-will-succeed. Also accepts `--stdin`.
 
 **Workflow folders** are virtual: they are derived from each workflow's `folder_path` (a slash-separated string like `Claims/EOB`, max 5 levels) plus placeholder rows for empty folders. There is no folder ID. `workflows folders` returns `allFolderPaths` (the complete folder tree) and `folders` (direct subfolders under `--path`, with per-folder `workflow_count`). `workflows list --folder <path>` returns every workflow whose `folder_path` matches that path exactly (non-recursive).
 

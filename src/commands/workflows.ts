@@ -3,7 +3,7 @@ import { readFileSync } from "fs"
 import { resolveAuth } from "../core/auth.js"
 import { ApiClient } from "../core/api-client.js"
 import { outputJson } from "../core/output.js"
-import { fail, UsageError } from "../core/exit.js"
+import { ExitCode, fail, UsageError } from "../core/exit.js"
 import { addAuthOptions, type AuthOptions } from "../core/auth-options.js"
 
 export function registerWorkflowCommands(program: Command): void {
@@ -238,6 +238,85 @@ Examples:
       fail(err)
     }
   })
+
+  interface ValidateInputResponse {
+    valid: boolean
+    schema_error: string | null
+    errors:
+      | { field: string; message: string; keyword: string; expected: unknown }[]
+      | null
+  }
+
+  addAuthOptions(
+    workflows
+      .command("validate-input <id>")
+      .description(
+        "Validate a run input payload against the workflow's saved input schema"
+      )
+      .option("--file <path>", "Path to payload JSON file (the run input variables object)")
+      .option("--stdin", "Read payload JSON from stdin")
+  ).addHelpText("after", `
+Validates against the workflow's saved schema — push schema edits
+(\`workflows update\`) before validating against them. <alias> vault
+placeholders pass validation. Exit 0 means schema-valid, not run-will-succeed.
+
+The result is printed on stdout. Exit codes:
+  0  payload is valid
+  1  payload is invalid (per-field errors in the "errors" array)
+  2  the workflow's input schema does not compile ("schema_error" set);
+     fix the schema, no payload can pass
+
+Examples:
+  $ cloudcruise workflows validate-input wf_abc123 --file payloads/null.json
+  $ cat payload.json | cloudcruise workflows validate-input wf_abc123 --stdin
+`).action(
+    async (
+      id: string,
+      opts: { file?: string; stdin?: boolean } & AuthOptions
+    ) => {
+      try {
+        if (opts.stdin && opts.file) {
+          throw new UsageError("Pass either --file or --stdin, not both")
+        }
+        let payload: unknown
+        if (opts.stdin) {
+          const chunks: Buffer[] = []
+          for await (const chunk of process.stdin) {
+            chunks.push(chunk as Buffer)
+          }
+          payload = JSON.parse(Buffer.concat(chunks).toString("utf-8"))
+        } else if (opts.file) {
+          payload = JSON.parse(readFileSync(opts.file, "utf-8"))
+        } else {
+          throw new UsageError("Provide --file <path> or --stdin")
+        }
+        if (
+          payload === null ||
+          typeof payload !== "object" ||
+          Array.isArray(payload)
+        ) {
+          throw new UsageError(
+            "Payload must be a JSON object of run input variables"
+          )
+        }
+
+        const auth = await resolveAuth(opts)
+        const client = new ApiClient(auth)
+        const data = await client.post<ValidateInputResponse>(
+          `/workflows/${id}/validate-input`,
+          { run_input_variables: payload }
+        )
+        outputJson(data)
+        if (!data.valid) {
+          process.exit(
+            data.schema_error !== null ? ExitCode.BAD_ARGS : ExitCode.FAILURE
+          )
+        }
+      } catch (err: unknown) {
+        fail(err)
+      }
+    }
+  )
 
   addAuthOptions(
     workflows
