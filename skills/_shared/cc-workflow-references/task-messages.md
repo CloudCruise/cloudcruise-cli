@@ -26,12 +26,6 @@ the component's turn.
   that condition is itself part of the workflow behavior.
 - Dispatch one component as one task with phases explore, build, prove, save; its
   phases may complete in one or more builder turns.
-- **A task that explores, resumes, or restores browser state carries the literal
-  token `/interact`.** That token, and nothing else, arms the builder's `interact`
-  tool — describing the intent in prose does not. Unarmed, the builder falls back to authoring and deleting a throwaway
-  node per probe, silently. Arming lasts the conversation but lapses after an idle
-  hour, so put it in the first such message and again after any long gap; a
-  repeat is free.
 - Text only — the builder reads the page directly, so a screenshot adds nothing.
 - Exact paths verbatim; a paraphrased path wires the wrong variable silently.
 - Default completion: a debug execution succeeds. Spell out extras only for unusual
@@ -86,6 +80,17 @@ Component `cardiac_status.cardiac_assessment`:
 > gates every reveal-dependent node on `findings` per the schema's `contains` rule.
 > Node names: `cardiac_status.cardiac_assessment.findings — check findings`,
 > `cardiac_status.cardiac_assessment.abnormal_pulses_type — enter type`.
+
+## Worked example: resume — position the browser
+
+A fresh browser at a deep frontier. This turn just gets there:
+
+> **Resume — position the browser.** Fresh browser, not logged in. Frontier is the New
+> Wound subform on the Integumentary Status page (~page 9).
+>
+> Use interact to log in with the vault credentials, open a fresh NURSE RECERTIFICATION
+> eDoc — office `Test`, any test patient — and use the form's Page navigation to jump to
+> Integumentary Status. Stop there; build and save nothing this turn.
 
 ## Worked example: linear track with input variables
 

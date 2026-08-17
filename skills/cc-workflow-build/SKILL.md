@@ -28,14 +28,9 @@ Explore only as far as the component needs; build as soon as a probe tells you
 enough. Chain while probes come back clean; when one surprises you, back up and
 follow what changed.
 
-**Arm interact.** The turn's exploration instrument is the builder's `interact`
-tool — it belongs to the builder, not to you; you never call it, you arm it. It is
-off by default and armed by a literal `/interact` token in the message — prose about
-interacting never arms it. Unarmed, the builder silently falls back to authoring,
-running and deleting a throwaway node per probe: no error, no warning, just the slow
-path and a version bump each time. Arming persists for the conversation but expires
-after an idle hour, so arm the first such message and re-arm after any long pause;
-repeating the token costs nothing.
+**Interact.** The turn's exploration instrument is the builder's `interact` tool —
+it belongs to the builder, not to you; you never call it, you describe the state the
+turn needs and the builder drives the page.
 
 **What it does.** Touches the live page — `click`, `input` (focus, clear, type),
 `select` (native `<select>` only; the value is the option's exact visible text) —
@@ -45,6 +40,10 @@ unknown one to learn from (explore), a known position after a session boundary
 (resume), or a known base (restore). The target is a `ref` from the most recent
 `ariaSnapshot`, or a validated xpath; prefer the ref. Refs from a superseded
 snapshot are rejected as stale.
+
+**Resume positioning.** To position a fresh browser at the frontier, drive it there
+with interact — not by executing the built nodes. Replaying the graph re-does every
+prior side effect and can stall on any node that isn't cleanly replayable.
 
 **What comes back** is a structural diff of what the page did: a `page.kind` of
 `none` / `reveal` / `hide` / `modal` / `replaced`, whether the URL changed,
