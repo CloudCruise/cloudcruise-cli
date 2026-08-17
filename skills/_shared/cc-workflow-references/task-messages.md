@@ -1,29 +1,31 @@
 # Builder task messages
 
 The shape of one message to the builder agent. The task hands the builder one
-component; a turn explores, builds, proves, and saves it, or stops partway to hand
-back for direction. Exploration happens inside the component's turn.
+component; a turn explores, builds, proves, and saves it. Exploration happens inside
+the component's turn.
 
-## Anatomy (settled)
+## Anatomy
 
 1. **Goal** — what must be true when done. Outcome, not procedure.
 2. **Location** — page/section by on-form name.
 3. **Inputs** — known (exact `context.inputs.…` paths from the schema slice) or
-   to-discover (the builder learns these in-turn via `interact`).
+   to-discover (the builder learns these in-turn via `interact`). The known set is
+   a seed to explore in breadth and/or depth, not a closed list — confirm each
+   field's real shape live (depth), and probe for what the seed couldn't show, like
+   reveals and their type (breadth).
 4. **Status skeleton** — compact whole-build progress block so the builder knows
    where this task sits. Never the full plan, other components' details, or history.
 5. **Conventions** — inputs via `{{context.inputs.…}}` never literals; `run_if`
    gating stated as data; node naming per the naming reference; the pattern contract
    if the component matched one.
 
-## Rules (settled)
+## Rules
 
 - Goal, not clicks. Never selectors, execution types, or node structure.
 - State required actions directly. Use conditional phrasing only when evaluating
   that condition is itself part of the workflow behavior.
-- One component per task. Its phases (explore, build, prove, save) don't need
-  separate messages — the builder carries them in one turn or pauses to ask. "And
-  then a *second* component" means split; "and then save it" is the same turn.
+- Dispatch one component as one task with phases explore, build, prove, save; its
+  phases may complete in one or more builder turns.
 - **A task that explores, resumes, or restores browser state carries the literal
   token `/interact`.** That token, and nothing else, arms the builder's `interact`
   tool — describing the intent in prose does not. Unarmed, the builder falls back to authoring and deleting a throwaway
@@ -85,7 +87,7 @@ Component `cardiac_status.cardiac_assessment`:
 > Node names: `cardiac_status.cardiac_assessment.findings — check findings`,
 > `cardiac_status.cardiac_assessment.abnormal_pulses_type — enter type`.
 
-## Worked example: linear track with input variables (illustrative)
+## Worked example: linear track with input variables
 
 Plain navigation and clicks:
 
