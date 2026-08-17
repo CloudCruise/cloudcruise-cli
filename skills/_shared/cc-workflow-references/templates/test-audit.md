@@ -1,14 +1,29 @@
-# Test audit — <workflow name>
+# Test ledger — <workflow name>
 
-One line per run. Newest last.
+Per mode run and per error inside it. The errors and their fixes are the only record.
 
-| # | payload | session_id | verdict | disposition |
-|---|---------|-----------|---------|-------------|
-| 1 | payloads/happy-path.json | | | |
+## Runs
 
-Verdict: `green` (completed) · `run-failed` · `blocked` (needs a human decision).
-Disposition: which of the three options applied — `logged` (noted, moved on) ·
-`fixed: <what>` (mechanical fix, rewound, resumed) · `blocked: <what's needed>`.
+| mode | seed | reached end? |
+|------|------|--------------|
+| null | | |
+| partial | | |
+| partial | | |
+| full | | |
 
-Rules discovered while testing (value constraints, null semantics, timing) are
-codified back into the input_schema — a rule that lives only in this file is a miss.
+Run `partial` across a few seeds — its coverage comes from which fields the seed fills.
+
+## Errors + fixes
+
+| mode | where (node / page) | what failed | root cause | fix | verification |
+|------|---------------------|-------------|-----------|-----|--------------|
+| | | | | | |
+
+- **fix**: `none` (localized, logged) · `<what was changed>` (confident mechanical fix) ·
+  `blocked: <what a human must decide>`.
+- **verification** (for an applied fix): `verified-full` (re-ran from start) ·
+  `verified-partial` (restored to a runnable point + ran) · `unverified` (could neither
+  re-run nor restore) · `n/a` (no fix / blocked).
+
+Rules discovered while testing (value constraints, null semantics, timing) are codified back
+into the input_schema — a rule that lives only in this file is a miss.
