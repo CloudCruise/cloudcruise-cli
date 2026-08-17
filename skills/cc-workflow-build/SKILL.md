@@ -14,8 +14,7 @@ session pointed at the plan resumes from the first unfinished component.
 - `cc-workflows/<name>/plan.md` with at least one `[ ]` / `[→]` component or step
   ("component" below covers either — a branching plan's component or a linear
   plan's step).
-- A live or new builder conversation (`builder start` / resume; write the
-  `workflow_id` and `conversation_id` into the plan header, clear on `builder end`).
+- A live or new builder conversation (`builder start` / resume; write the `workflow_id` and `conversation_id` into the plan header, clear on `builder end`).
 
 ## The loop, per component
 

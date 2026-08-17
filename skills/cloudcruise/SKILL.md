@@ -220,8 +220,9 @@ When the user asks to build a "workflow" / "cloudcruise workflow" / "cc workflow
 
 ```bash
 # ── Start a new workflow from scratch ──
-cloudcruise builder start --start-url "https://app.example.com" --name "Login flow"
-cloudcruise builder start --start-url "https://app.example.com" \
+# --open-builder opens the builder in the browser so you can watch the agent work.
+cloudcruise builder start --start-url "https://app.example.com" --name "Login flow" --open-builder
+cloudcruise builder start --start-url "https://app.example.com" --open-builder \
   --vault-user-id "f47ac10b-58cc-4372-a567-0e02b2c3d479" --vault-domain "https://app.example.com" \
   --proxy country --proxy-value US
 
@@ -346,7 +347,7 @@ URL is inferred from the API base URL and can be overridden with `--app-url`
 
 ```bash
 # Start
-cloudcruise builder start --start-url "https://app.example.com" --name "Search workflow" \
+cloudcruise builder start --start-url "https://app.example.com" --name "Search workflow" --open-builder \
   --vault-user-id "f47ac10b-58cc-4372-a567-0e02b2c3d479" --vault-domain "https://app.example.com"
 
 # Step 1: Login
