@@ -10,3 +10,6 @@ cc-workflows/
 
 # npm pack artifacts
 *.tgz
+
+# macOS
+.DS_Store

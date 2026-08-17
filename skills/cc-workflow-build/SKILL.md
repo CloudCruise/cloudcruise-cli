@@ -110,27 +110,26 @@ is distinct from saving the workflow.
 ### Advance
 
 When a component is done, mark it `[x]` and move to the next. When the builder stops
-to ask, `wait-builder-turn.sh` returns `7` with the question on stdout — relay it,
+to ask, `builder await-turn` exits `7` with the question on stdout — relay it,
 get direction, mark `[→]`, and resume the same conversation.
 
 ## Awaiting a builder turn
 
-After sending the builder a task, await its result with
-`scripts/wait-builder-turn.sh` — it returns once the turn settles and prints the
-final report to stdout:
+After sending the builder a task, await the turn with `cloudcruise builder
+await-turn` — it blocks until the turn settles and prints the report to stdout:
 
 ```bash
 cloudcruise builder send --conversation "$CID" "$(cat task.txt)"
-bash <skill>/scripts/wait-builder-turn.sh --conversation "$CID" --profile "$PROFILE"
+cloudcruise builder await-turn --conversation "$CID" --profile "$PROFILE"
 ```
 
 The exit code is the outcome — branch on it, don't parse stdout:
 
 - `0` — completed; stdout is the report. Mark the plan, send the next.
 - `7` — awaiting human input (prompt on stdout); relay it, `builder respond`, await again.
-- `8` — agent errored (status on stdout); diagnose with `builder messages`.
-- `124` — timed out; the turn may still be running — await again.
-- other — a CLI failure on stderr; stop.
+- `8` — agent errored (state on stdout); diagnose with `builder messages`.
+- `9` — timed out still processing; the turn may still be running — await again.
+- other — a CLI/API failure on stderr; stop.
 
 ## Handoff-ready
 
@@ -141,8 +140,6 @@ Hand off to `cc-workflow-test`. Firing real runs belongs to the test stage, not 
 
 ## References
 
-- `scripts/wait-builder-turn.sh` — await one builder turn; the exit code is the
-  turn's outcome (see "Awaiting a builder turn").
 - `references/input-schema.md` — the schema standard (workflows that write).
 - `references/task-messages.md` — every builder message.
 - `references/node-naming.md` — node naming (branching workflows).
@@ -153,11 +150,10 @@ Hand off to `cc-workflow-test`. Firing real runs belongs to the test stage, not 
 
 ## Status
 
-Open items. The schema AJV gate isn't built yet — pull the oracle forward from
-`gen-payloads.mjs` into build time; until it lands, the input-schema conventions ride
-in the task message (see `task-messages.md`). Turn-outcome verification (ran-clean,
-component persisted) is folded into a pending report overhaul. `interact` is opt-in
-per conversation (`/interact`), on the monorepo `interact-tool` branch; without it the
-turn falls back to the slower transient-node probe. The per-turn wait is
-`scripts/wait-builder-turn.sh` (exit code = outcome), covered by
-`test/wait-builder-turn.test.ts`.
+Open items. The schema is validated server-side (the same validator `run` and
+`workflows gen-payloads` use); a build-time pre-check isn't wired yet, so until it
+lands the input-schema conventions ride in the task message (see `task-messages.md`).
+Turn-outcome verification (ran-clean, component persisted) is folded into a pending
+report overhaul. `interact` is opt-in per conversation (`/interact`), on the monorepo
+`interact-tool` branch; without it the turn falls back to the slower transient-node
+probe.

@@ -14,7 +14,6 @@ skills/
 ├── cc-workflow-setup/        goal intake, config, gather → draft skeleton
 │                             (derives complexity) → confirm → plan
 ├── cc-workflow-build/        per-component loop: explore → schema → implement → execute once
-│   └── scripts/wait-builder-turn.sh   await one builder turn; exit code = turn outcome
 ├── cc-workflow-test/         one dry-run loop: generate → dry-run → disposition →
 │                             grade on completion
 └── _shared/cc-workflow-references/   family contracts, owned by no single skill
@@ -30,18 +29,20 @@ skills/
 ```
 
 A pack is any top-level `skills/` dir with a `SKILL.md`; `install --skills` copies
-each to `.claude/skills/<name>/`. The copy is recursive, so a pack's `scripts/` dir
-(e.g. `cc-workflow-build`'s `wait-builder-turn.sh`, `cc-workflow-test`'s payload
-generators) rides along; scripts ship non-executable and are run with an explicit
-interpreter (`bash <skill>/scripts/…`, `node <skill>/scripts/…`). The four `cc-workflow*` packs carry
-`references -> ../_shared/cc-workflow-references` symlinks; the installer
+each to a target's skills root (`.claude/skills/<name>/`, `.cursor/skills/<name>/`,
+or `.agents/skills/<name>/` per `--target`). The packs are pure text — no scripts,
+no bundled deps. Anything the lifecycle skills need at runtime is a `cloudcruise`
+CLI command (`builder await-turn`, `workflows gen-payloads`), so a pack ports to
+every agent runtime and OS with no interpreter concerns. The four `cc-workflow*`
+packs carry `references -> ../_shared/cc-workflow-references` symlinks; the installer
 materializes them into real files per pack. npm strips symlinks from tarballs, so
 each pack also declares `sharedReferences` in its `skill.meta.json` sidecar and the
 installer falls back to copying from `_shared/` — both paths are covered.
 
 Install stamps a `.cloudcruise-skill.json` manifest per pack; `src/core/skills.ts`
 warns on gated commands (builder/run/workflows) when installed skills drift from the
-CLI version (exit 11 refuse mode available via `GATE_MODE`).
+CLI version (exit 11 refuse mode available via `GATE_MODE`). Lifecycle packs that
+call the new commands set `requiresCli` in their sidecar so a too-old CLI is caught.
 
 ## Design rules
 
@@ -75,9 +76,11 @@ cc-workflows/                  (name tentative)
 
 `cc-workflow` and `cc-workflow-setup` are done. The plan header carries
 `complexity` — the axis that's load-bearing for skeleton shape, node-naming, and
-reveal depth. `cc-workflow-build` and `cc-workflow-test` are written but both
-depend on an interact tool (click/input/select, ephemeral, diffs the page per
-action) that's still in development — the explore step and the dry-run test loop
-assume it exists. Shared references (`node-naming.md`, `task-messages.md`, `input-schema.md`,
-`templates/plan-branching.md`) carry worked examples. Cursor target
-(`install --skills --target cursor`) does not yet map this family — TODO.
+reveal depth. `cc-workflow-build` and `cc-workflow-test` depend on two things still
+landing: the `interact` tool (click/input/select, ephemeral, diffs the page per
+action) their explore/test steps assume, and the two CLI commands (`builder
+await-turn`, `workflows gen-payloads`) they now call, which shim server endpoints
+that must ship first. Shared references (`node-naming.md`, `task-messages.md`,
+`input-schema.md`, `templates/plan-branching.md`) carry worked examples. Install
+maps all six packs to Claude Code (`.claude/skills/`), Cursor (`.cursor/skills/`),
+and the shared `.agents/skills/` path (Codex, Devin) via `--target`.

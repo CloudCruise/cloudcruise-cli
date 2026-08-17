@@ -34,6 +34,62 @@ function addConversationOption(cmd: Command): Command {
 
 const BASE = "/workflow-builder/agent"
 
+/** Loose view of a /turn-state response — `phase` is `string` so an unknown
+ * (future) phase is handled, not a type error. */
+export interface AwaitTurnState {
+  conversationId?: string
+  phase: string
+  report?: string
+  humanInput?: unknown
+}
+
+/** What `await-turn` should do with one observed state. `null` means the turn
+ * hasn't settled — keep polling. Terminal outcomes carry the exit code the
+ * caller switches on. Exported so the mapping is unit-tested directly. */
+export type AwaitTurnOutcome =
+  | { kind: "report"; exitCode: number; report: string }
+  | { kind: "json"; exitCode: number; json: unknown }
+  | { kind: "fail"; exitCode: number; json?: unknown; message: string }
+
+export function classifyTurnState(state: AwaitTurnState): AwaitTurnOutcome | null {
+  switch (state.phase) {
+    case "completed": {
+      const report = (state.report ?? "").trim()
+      if (!report) {
+        // A completed turn with no report is a server contract violation, not a
+        // clean pass — a driver must not advance on an empty report.
+        return {
+          kind: "fail",
+          exitCode: ExitCode.FAILURE,
+          message: "await-turn: turn completed but /turn-state returned no report"
+        }
+      }
+      return { kind: "report", exitCode: ExitCode.SUCCESS, report }
+    }
+    case "awaiting-human-input":
+      return {
+        kind: "json",
+        exitCode: ExitCode.AWAITING_HUMAN_INPUT,
+        json: { phase: state.phase, humanInput: state.humanInput }
+      }
+    case "agent-errored":
+      return { kind: "json", exitCode: ExitCode.AGENT_ERROR, json: state }
+    case "idle":
+    case "ended":
+      // No turn completed. A real "nothing to await" outcome to handle, not a
+      // state to proceed past.
+      return {
+        kind: "fail",
+        exitCode: ExitCode.FAILURE,
+        json: state,
+        message: `await-turn: conversation ${state.phase} before a turn completed`
+      }
+    default:
+      // `processing` or an unrecognized future phase: keep polling.
+      return null
+  }
+}
+
 export function editCredentialFields(opts: {
   vaultUserId?: string
   vaultDomain?: string
@@ -484,16 +540,6 @@ agent's response with 'cloudcruise builder status'.
     fields: HumanInputField[]
   }
 
-  // The turn-state endpoint (server-owned) folds the terminal-state
-  // classification AND the report/humanInput extraction into one poll-friendly
-  // response, so `await-turn` never re-derives either client-side.
-  interface TurnState {
-    conversationId: string
-    phase: BuilderStatus
-    report?: string // present when phase === "completed"
-    humanInput?: HumanInput // present when phase === "awaiting-human-input"
-  }
-
   interface MessagesResponse {
     messages: Record<string, unknown>[]
     total?: number
@@ -834,58 +880,31 @@ observations therefore exit non-zero — a nonzero status is the state, not a fa
           conversationId,
           true,
           auth.workspaceId,
-          (id) => client.get<TurnState>(`${BASE}/${id}/turn-state`)
+          (id) => client.get<AwaitTurnState>(`${BASE}/${id}/turn-state`)
         ).then((r) => r.result)
 
-        switch (state.phase) {
-          case "completed": {
-            const report = (state.report ?? "").trim()
-            if (!report) {
-              // A completed turn with no report is a server contract violation,
-              // not a clean pass — a driver must not advance on an empty report.
-              process.stderr.write(
-                "await-turn: turn completed but /turn-state returned no report\n"
-              )
-              process.exit(ExitCode.FAILURE)
-            }
+        const outcome = classifyTurnState(state)
+        if (outcome) {
+          if (outcome.kind === "report") {
             // stdout is ONLY the report — no status/poll noise leaks in.
-            process.stdout.write(`${report}\n`)
-            process.exit(ExitCode.SUCCESS)
-            break
+            process.stdout.write(`${outcome.report}\n`)
+          } else if (outcome.kind === "json") {
+            outputJson(outcome.json)
+          } else {
+            if (outcome.json !== undefined) outputJson(outcome.json)
+            process.stderr.write(`${outcome.message}\n`)
           }
-          case "awaiting-human-input":
-            outputJson({ phase: state.phase, humanInput: state.humanInput })
-            process.exit(ExitCode.AWAITING_HUMAN_INPUT)
-            break
-          case "agent-errored":
-            outputJson(state)
-            process.exit(ExitCode.AGENT_ERROR)
-            break
-          case "idle":
-          case "ended":
-            // No turn completed. Not a poll failure — a real "nothing to await"
-            // outcome the caller must handle, not proceed past.
-            outputJson(state)
-            process.stderr.write(
-              `await-turn: conversation ${state.phase} before a turn completed\n`
-            )
-            process.exit(ExitCode.FAILURE)
-            break
-          case "processing":
-          default: {
-            // `default` covers an unrecognized (future) phase: keep polling
-            // rather than fail open, so a new transient status is safe and a new
-            // terminal one is bounded by the deadline.
-            const remaining = deadline - Date.now()
-            if (remaining <= 0) {
-              process.stderr.write(
-                `await-turn: timed out after ${timeoutMs / 1000}s (still processing)\n`
-              )
-              process.exit(ExitCode.TIMEOUT)
-            }
-            await sleep(Math.min(pollMs, remaining))
-          }
+          process.exit(outcome.exitCode)
         }
+
+        const remaining = deadline - Date.now()
+        if (remaining <= 0) {
+          process.stderr.write(
+            `await-turn: timed out after ${timeoutMs / 1000}s (still processing)\n`
+          )
+          process.exit(ExitCode.TIMEOUT)
+        }
+        await sleep(Math.min(pollMs, remaining))
       }
     } catch (err: unknown) {
       fail(err)
