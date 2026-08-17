@@ -259,6 +259,7 @@ cloudcruise builder end         # End the conversation and clean up
 - Break complex tasks into small steps (e.g. "log in", then "navigate to X", then "search for Y")
 - Poll `builder status` in a loop — if it returns `processing`, wait a few seconds and call it again. `status` also keeps the session alive (it hits `/status`), so keep polling rather than letting an idle session get reaped.
 - **`awaiting-human-input` is how the builder asks for information it needs** (e.g. email, password, 2FA code). When you see it, relay the question to the user, then pass their answer back with `builder respond`. The agent may request multiple inputs at once — check `humanInput.fields` for the full list and pipe a JSON object keyed by field name to `--responses-stdin`. Never pre-emptively browse the site or ask the user for form values — let the builder discover what it needs.
+- For a human-input field with `type: "error"`, respond with a structured JSON object, never a primitive such as `"accepted"`. To accept the proposed code, send `{"kind":"accept_suggestion"}`. To choose another workspace code, send `{"kind":"existing","error_code_id":"<id>"}`. To confirm removal, send `{"kind":"remove_confirmed"}`. Use `--value-stdin` for a single field or place the object under the field's name with `--responses-stdin` for multiple fields.
 - Only fall back to direct DSL editing after the builder reaches a terminal state (`terminal: true` — i.e. `completed`, `agent-errored`, or `ended`).
 - **Wait for a terminal status before sending the next message** — sending while the agent is processing interrupts the current turn, and a busy send returns HTTP 409 `SESSION_BUSY` (exit code 6)
 
@@ -303,6 +304,16 @@ cloudcruise builder status
 cloudcruise vault list
 # 2. Respond with { permissioned_user_id, domain }:
 printf '%s' '{"Portal Credentials":{"permissioned_user_id":"d2b9d80e-...","domain":"https://example.com"}}' | cloudcruise builder respond --message-id m1 --responses-stdin
+
+# If the agent proposes an error code (type: "error", rowType: "set"):
+# → {"humanInput":{"messageId":"m2","fields":[{"name":"Error code","type":"error","rowType":"set","suggestedCode":"CLAIM_NOT_FOUND",...}]}}
+printf '%s' '{"kind":"accept_suggestion"}' | cloudcruise builder respond --message-id m2 --value-stdin
+
+# To select an existing error code instead:
+printf '%s' '{"kind":"existing","error_code_id":"ec_..."}' | cloudcruise builder respond --message-id m2 --value-stdin
+
+# To confirm a proposed removal (type: "error", rowType: "remove"):
+printf '%s' '{"kind":"remove_confirmed"}' | cloudcruise builder respond --message-id m3 --value-stdin
 cloudcruise builder status
 ```
 
