@@ -116,6 +116,32 @@ Examples:
 
   addAuthOptions(
     workflows
+      .command("gen-payloads <id>")
+      .description(
+        "Generate schema-derived example payloads for a workflow's input_schema"
+      )
+  ).addHelpText("after", `
+Calls POST /workflows/<id>/example-payloads. The server derives payloads from the
+workflow's input_schema with the SAME validator it runs at run-start, so a
+generated payload can never be one a run would reject. Returns:
+  { payloads: [ { name, payload, expectedOutcome? } ] }
+Write each payload into cc-workflows/<wf>/payloads/ for the test loop.
+
+Examples:
+  $ cloudcruise workflows gen-payloads wf_abc123
+`).action(async (id: string, opts: AuthOptions) => {
+    try {
+      const auth = await resolveAuth(opts)
+      const client = new ApiClient(auth)
+      const data = await client.post(`/workflows/${id}/example-payloads`, {})
+      outputJson(data)
+    } catch (err: unknown) {
+      fail(err)
+    }
+  })
+
+  addAuthOptions(
+    workflows
       .command("export <id>")
       .description(
         "Export a workflow as a portable bundle for import into another environment"

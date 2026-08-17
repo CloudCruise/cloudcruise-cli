@@ -25,8 +25,8 @@ implement spends it; node names mirror it (see `node-naming.md`).
 ## Verify
 
 `cc-workflow-test`'s loop verifies the whole graph together — did the workflow
-complete. Build does not grade per component; it explores, executes each once, and
-advances.
+complete. Build doesn't grade per component; the component-owning turn proves each
+runs and advances.
 
 ## Patterns
 

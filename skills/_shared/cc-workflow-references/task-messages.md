@@ -1,14 +1,15 @@
 # Builder task messages
 
-The shape of one message to the builder agent. A task is the unit of dispatch: one
-component (or one exploration), one builder turn, one verifiable outcome.
+The shape of one message to the builder agent. The task hands the builder one
+component; a turn explores, builds, proves, and saves it, or stops partway to hand
+back for direction. Exploration happens inside the component's turn.
 
 ## Anatomy (settled)
 
 1. **Goal** — what must be true when done. Outcome, not procedure.
 2. **Location** — page/section by on-form name.
 3. **Inputs** — known (exact `context.inputs.…` paths from the schema slice) or
-   to-discover (exploration is a first-class task, not a failure to prepare one).
+   to-discover (the builder learns these in-turn via `interact`).
 4. **Status skeleton** — compact whole-build progress block so the builder knows
    where this task sits. Never the full plan, other components' details, or history.
 5. **Conventions** — inputs via `{{context.inputs.…}}` never literals; `run_if`
@@ -20,26 +21,26 @@ component (or one exploration), one builder turn, one verifiable outcome.
 - Goal, not clicks. Never selectors, execution types, or node structure.
 - State required actions directly. Use conditional phrasing only when evaluating
   that condition is itself part of the workflow behavior.
-- One component per task; "and then" means split.
-- **A task that explores carries the literal token `/interact`.** That token, and
-  nothing else, arms the builder's `interact` tool — describing exploration in prose
-  does not. Unarmed, the builder falls back to authoring and deleting a throwaway
+- One component per task. Its phases (explore, build, prove, save) don't need
+  separate messages — the builder carries them in one turn or pauses to ask. "And
+  then a *second* component" means split; "and then save it" is the same turn.
+- **A task that explores, resumes, or restores browser state carries the literal
+  token `/interact`.** That token, and nothing else, arms the builder's `interact`
+  tool — describing the intent in prose does not. Unarmed, the builder falls back to authoring and deleting a throwaway
   node per probe, silently. Arming lasts the conversation but lapses after an idle
-  hour, so put it in the first explore message and again after any long gap; a
+  hour, so put it in the first such message and again after any long gap; a
   repeat is free.
-- Text only — the builder's page access beats any image.
+- Text only — the builder reads the page directly, so a screenshot adds nothing.
 - Exact paths verbatim; a paraphrased path wires the wrong variable silently.
 - Default completion: a debug execution succeeds. Spell out extras only for unusual
   components.
 
 ## The schema block
 
-A task that registers or extends `input_schema` carries the conventions with it.
-They live in `input-schema.md`, but a builder composing a slice does not re-derive
-them from the standard unprompted — it produces something reasonable-looking and
-locally wrong, and the divergence only surfaces when a payload is rejected at run
-start. Prefer registering new inputs beneath the consuming component's dotted path.
-Restating the conventions costs five lines per message:
+A task that registers or extends `input_schema` restates the conventions in the
+message (they live in `input-schema.md`) — a slice composed without them looks right
+and fails when a payload is rejected at run start. Register new inputs beneath the
+consuming component's dotted path. The conventions:
 
 > **Schema conventions:** scalar leaves a `run_if IS_NOT_NULL` can skip are typed
 > `["<type>","null"]` — null is the absence value, empty string never is. Every key
@@ -48,15 +49,14 @@ Restating the conventions costs five lines per message:
 > examples. Never `required` inside a `then` — narrow types in `then.properties`
 > instead. Every object using `contains` carries a sibling `"type": "array"`.
 
-This is the default, not a law. A component whose shape genuinely wants something
-else — a leaf that must never be null, an object that legitimately takes unknown
-keys — diverges deliberately and **says so in the task message**, so the difference
-reads as a decision rather than an oversight. What the block prevents is the silent
-kind: a slice that diverges because nobody stated the default.
+A component whose shape genuinely wants something else — a leaf that must never be
+null, an object that legitimately takes unknown keys — diverges deliberately and
+**says so in the task message**. A slice that diverges silently, because nobody
+stated the default, is the failure this prevents.
 
-After the component executes, component creation is a separate builder task: “Create a reusable
-component named <name> from the nodes built for <plan component>.” Do not treat
-`saveWorkflow` as component creation.
+Component creation is the tail of the same turn: after proving the nodes, the builder
+saves the reusable component from them. Name the component and the exact node set in
+the task message. Saving the component is distinct from `saveWorkflow`.
 
 ## Worked example: branching track
 
@@ -110,10 +110,9 @@ says explicitly that it isn't new:
 > "the follow-up note field should read 'Callback confirmed for ' followed by the
 > existing `context.inputs.caller_phone` — don't register a second phone variable"
 
-Drop that last clause and "the caller's phone number from before" resolves fine in
-a human's memory but isn't a path — the builder can't distinguish "the thing three
-steps back" from "a new field that happens to sound similar," and it'll either mint
-a stray `phone_number` variable while `caller_phone` sits unused, or the reverse.
+Drop that last clause and the builder can't tell "the phone from before" from a new
+field — it mints a stray `phone_number` while `caller_phone` sits unused, or the
+reverse.
 
 Output uses the linear track's fixed convention, so the message only needs to name
 the fields, not the mechanism:
@@ -123,4 +122,6 @@ the fields, not the mechanism:
 
 ## Status
 
-DONE.
+The dispatch unit is one component-owning turn (explore, build, prove, save, or a
+stop-to-ask). Schema conventions ride in the message until the AJV build-time gate
+lands. Worked examples hold as single-component messages.

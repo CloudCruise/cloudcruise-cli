@@ -7,10 +7,16 @@ import { SkillsIncompatibleError, fail } from "./exit.js"
  * Skills-staleness / compatibility check.
  *
  * Two copies of every skill exist: the SOURCE bundled in the CLI package
- * (`<pkg>/skills/`) and the INSTALLED copy in a project's `.claude/skills/`
- * written by `cloudcruise install --skills`. Only the installed copy drifts, so
- * this check runs against the current project's `.claude/skills/` and compares
- * each pack's install-time manifest to the running CLI version.
+ * (`<pkg>/skills/`) and the INSTALLED copy under a project's skills root written
+ * by `cloudcruise install --skills`. Only the installed copy drifts, so this check
+ * runs against the current project's skills roots and compares each pack's
+ * install-time manifest to the running CLI version.
+ *
+ * A project may install to more than one root — `.claude/skills/` (Claude Code),
+ * `.cursor/skills/` (Cursor), `.agents/skills/` (Codex/Devin) — so all three are
+ * scanned. A pack installed to several roots is deduped to its OLDEST copy, so
+ * drift surfaces if any copy is stale. (User-level/global roots are not scanned;
+ * install is project-scoped today.)
  *
  * Scoped to the command groups the skill family actually drives
  * (builder/run/workflows); every other command is untouched. A pack with no
@@ -62,28 +68,51 @@ export function compareVersions(a: string, b: string): number {
   return 0
 }
 
-function skillsRoot(cwd: string): string {
-  return join(cwd, ".claude", "skills")
+// The project-level skills roots an install may have written to. Kept in sync
+// with install.ts's TARGET_ROOTS (project scope only — no user-level roots).
+function skillsRoots(cwd: string): string[] {
+  return [
+    join(cwd, ".claude", "skills"),
+    join(cwd, ".cursor", "skills"),
+    join(cwd, ".agents", "skills")
+  ]
 }
 
-/** Read every installed pack manifest under `<cwd>/.claude/skills/`. */
+/** True if any project skills root exists. */
+function anySkillsRoot(cwd: string): boolean {
+  return skillsRoots(cwd).some((r) => existsSync(r))
+}
+
+/**
+ * Read every installed pack manifest across the project's skills roots. A pack
+ * installed to several roots is deduped to its OLDEST-versioned copy, so a stale
+ * copy in any root still surfaces.
+ */
 export function readInstalledManifests(cwd: string): SkillManifest[] {
-  const root = skillsRoot(cwd)
-  if (!existsSync(root)) return []
-  const manifests: SkillManifest[] = []
-  for (const entry of readdirSync(root)) {
-    const path = join(root, entry, MANIFEST_FILE)
-    if (!existsSync(path)) continue
-    try {
-      const m = JSON.parse(readFileSync(path, "utf-8")) as SkillManifest
-      if (m && typeof m.cliVersion === "string") {
-        manifests.push({ ...m, pack: m.pack ?? entry })
+  const byPack = new Map<string, SkillManifest>()
+  for (const root of skillsRoots(cwd)) {
+    if (!existsSync(root)) continue
+    for (const entry of readdirSync(root)) {
+      const path = join(root, entry, MANIFEST_FILE)
+      if (!existsSync(path)) continue
+      try {
+        const m = JSON.parse(readFileSync(path, "utf-8")) as SkillManifest
+        if (!m || typeof m.cliVersion !== "string") continue
+        const manifest: SkillManifest = { ...m, pack: m.pack ?? entry }
+        const existing = byPack.get(manifest.pack)
+        // Keep the oldest copy: worst-case drift for this pack.
+        if (
+          !existing ||
+          compareVersions(manifest.cliVersion, existing.cliVersion) < 0
+        ) {
+          byPack.set(manifest.pack, manifest)
+        }
+      } catch {
+        // Malformed manifest — skip this pack rather than break the command.
       }
-    } catch {
-      // Malformed manifest — skip this pack rather than break the command.
     }
   }
-  return manifests
+  return [...byPack.values()]
 }
 
 export function computeSkillsStatus(cwd: string): SkillsStatus {
@@ -143,7 +172,7 @@ export function checkInstalledSkills(topLevelGroup: string | undefined): void {
   let status: SkillsStatus
   try {
     const cwd = process.cwd()
-    if (!existsSync(skillsRoot(cwd))) return
+    if (!anySkillsRoot(cwd)) return
     status = computeSkillsStatus(cwd)
   } catch {
     return

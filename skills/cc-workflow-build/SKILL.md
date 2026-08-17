@@ -1,6 +1,6 @@
 ---
 name: cc-workflow-build
-description: Drive the CloudCruise builder agent through the per-component (branching) or per-step (linear) build loop for a planned workflow - explore each one, derive its schema slice, implement it via builder tasks, execute once, save as a component, and advance the plan markers. Use when a plan has unfinished components or steps.
+description: Drive the CloudCruise builder agent through the build loop for a planned workflow - each task hands the builder one component to explore (interact), build, prove, and save as a component; the builder runs it through or stops to ask, then the plan markers advance. Use when a plan has unfinished components or steps.
 ---
 
 # cc-workflow-build — the per-component loop
@@ -19,102 +19,99 @@ session pointed at the plan resumes from the first unfinished component.
 
 ## The loop, per component
 
-1. **Explore.** Earn the component's schema slice — for linear this is often one
-   walk of the single path; for branching it's the step that earns its keep. The
-   instrument is the builder's `interact` tool.
+**The task is one component, stated as a goal.** The builder carries it through one
+turn — explore with interact, build the nodes, prove them, save the component — or
+stops partway and hands back for direction. What a turn covers:
 
-   **Whose tool it is.** `interact` belongs to the builder agent, not to you. You
-   never call it; you tell the builder to, in the task message. It is **off by
-   default** and armed by a literal `/interact` token in the message you send —
-   prose about interacting ("probe the dropdown", "explore the section") never arms
-   it. Unarmed, the builder silently falls back to the transient-node probe:
-   authoring, running and deleting a throwaway node per probe. No error, no warning
-   — just the slow path and a version bump each time. Arming persists for the
-   conversation but expires after an hour idle, so arm the first explore message and
-   re-arm after any long pause; repeating the token costs nothing.
+### Explore and build
 
-   **What it does.** Touches the live page — `click`, `input` (focus, clear, type),
-   `select` (native `<select>` only; the value is the option's exact visible text) —
-   and **never writes to the graph**: no node, no version bump, nothing to clean up
-   afterwards. The target is a `ref` from the most recent `ariaSnapshot`, or a
-   validated xpath; prefer the ref. Refs from a superseded snapshot are rejected as
-   stale.
+Explore only as far as the component needs; build as soon as a probe tells you
+enough. Chain while probes come back clean; when one surprises you, back up and
+follow what changed.
 
-   **What comes back** is a structural diff of what the page did: a `page.kind` of
-   `none` / `reveal` / `hide` / `modal` / `replaced`, whether the URL changed,
-   added/removed/changed counts with a summary of what appeared, fresh refs for
-   everything new, and `targetState` for the element touched (`checked`, `selected`,
-   `expanded`, `pressed`, `disabled`, `required`, `readonly`, `modal`, `focused`).
-   Chain the next probe off the returned refs — no re-snapshot in between.
+**Arm interact.** The turn's exploration instrument is the builder's `interact`
+tool — it belongs to the builder, not to you; you never call it, you arm it. It is
+off by default and armed by a literal `/interact` token in the message — prose about
+interacting never arms it. Unarmed, the builder silently falls back to authoring,
+running and deleting a throwaway node per probe: no error, no warning, just the slow
+path and a version bump each time. Arming persists for the conversation but expires
+after an idle hour, so arm the first such message and re-arm after any long pause;
+repeating the token costs nothing.
 
-   **Read state, don't assume it.** A checkbox still toggles on a bare click, so a
-   click is not "check" — but `targetState.checked` reports where it landed. Read
-   the current state, then click only if it differs from the state you want, and
-   confirm the result from the diff. That is state-declarative in practice even
-   though the tool takes no desired-state argument.
+**What it does.** Touches the live page — `click`, `input` (focus, clear, type),
+`select` (native `<select>` only; the value is the option's exact visible text) —
+and **never writes to the graph**: no node, no version bump, nothing to clean up.
+That makes it the tool for putting the page into whatever state the turn needs — an
+unknown one to learn from (explore), a known position after a session boundary
+(resume), or a known base (restore). The target is a `ref` from the most recent
+`ariaSnapshot`, or a validated xpath; prefer the ref. Refs from a superseded
+snapshot are rejected as stale.
 
-   A reveal may or may not already be in the static DOM before you actuate the
-   control that triggers it — absence of conditional markup is not absence of a
-   reveal. So "no reveal" is only ever an observed result, a `page.kind: none` diff
-   from actually clicking, never an inference from how the unactuated page looks.
+**What comes back** is a structural diff of what the page did: a `page.kind` of
+`none` / `reveal` / `hide` / `modal` / `replaced`, whether the URL changed,
+added/removed/changed counts with a summary of what appeared, fresh refs for
+everything new, and `targetState` for the element touched (`checked`, `selected`,
+`expanded`, `pressed`, `disabled`, `required`, `readonly`, `modal`, `focused`).
+Chain the next probe off the returned refs — no re-snapshot in between.
 
-   Act, read what appeared and disappeared, follow it, back out, try the next thing.
-   Depth and order are judgment calls, not a fixed procedure. Undo test state the
-   way you set it (re-click the box you ticked). Backing out is best-effort — if a
-   probe can't be cleanly undone, keep exploring from the drifted-but-known state
-   rather than pretending a clean baseline.
+**Read state, don't assume it.** A checkbox still toggles on a bare click, so a
+click is not "check" — but `targetState.checked` reports where it landed. Read the
+current state, then click only if it differs from the state you want, and confirm
+the result from the diff.
 
-   **Off limits while probing:** destructive and final-submit controls — delete,
-   place order, send. Dismissing a dialog or saving a form is usually fine and
-   sometimes necessary.
+A reveal may or may not already be in the static DOM before you actuate the control
+that triggers it — absence of conditional markup is not absence of a reveal. So "no
+reveal" is only ever an observed result, a `page.kind: none` diff from actually
+clicking, never an inference from how the unactuated page looks.
 
-   **When a probe surprises you** — nothing changed, the wrong element was hit, the
-   diff looks wrong — screenshot and look before retrying. The failure codes are
-   `no_snapshot` (probed before any snapshot), `stale_ref` (snapshot superseded —
-   take a fresh one), `unresolved` (target matched nothing), `missing_value`
-   (`input`/`select` without a value), `execution_failed`, `no_response`.
+Act, read what appeared and disappeared, follow it, back out, try the next thing —
+then build the nodes the probes justified. Depth and order are judgment calls, not a
+fixed procedure. Undo test state the way you set it (re-click the box you ticked).
+Backing out is best-effort — if a probe can't be cleanly undone, build from the
+drifted-but-known state rather than pretending a clean baseline.
 
-   If a modal or overlay gets stuck, dismiss it (Cancel/Escape) and re-seed from the
-   component's entry point — assume a full page reload drops in-progress form state
-   unless you've confirmed this target tolerates it.
-2. **Schema slice.** This component's `input_schema` slice per the schema standard,
-   if it writes, or the output shape per the track contract, if it extracts —
-   whichever the component actually does, at the structure its `track-branching.md`/
-   `track-linear.md` contract calls for. The slice is the hard artifact — whatever
-   the component's structure is (reveal relations and exclusivity for branching, a
-   flat field list for linear) lives here, not in prose. A `<select>`'s option list
-   truncates past 6 in the snapshot (`... N more options`) — on that marker the
-   enum has to come from the page HTML, not the probe, or you ship a truncated
-   enum that validates and then fails on the seventh option.
-3. **Implement.** One builder task per component, composed per the task-message
-   contract: goal + exact input paths + status skeleton. Goal, not clicks. Register
-   scales with the track — branching's fuller anatomy or linear's bare dispatch, per
-   `task-messages.md`'s two worked examples.
-4. **Execute once.** A single in-browser `executeWorkflow`, watched synchronously —
-   it runs to the target without erroring. **Once means once:** a failed
-   fill has already mutated the page, so re-running the same action fails on
-   side-effect state, not node correctness — it lies about the fix. Log fail and move
-   to the next component; free to inspect the failed page via DOM fetch or
-   screenshot — never by probing it with `interact`, which still acts on the live
-   page even though it creates no node. Never retry the mutating action or reopen a
-   prior component to re-fill it. Never trigger a real backend run from this loop.
+**Off limits while probing:** destructive and final-submit controls — delete, place
+order, send. Dismissing a dialog or saving a form is usually fine and sometimes
+necessary. Never trigger a real backend run from this loop.
 
-   **Once, from where the component starts** — not from Start. Execute from the
-   component's first node, or from the first node that runs cleanly given the
-   current browser state, which is usually the same thing. Re-running the whole
-   graph per component re-does every prior side effect (a fresh record per
-   component, on a live system) and grades the new component against a page that
-   arrived by a different route. Treat "usually the component's first node" as a
-   default, not a rule.
+**When a probe surprises you** — nothing changed, the wrong element was hit, the diff
+looks wrong — screenshot and look before retrying. The failure codes are
+`no_snapshot` (probed before any snapshot), `stale_ref` (snapshot superseded — take a
+fresh one), `unresolved` (target matched nothing), `missing_value` (`input`/`select`
+without a value), `execution_failed`, `no_response`. If a modal or overlay gets
+stuck, dismiss it (Cancel/Escape) and re-seed from the component's entry point —
+assume a full page reload drops in-progress form state unless you've confirmed this
+target tolerates it.
 
-   Pick an **unguarded** node as the execution target. Targeting a node whose own
-   `run_if` skips it for this payload reports `no longer reachable from current
-   position` — a false failure that reads exactly like a broken node.
-5. **Create a reusable component** — pass or fail, not blocking. Send the builder a
-   follow-up task explicitly asking it to create a reusable component from the
-   nodes built for this plan component. Give the component name and identify the
-   exact node set. This is distinct from saving the workflow.
-6. **Mark and advance.** Update the plan marker, move to the next component.
+**Schema is a code gate.** A component that writes produces its `input_schema` slice
+per the standard — the hard artifact, carrying the reveal relations and exclusivity
+for branching or the flat field list for linear. The scar rules (`then.properties`
+not `then.required`, null-is-absence typing, `additionalProperties: false` on every
+object, `contains` with a sibling `type: array`) are enforced by the AJV gate. A
+`<select>`'s option list truncates past 6 in the snapshot (`... N more options`); on
+that marker the enum comes from the page HTML, not the probe, or a truncated enum
+validates and then fails on the seventh option.
+
+**Prove it, from the component's start.** Run the built nodes to confirm they reach
+the target without erroring. Run from the component's first node, or the first that
+runs cleanly given current browser state — **never from Start**: re-running the whole
+graph re-does every prior side effect (a fresh record per component, on a live
+system) and grades the component against a page that arrived by a different route.
+Pick an **unguarded** target — a node whose own `run_if` skips it for this payload
+reports `no longer reachable from current position`, a false failure that reads like
+a broken node. Never a real backend run. On a fail, a bare re-run grades the page the
+last attempt already mutated, not the fix — restore a clean base with `interact` and
+retry, or hand back.
+
+**Save as a component.** After proving the nodes, save the reusable component from
+them in the same turn. Name the component and the exact node set. Saving a component
+is distinct from saving the workflow.
+
+### Advance
+
+When a component is done, mark it `[x]` and move to the next. When the builder stops
+to ask, `wait-builder-turn.sh` returns `7` with the question on stdout — relay it,
+get direction, mark `[→]`, and resume the same conversation.
 
 ## Awaiting a builder turn
 
@@ -156,9 +153,11 @@ Hand off to `cc-workflow-test`. Firing real runs belongs to the test stage, not 
 
 ## Status
 
-Loop settled. Explore is documented against the real `interact` tool, which is
-opt-in per conversation (`/interact`) and ships on the monorepo `interact-tool`
-branch. Where it isn't available the step still works — the builder falls back to
-the transient-node probe, slower and one version bump per probe. The per-turn wait
-is backed by `scripts/wait-builder-turn.sh` (exit code = turn outcome), covered by
+Open items. The schema AJV gate isn't built yet — pull the oracle forward from
+`gen-payloads.mjs` into build time; until it lands, the input-schema conventions ride
+in the task message (see `task-messages.md`). Turn-outcome verification (ran-clean,
+component persisted) is folded into a pending report overhaul. `interact` is opt-in
+per conversation (`/interact`), on the monorepo `interact-tool` branch; without it the
+turn falls back to the slower transient-node probe. The per-turn wait is
+`scripts/wait-builder-turn.sh` (exit code = outcome), covered by
 `test/wait-builder-turn.test.ts`.

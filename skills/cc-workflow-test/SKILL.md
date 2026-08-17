@@ -5,11 +5,10 @@ description: Test a handoff-ready CloudCruise workflow entirely inside builder-a
 
 # cc-workflow-test — runs against expectations
 
-Never fires a real backend run. A real run is slower and ends up needing a builder
-session to fix anything anyway, so testing happens entirely inside one continuous
-builder session, dry-run, driven by the interact tool for diagnosis. The same loop
-runs for every workflow — `complexity` doesn't reach into this skill, and neither
-does what the workflow does with what it finds.
+Never fires a real backend run — testing happens entirely inside one continuous
+builder session, dry-run, driven by interact for diagnosis. The same loop runs for
+every workflow; `complexity` doesn't reach into this skill, and neither does what the
+workflow does with what it finds.
 
 ## The loop
 
@@ -25,7 +24,7 @@ does what the workflow does with what it finds.
      you continue past it; come back to it once the pass finishes.
    - **Fix and rewind** — only when continuing is otherwise impossible and the fix is
      small and mechanical (bad selector, timing, a stale reference) — correct it,
-     resume from this point, once.
+     restore the page to this point with `interact`, then re-run once.
    - **Block and alert** — anything that would require guessing intended behavior
      rather than mechanics. Never guess business logic; surface it for a human.
 4. **Grade: did the workflow complete.**

@@ -10,13 +10,32 @@ import {
   rmSync,
   writeFileSync
 } from "fs"
-import { join, dirname, basename } from "path"
+import { join, dirname } from "path"
 import { fileURLToPath } from "url"
 import { outputJson, outputError } from "../core/output.js"
 import { CLI_VERSION } from "../core/version.js"
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
+
+// Each target agent reads skills from its own project-level dir. Several agents
+// share the cross-agent `.agents/skills/` convention (Codex, Devin, and Cursor as
+// a fallback), so multiple target names resolve to the same root; installs dedupe
+// by resolved path so `--target all` never copies a root twice.
+const TARGET_ROOTS: Record<string, string[]> = {
+  claude: [join(".claude", "skills")],
+  cursor: [join(".cursor", "skills")],
+  codex: [join(".agents", "skills")],
+  devin: [join(".agents", "skills")],
+  agents: [join(".agents", "skills")],
+  all: [
+    join(".claude", "skills"),
+    join(".cursor", "skills"),
+    join(".agents", "skills")
+  ]
+}
+
+const VALID_TARGETS = Object.keys(TARGET_ROOTS).join(", ")
 
 function getSkillsRootDir(): string {
   return join(__dirname, "..", "..", "..", "skills")
@@ -30,12 +49,6 @@ function listSourcePacks(): string[] {
       (e) => e.isDirectory() && existsSync(join(root, e.name, "SKILL.md"))
     )
     .map((e) => e.name)
-}
-
-// Strip a leading YAML frontmatter block (--- ... ---) so it doesn't leak into
-// the Cursor .mdc wrapper, which prepends its own frontmatter header.
-function stripFrontmatter(md: string): string {
-  return md.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, "")
 }
 
 // Read the pack's `sharedReferences` sidecar field: the name of a directory
@@ -85,17 +98,20 @@ function writeSkillManifest(
   )
 }
 
-function installClaudeSkills(cwd: string): string[] {
-  const skillsRoot = join(cwd, ".claude", "skills")
+// Copy every source pack into one target's skills root. Every agent that reads
+// the SKILL.md format (Claude Code, Cursor native, Codex, Devin) takes the same
+// unmodified pack tree — the only difference between targets is this root.
+//
+// Shared reference dirs (skills/_shared/*) are symlinked into their consumer
+// packs in the repo; the installed copy materializes them as real files so each
+// installed pack is self-contained. Two paths get them there:
+// - repo/dev: the symlink is present — replace it with a real copy (cpSync's
+//   `dereference` does not reliably dereference directory symlinks);
+// - npm tarball: npm strips symlinks entirely, so the pack declares its shared
+//   dir in skill.meta.json (`sharedReferences`) and it's copied from _shared/.
+function installPacksToRoot(skillsRoot: string): string[] {
   const installed: string[] = []
 
-  // Shared reference dirs (skills/_shared/*) are symlinked into their consumer
-  // packs in the repo; the installed copy materializes them as real files so
-  // each installed pack is self-contained. Two paths get them there:
-  // - repo/dev: the symlink is present — replace it with a real copy (cpSync's
-  //   `dereference` does not reliably dereference directory symlinks);
-  // - npm tarball: npm strips symlinks entirely, so the pack declares its shared
-  //   dir in skill.meta.json (`sharedReferences`) and it's copied from _shared/.
   for (const pack of listSourcePacks()) {
     const source = join(getSkillsRootDir(), pack)
     const dest = join(skillsRoot, pack)
@@ -124,49 +140,19 @@ function installClaudeSkills(cwd: string): string[] {
   return installed
 }
 
-function installCursorSkills(cwd: string): string[] {
-  const destDir = join(cwd, ".cursor", "rules")
-  mkdirSync(destDir, { recursive: true })
-  const installed: string[] = []
-
-  const cliContent = stripFrontmatter(
-    readFileSync(join(getSkillsRootDir(), "cloudcruise", "SKILL.md"), "utf-8")
+// Prior `--target cursor` installs wrote `.cursor/rules/cloudcruise-*.mdc`
+// (always-on rules, only the two reference skills). Native `.cursor/skills/`
+// replaces that path; the installer no longer manages the old files, so surface
+// them for the user to delete by hand rather than silently leaving cruft.
+function staleCursorRuleNotes(cwd: string): string[] {
+  const rulesDir = join(cwd, ".cursor", "rules")
+  const legacy = ["cloudcruise-cli.mdc", "cloudcruise-workflow-dsl.mdc"].filter(
+    (f) => existsSync(join(rulesDir, f))
   )
-
-  const mainMdc = `---
-description: CloudCruise CLI usage reference for managing workflows and runs
-globs:
-alwaysApply: true
----
-
-${cliContent}`
-
-  const mainDest = join(destDir, "cloudcruise-cli.mdc")
-  writeFileSync(mainDest, mainMdc)
-  installed.push(mainDest)
-
-  const dslSource = join(
-    getSkillsRootDir(),
-    "cloudcruise-workflow-dsl",
-    "SKILL.md"
-  )
-  if (existsSync(dslSource)) {
-    const dslContent = stripFrontmatter(readFileSync(dslSource, "utf-8"))
-
-    const dslMdc = `---
-description: CloudCruise workflow-dsl reference - read this when editing or debugging CloudCruise workflows
-globs:
-alwaysApply: false
----
-
-${dslContent}`
-
-    const dslDest = join(destDir, "cloudcruise-workflow-dsl.mdc")
-    writeFileSync(dslDest, dslMdc)
-    installed.push(dslDest)
-  }
-
-  return installed
+  if (legacy.length === 0) return []
+  return [
+    `Cursor skills now install to .cursor/skills/ (native). Old rule files remain at ${join(".cursor", "rules")}/${legacy.join(", ")} — remove them by hand if unused.`
+  ]
 }
 
 export function registerInstallCommands(program: Command): void {
@@ -176,14 +162,20 @@ export function registerInstallCommands(program: Command): void {
     .option("--skills", "Install skill files for coding agents")
     .option(
       "--target <agent>",
-      "Target agent: claude, cursor, all (default: all)",
+      `Target agent: ${VALID_TARGETS} (default: all)`,
       "all"
     )
     .addHelpText("after", `
+Targets:
+  claude              → .claude/skills/
+  cursor              → .cursor/skills/
+  codex, devin, agents→ .agents/skills/   (shared cross-agent convention)
+  all                 → all three roots
+
 Examples:
   $ cloudcruise install --skills
   $ cloudcruise install --skills --target cursor
-  $ cloudcruise install --skills --target claude
+  $ cloudcruise install --skills --target codex
 `)
     .action((opts: { skills?: boolean; target: string }) => {
       if (!opts.skills) {
@@ -193,31 +185,31 @@ Examples:
         process.exit(1)
       }
 
+      const target = opts.target.toLowerCase()
+      const relRoots = TARGET_ROOTS[target]
+      if (!relRoots) {
+        outputError(`Unknown target "${opts.target}". Use: ${VALID_TARGETS}`)
+        process.exit(1)
+      }
+
       try {
         const cwd = process.cwd()
+        // Dedupe by resolved root so aliases sharing a root (codex/devin/agents,
+        // or `all`) install it once.
+        const roots = [...new Set(relRoots.map((r) => join(cwd, r)))]
         const installed: string[] = []
-        const target = opts.target.toLowerCase()
-
-        if (target === "claude" || target === "all") {
-          const dests = installClaudeSkills(cwd)
-          installed.push(...dests)
+        for (const root of roots) {
+          installed.push(...installPacksToRoot(root))
         }
 
-        if (target === "cursor" || target === "all") {
-          const dests = installCursorSkills(cwd)
-          installed.push(...dests)
-        }
-
-        if (target !== "claude" && target !== "cursor" && target !== "all") {
-          outputError(
-            `Unknown target "${opts.target}". Use: claude, cursor, all`
-          )
-          process.exit(1)
-        }
+        const notes = relRoots.some((r) => r === join(".cursor", "skills"))
+          ? staleCursorRuleNotes(cwd)
+          : []
 
         outputJson({
           status: "ok",
-          installed
+          installed,
+          ...(notes.length ? { notes } : {})
         })
       } catch (err: unknown) {
         outputError(err instanceof Error ? err.message : String(err))

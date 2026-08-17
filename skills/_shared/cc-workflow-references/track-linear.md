@@ -22,9 +22,8 @@ branching-contract slots that manufacture structure a linear workflow doesn't ha
 
 The **output shape**, for a workflow that extracts data, or the **input schema**,
 for one that writes it — confirmed against census from the fields named at intake.
-Node naming is plainly descriptive — isomorphism does not apply (tried on a small
-graph, it bought nothing; the convention earns its keep on branching's larger
-graphs).
+Node naming is plainly descriptive — isomorphism does not apply (small graphs; see
+`node-naming.md`).
 
 ## Output convention (extraction, fixed, never per-workflow)
 

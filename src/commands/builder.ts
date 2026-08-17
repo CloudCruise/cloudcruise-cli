@@ -4,7 +4,13 @@ import { writeFileSync } from "fs"
 import { resolveAuth } from "../core/auth.js"
 import { ApiClient, ApiError } from "../core/api-client.js"
 import { outputJson, stripBase64 } from "../core/output.js"
-import { fail, echoSession, exitCodeForStatus, UsageError } from "../core/exit.js"
+import {
+  fail,
+  echoSession,
+  exitCodeForStatus,
+  ExitCode,
+  UsageError
+} from "../core/exit.js"
 import { addAuthOptions, type AuthOptions } from "../core/auth-options.js"
 import {
   resolveConversation,
@@ -478,6 +484,16 @@ agent's response with 'cloudcruise builder status'.
     fields: HumanInputField[]
   }
 
+  // The turn-state endpoint (server-owned) folds the terminal-state
+  // classification AND the report/humanInput extraction into one poll-friendly
+  // response, so `await-turn` never re-derives either client-side.
+  interface TurnState {
+    conversationId: string
+    phase: BuilderStatus
+    report?: string // present when phase === "completed"
+    humanInput?: HumanInput // present when phase === "awaiting-human-input"
+  }
+
   interface MessagesResponse {
     messages: Record<string, unknown>[]
     total?: number
@@ -767,6 +783,138 @@ observations therefore exit non-zero — a nonzero status is the state, not a fa
       .command("poll", { hidden: true })
       .description("Deprecated alias for 'builder status'")
   )).action(statusAction)
+
+  // ── builder await-turn ─────────────────────────────────────────
+  // Thin poll over the server /turn-state endpoint until the turn settles.
+  // The endpoint owns the terminal-state enum and the report/humanInput
+  // extraction; this command only maps the phase to an exit code and prints
+  // what the phase carries. The exit code is the whole contract — a driver
+  // switches on it and never parses stdout to decide.
+  const sleep = (ms: number): Promise<void> =>
+    new Promise((resolve) => setTimeout(resolve, ms))
+
+  // Non-negative-integer flag or its default; a bad value is a usage error.
+  const parseSeconds = (
+    raw: string | undefined,
+    flag: string,
+    fallback: number
+  ): number => {
+    if (raw === undefined) return fallback
+    if (!/^\d+$/.test(raw)) {
+      throw new UsageError(`--${flag} must be a non-negative integer`)
+    }
+    return parseInt(raw, 10)
+  }
+
+  const awaitTurnAction = async (
+    opts: ConversationOptions & {
+      pollSeconds?: string
+      timeoutSeconds?: string
+    }
+  ): Promise<never> => {
+    try {
+      const pollMs = parseSeconds(opts.pollSeconds, "poll-seconds", 15) * 1000
+      const timeoutMs =
+        parseSeconds(opts.timeoutSeconds, "timeout-seconds", 1800) * 1000
+      const auth = await resolveAuth(opts)
+      const client = new ApiClient(auth)
+      const { conversationId, source } = await resolveConversation(
+        client,
+        opts,
+        auth.workspaceId
+      )
+      echoSession(conversationId, source)
+
+      const deadline = Date.now() + timeoutMs
+      for (;;) {
+        // /turn-state doubles as the keepalive while a long turn runs, exactly
+        // as /status does — polling it prevents idle-expiry mid-turn.
+        const state = await withAutoFollow(
+          client,
+          conversationId,
+          true,
+          auth.workspaceId,
+          (id) => client.get<TurnState>(`${BASE}/${id}/turn-state`)
+        ).then((r) => r.result)
+
+        switch (state.phase) {
+          case "completed": {
+            const report = (state.report ?? "").trim()
+            if (!report) {
+              // A completed turn with no report is a server contract violation,
+              // not a clean pass — a driver must not advance on an empty report.
+              process.stderr.write(
+                "await-turn: turn completed but /turn-state returned no report\n"
+              )
+              process.exit(ExitCode.FAILURE)
+            }
+            // stdout is ONLY the report — no status/poll noise leaks in.
+            process.stdout.write(`${report}\n`)
+            process.exit(ExitCode.SUCCESS)
+            break
+          }
+          case "awaiting-human-input":
+            outputJson({ phase: state.phase, humanInput: state.humanInput })
+            process.exit(ExitCode.AWAITING_HUMAN_INPUT)
+            break
+          case "agent-errored":
+            outputJson(state)
+            process.exit(ExitCode.AGENT_ERROR)
+            break
+          case "idle":
+          case "ended":
+            // No turn completed. Not a poll failure — a real "nothing to await"
+            // outcome the caller must handle, not proceed past.
+            outputJson(state)
+            process.stderr.write(
+              `await-turn: conversation ${state.phase} before a turn completed\n`
+            )
+            process.exit(ExitCode.FAILURE)
+            break
+          case "processing":
+          default: {
+            // `default` covers an unrecognized (future) phase: keep polling
+            // rather than fail open, so a new transient status is safe and a new
+            // terminal one is bounded by the deadline.
+            const remaining = deadline - Date.now()
+            if (remaining <= 0) {
+              process.stderr.write(
+                `await-turn: timed out after ${timeoutMs / 1000}s (still processing)\n`
+              )
+              process.exit(ExitCode.TIMEOUT)
+            }
+            await sleep(Math.min(pollMs, remaining))
+          }
+        }
+      }
+    } catch (err: unknown) {
+      fail(err)
+    }
+  }
+
+  addConversationOption(addAuthOptions(
+    builder
+      .command("await-turn")
+      .description("Block until the current builder turn settles; print its report")
+      .option(
+        "--poll-seconds <n>",
+        "Seconds between /turn-state polls (default 15)"
+      )
+      .option(
+        "--timeout-seconds <n>",
+        "Give up after this many seconds still processing (default 1800)"
+      )
+  )).addHelpText("after", `
+Polls /turn-state until the turn is terminal, then maps the phase to an exit
+code — the whole contract is the exit code, so a driver never parses stdout:
+  0   completed          stdout = the assistant report (plain text)
+  7   awaiting-human-input  stdout = { phase, humanInput } (feed 'builder respond')
+  8   agent-errored      stdout = the turn-state JSON
+  9   timed out still processing (raise --timeout-seconds or re-run)
+  1   idle / ended before a turn completed, or completed with no report
+  2   bad --poll-seconds / --timeout-seconds
+Other codes are the underlying API error (3 auth, 4 not-found, …), passed through.
+`).action(awaitTurnAction)
 
   // ── builder open ───────────────────────────────────────────────
   addConversationOption(addAuthOptions(
