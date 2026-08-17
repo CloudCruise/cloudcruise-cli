@@ -34,7 +34,16 @@ export function encryptionKeyAccountForProfile(profile: string): string {
 
 export function loadOAuthTokens(account: string): OAuthTokens | null {
   try {
-    const raw = new Entry(SERVICE, account).getPassword()
+    const entry = new Entry(SERVICE, account)
+    const secret = entry.getSecret()
+    if (secret) {
+      try {
+        return JSON.parse(Buffer.from(secret).toString("utf8")) as OAuthTokens
+      } catch {
+        /* empty */
+      }
+    }
+    const raw = entry.getPassword()
     return raw ? (JSON.parse(raw) as OAuthTokens) : null
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err)
@@ -45,7 +54,9 @@ export function loadOAuthTokens(account: string): OAuthTokens | null {
 
 export function saveOAuthTokens(account: string, tokens: OAuthTokens): void {
   try {
-    new Entry(SERVICE, account).setPassword(JSON.stringify(tokens))
+    new Entry(SERVICE, account).setSecret(
+      Buffer.from(JSON.stringify(tokens), "utf8")
+    )
   } catch (err: unknown) {
     throw new Error(keychainUnavailableMessage(err))
   }

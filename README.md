@@ -89,7 +89,8 @@ cloudcruise snapshot test '//input[@name="email"]' --file ./snapshots/page.html
 | `workspaces show` | Show the active workspace for a profile |
 | `workspaces use <id>` | Set the active workspace for a profile |
 | `workspaces clear` | Clear the active workspace for a profile |
-| `workflows list` | List workflows (`--full` for details) |
+| `workflows list` | List workflows (`--full` for details, `--folder <path>` to scope to a folder) |
+| `workflows folders` | List workflow folders (`--path` to scope, `--search`) |
 | `workflows get <id>` | Get workflow definition |
 | `workflows versions <id>` | List workflow version history |
 | `workflows update <id>` | Update workflow (`--file`, `--stdin`, `--version-note`) |
@@ -105,6 +106,7 @@ cloudcruise snapshot test '//input[@name="email"]' --file ./snapshots/page.html
 | `run get <id>` | Get run status and results (poll until terminal) |
 | `run list` | List runs (`--workflow`, `--status`, `--limit`, `--since`) |
 | `run interrupt <id>` | Stop a running session |
+| `run respond <id>` | Submit user interaction data to a run waiting on a `USER_INTERACTION` node (`--data`, `--file`, `--stdin`) |
 | `run live-view <id>` | Get a fresh live-view connection (viewer URL + one-time auth token) for an active session |
 | `run errors <id>` | Error analytics (`--since`, `--limit`) |
 | `run snapshots <id> <node_id>` | Get debug snapshot metadata |
