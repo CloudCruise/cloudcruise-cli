@@ -6,12 +6,12 @@ directly; `input-text.md` needs neither.
 
 ## Extraction mode
 
-Declared once, up front, in `cc-workflow-setup` step 4, for whatever modality mix
+Inferred once, up front, in `cc-workflow-setup` step 4, for whatever modality mix
 is in play: **strict steps** (a fixed linear sequence — read for what happened, in
 order) or **the shape of the path to the goal** (real branching — read for what's
 conditional on what). This aims the read; it doesn't fix `complexity`, which is
-still set from what the draft actually turns out to be — observed, not asked, even
-though the mode was.
+still set from what the draft actually turns out to be. Both are observed, not
+asked.
 
 ## Video → frames
 

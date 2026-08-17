@@ -5,12 +5,12 @@ no transcript, no subagent.
 
 ## Extraction mode
 
-Setup asks once, whichever modality mix is in play: is this workflow **strict
-steps** (a fixed linear sequence) or **the shape of the path to the goal** (real
-branching, worth mapping structurally)? For text alone this is usually obvious
-from how the user phrases it — a numbered "click this, then this" description is
-steps; a description that names conditions, pages, or "depends on" is shape. Ask
-only when it's genuinely ambiguous.
+Setup infers this once, whichever modality mix is in play: is this workflow
+**strict steps** (a fixed linear sequence) or **the shape of the path to the goal**
+(real branching, worth mapping structurally)? For text alone it's read from how the
+user phrases it — a numbered "click this, then this" description is steps; a
+description that names conditions, pages, or "depends on" is shape. Inferred, not
+asked; a wrong call gets corrected in the draft-review amend loop.
 
 ## Mapping
 

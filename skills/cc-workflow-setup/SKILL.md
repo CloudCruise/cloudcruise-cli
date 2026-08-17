@@ -17,7 +17,8 @@ downstream re-asks what the plan already answers.
 
 ## Process
 
-1. **Goal intake.** Take the goal.
+1. **Goal intake.** Take the goal and the name.
+   Slugify the name silently for the `cc-workflows/<slug>/` directory.
 2. **Stub on disk first.** Write the plan header (goal, config keys) before any
    exploration — an interruption never loses the goal.
 3. **Gather config.** Profile, workspace, `vault_user_id` + `vault_domain`, start URL.
@@ -25,14 +26,14 @@ downstream re-asks what the plan already answers.
    stage writes it after `builder start`.
 4. **Gather context, draft the skeleton, confirm.** Ask the user which of typed
    description / screenshots / screen recording they want to give — one or several,
-   combined is fine — and whether it's strict steps or the shape of the path to
-   the goal (skip the ask when it's already obvious from what's given). See the
-   matching `references/input-*.md` for how each modality maps in under that mode.
+   combined is fine. Infer the extraction mode — strict steps vs the shape of the
+   path to the goal — from what they hand over; don't ask. See the matching
+   `references/input-*.md` for how each modality maps in under that mode.
    Draft skeleton content in whichever shape the gathered context actually
    calls for — flat ordered steps per `track-linear.md`, or goal-oriented
    components at the granularity `track-branching.md` pins down — and set
-   `complexity` to match what got drafted; it's observed, not asked, even though
-   the extraction mode was. Present the draft back and record the outcome as
+   `complexity` to match what got drafted; both `complexity` and the extraction
+   mode are observed, not asked. Present the draft back and record the outcome as
    `skeleton_status` in the plan header:
    - **Accept** → `accepted`, proceed to step 5.
    - **Amend** → redraft with the feedback (including a wrong `complexity` call —
