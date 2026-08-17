@@ -1,35 +1,61 @@
 ---
 name: cc-workflow-test
-description: Test a handoff-ready CloudCruise workflow inside builder-agent dry-runs — run the build's example input set through to the end, investigate errors with the interact tool, fix the confident ones live and block the rest, and hand back an errors+fixes ledger. Use when a plan's build markers are all done.
+description: Test a handoff-ready CloudCruise workflow inside builder-agent dry-runs — queue payloads with the user at a confirmation gate, run each through to the end, investigate errors with the interact tool, fix the confident ones live and block the rest, and hand back an errors+fixes ledger. Use when a plan's build markers are all done.
 ---
 
 # cc-workflow-test
 
-Never fires a real backend run. Testing happens inside one continuous builder session, dry-run,
-driven by the interact tool. The same loop runs for every workflow.
+Never fires a real backend run. Testing happens inside builder sessions, dry-run, driven by
+the interact tool. Dry-runs still act on the real website — forms get filled and saved — so
+nothing dispatches until the user approves the payload queue at the gate.
+
+## The gate — queue payloads, get the go
+
+Runs before any builder session is opened or reused. Assemble the candidate queue, present
+it, wait for an explicit go.
+
+Payload sources:
+
+- **Example inputs** — the set the build left on the workflow (`--use-example-inputs`).
+  Default first entry.
+- **User-supplied** — JSON the user pastes or points at.
+- **Agent-authored** — drafted or edited per `references/payload-guidance.md`.
+
+Each entry is a file, `cc-workflows/<name>/payloads/<label>.json`, plus a label, source, and
+one-line intent. Present to the user:
+
+- workflow + version, environment, target site, credential the session will use, and that
+  dry-runs act on the live site
+- the queue: label · source · intent · distinguishing values
+- **how to reset between payloads — ask, don't decide**: fresh task per payload, restore to a
+  runnable point, or run against dirty state (findings discounted). Record the answer per entry.
+
+The user edits, reorders, drops, adds. Any payload added later — mid-test included — goes back
+through the gate. Never append silently.
+
+## Sessions
 
 If the plan header carries a live `conversation_id` (the build stage hands its session over
-rather than ending it), reuse that conversation — the browser is already logged in and
-positioned. Start a fresh one only when none is live: `builder edit --workflow <id>
---open-builder --use-example-inputs`. Clear `conversation_id` from the plan
-header when this stage ends the session.
+rather than ending it), reuse it for the first payload when that payload is the example set
+the session already carries. For any other payload — and for every payload after the first —
+end the current session, then load the payload into a fresh one keeping the logged-in browser:
+
+```
+builder edit --workflow <id> --input "$(cat cc-workflows/<name>/payloads/<label>.json)" \
+  --use-last-browser-state --open-builder [vault flags from the plan header]
+```
+
+Clear `conversation_id` from the plan header when this stage ends the session.
 
 ## The loop
 
-One dry-run of the build's example input set, through the fix pipeline:
+For each queued payload, in order:
 
-1. **Dry-run to the end** in the builder session, using the example input set the build left
-   on the workflow.
-2. **On each error, investigate → fix or block** (below). Continue to the end.
-3. **After any fix, verify** (below).
-4. **Log the errors and their fixes** to the ledger.
-
-## The input set
-
-Testing runs the example input set the build process created (the `--use-example-inputs`
-values the workflow already carries) — one set, one pass, no generation. It already includes
-whatever a run needs to select and reach its task, since the build ran the workflow with it.
-Multi-mode coverage (null/full/partial) is deferred; see Status.
+1. **Load the payload** into a session (above) and apply the entry's reset answer.
+2. **Dry-run to the end** in the builder session.
+3. **On each error, investigate → fix or block** (below). Continue to the end.
+4. **After any fix, verify** (below).
+5. **Log the errors and their fixes** to the ledger under the payload's label.
 
 ## Error handling — fix the sure ones, block the rest
 
@@ -60,13 +86,16 @@ Re-run the full chain to confirm the fix and that nothing upstream regressed. As
 
 ## Outputs
 
-- `cc-workflows/<name>/ledger.md` — errors + fixes, from `references/templates/test-audit.md`:
-  per error, `where · what failed · root cause · fix · verification`, or `blocked: <what's needed>`.
+- `cc-workflows/<name>/payloads/<label>.json` — every payload the gate approved, one file each.
+- `cc-workflows/<name>/ledger.md` — errors + fixes, from `references/templates/test-audit.md`,
+  keyed by payload label: per error, `where · what failed · root cause · fix · verification`,
+  or `blocked: <what's needed>`.
 - Rules discovered during testing (value constraints, null semantics, timing) codified back into
   the input_schema — never left as tribal knowledge.
 
 ## References
 
+- `references/payload-guidance.md` — how to draft and edit agent-authored payloads.
 - `references/track-branching.md` / `track-linear.md`.
 - `references/input-schema.md` — the standard the build wrote; codify discovered rules back into it.
 - `references/templates/test-audit.md`.

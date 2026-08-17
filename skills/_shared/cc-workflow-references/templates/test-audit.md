@@ -1,22 +1,20 @@
 # Test ledger — <workflow name>
 
-Per mode run and per error inside it. The errors and their fixes are the only record.
+Per payload run and per error inside it. The errors and their fixes are the only record.
 
-## Runs
+## Payload runs
 
-| mode | seed | reached end? |
-|------|------|--------------|
-| null | | |
-| partial | | |
-| partial | | |
-| full | | |
+| payload (label) | source | intent | reset used | reached end? |
+|-----------------|--------|--------|------------|--------------|
+| | | | | |
 
-Run `partial` across a few seeds — its coverage comes from which fields the seed fills.
+Payload files live in `payloads/<label>.json`. Source: `example` · `user` · `agent`.
+Reset: `fresh-task` · `restored` · `dirty (findings discounted)`.
 
 ## Errors + fixes
 
-| mode | where (node / page) | what failed | root cause | fix | verification |
-|------|---------------------|-------------|-----------|-----|--------------|
+| payload | where (node / page) | what failed | root cause | fix | verification |
+|---------|---------------------|-------------|-----------|-----|--------------|
 | | | | | | |
 
 - **fix**: `none` (localized, logged) · `<what was changed>` (confident mechanical fix) ·
