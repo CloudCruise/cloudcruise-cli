@@ -147,13 +147,3 @@ Hand off to `cc-workflow-test`. Firing real runs belongs to the test stage, not 
   drafted `complexity`.
 - The `cloudcruise` CLI skill for command mechanics; the `cloudcruise-workflow-dsl`
   skill for node semantics.
-
-## Status
-
-Open items. The schema is validated server-side (the same validator `run` and
-`workflows gen-payloads` use); a build-time pre-check isn't wired yet, so until it
-lands the input-schema conventions ride in the task message (see `task-messages.md`).
-Turn-outcome verification (ran-clean, component persisted) is folded into a pending
-report overhaul. `interact` is opt-in per conversation (`/interact`), on the monorepo
-`interact-tool` branch; without it the turn falls back to the slower transient-node
-probe.

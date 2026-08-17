@@ -119,9 +119,3 @@ the fields, not the mechanism:
 
 > "extract the claim status and confirmation number, the standard way" — "the
 > standard way" is `track-linear.md`'s fixed screenshot-plus-extract-datamodel pair.
-
-## Status
-
-The dispatch unit is one component-owning turn (explore, build, prove, save, or a
-stop-to-ask). Schema conventions ride in the message until the AJV build-time gate
-lands. Worked examples hold as single-component messages.

@@ -30,7 +30,3 @@ missed or split across two partial reads.
 Whatever came back — one direct read or several batch subagents' partial reads —
 gets stitched into one skeleton draft by the calling setup flow, per the declared
 extraction mode. Same merge step as `input-recording.md`.
-
-## Status
-
-DONE.

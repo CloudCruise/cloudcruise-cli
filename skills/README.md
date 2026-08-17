@@ -14,8 +14,8 @@ skills/
 ├── cc-workflow-setup/        goal intake, config, gather → draft skeleton
 │                             (derives complexity) → confirm → plan
 ├── cc-workflow-build/        per-component loop: explore → schema → implement → execute once
-├── cc-workflow-test/         one dry-run loop: generate → dry-run → disposition →
-│                             grade on completion
+├── cc-workflow-test/         one dry-run loop: run the build's example input set →
+│                             disposition → grade on completion
 └── _shared/cc-workflow-references/   family contracts, owned by no single skill
     ├── input-schema.md           the input-schema standard
     ├── task-messages.md          shape of one message to the builder agent
@@ -32,8 +32,8 @@ A pack is any top-level `skills/` dir with a `SKILL.md`; `install --skills` copi
 each to a target's skills root (`.claude/skills/<name>/`, `.cursor/skills/<name>/`,
 or `.agents/skills/<name>/` per `--target`). The packs are pure text — no scripts,
 no bundled deps. Anything the lifecycle skills need at runtime is a `cloudcruise`
-CLI command (`builder await-turn`, `workflows gen-payloads`), so a pack ports to
-every agent runtime and OS with no interpreter concerns. The four `cc-workflow*`
+CLI command (e.g. `builder await-turn`), so a pack ports to every agent runtime and
+OS with no interpreter concerns. The four `cc-workflow*`
 packs carry `references -> ../_shared/cc-workflow-references` symlinks; the installer
 materializes them into real files per pack. npm strips symlinks from tarballs, so
 each pack also declares `sharedReferences` in its `skill.meta.json` sidecar and the
@@ -71,16 +71,3 @@ cc-workflows/                  (name tentative)
 │   └── audit.md               test runs: payload → result → disposition
 └── patterns/                  interaction-pattern library, per form family
 ```
-
-## Status
-
-`cc-workflow` and `cc-workflow-setup` are done. The plan header carries
-`complexity` — the axis that's load-bearing for skeleton shape, node-naming, and
-reveal depth. `cc-workflow-build` and `cc-workflow-test` depend on two things still
-landing: the `interact` tool (click/input/select, ephemeral, diffs the page per
-action) their explore/test steps assume, and the two CLI commands (`builder
-await-turn`, `workflows gen-payloads`) they now call, which shim server endpoints
-that must ship first. Shared references (`node-naming.md`, `task-messages.md`,
-`input-schema.md`, `templates/plan-branching.md`) carry worked examples. Install
-maps all six packs to Claude Code (`.claude/skills/`), Cursor (`.cursor/skills/`),
-and the shared `.agents/skills/` path (Codex, Devin) via `--target`.

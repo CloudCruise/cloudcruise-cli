@@ -29,7 +29,3 @@ reads `{{context.inputs.demographics.visit_information.visit_start_time}}`.
 
 Structural node, page-path-alone per the exemption above:
 `patient_history — nav from demographics`.
-
-## Status
-
-DONE.

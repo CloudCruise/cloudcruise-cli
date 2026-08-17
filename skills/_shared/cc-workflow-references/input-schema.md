@@ -111,7 +111,3 @@ closes with `additionalProperties: false`; every date field anchors
 AJV config, not schema content. What *is* checkable from the schema itself: this
 schema has zero `then.required` anywhere, consistent with the `strictRequired`
 compile-crash rule above.
-
-## Status
-
-DONE.

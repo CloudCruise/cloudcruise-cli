@@ -21,7 +21,3 @@ only when it's genuinely ambiguous.
   goal + done-means, onto `track-branching.md`'s `Skeleton` shape. Gating relations
   the user states explicitly ("only appears if you picked X") are the reveal
   relations; anything not stated is left open for build's census, never guessed.
-
-## Status
-
-DONE.

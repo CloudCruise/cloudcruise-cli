@@ -33,7 +33,3 @@ runs and advances.
 Interaction mechanisms go to the shared patterns library (explicit statements only,
 one entry per mechanism, write-back mandatory when a build investigates an unmatched
 component).
-
-## Status
-
-STUB — contract settled; template at `templates/plan-branching.md`.

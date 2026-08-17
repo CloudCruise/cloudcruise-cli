@@ -34,7 +34,3 @@ an extract-datamodel node.
 
 The final step's target is reached — `cc-workflow-test`'s loop verifies it end to
 end: did the workflow complete.
-
-## Status
-
-STUB — contract settled; template at `templates/plan-linear.md`.

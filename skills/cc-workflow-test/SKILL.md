@@ -1,6 +1,6 @@
 ---
 name: cc-workflow-test
-description: Test a handoff-ready CloudCruise workflow inside builder-agent dry-runs — generate null/partial/full schema-valid payloads, dry-run each to the end, investigate errors with the interact tool, fix the confident ones live and block the rest, and hand back an errors+fixes ledger. Use when a plan's build markers are all done.
+description: Test a handoff-ready CloudCruise workflow inside builder-agent dry-runs — run the build's example input set through to the end, investigate errors with the interact tool, fix the confident ones live and block the rest, and hand back an errors+fixes ledger. Use when a plan's build markers are all done.
 ---
 
 # cc-workflow-test
@@ -10,45 +10,20 @@ driven by the interact tool. The same loop runs for every workflow.
 
 ## The loop
 
-Run three payload modes, each a fresh dry-run from the start:
+One dry-run of the build's example input set, through the fix pipeline:
 
-1. **Generate the payloads** — `cloudcruise workflows gen-payloads <id>` (below).
-2. **Dry-run the mode to the end** in the builder session.
-3. **On each error, investigate → fix or block** (below). Continue to the end.
-4. **After any fix, verify** (below).
-5. **Log the errors and their fixes** to the ledger.
+1. **Dry-run to the end** in the builder session, using the example input set the build left
+   on the workflow.
+2. **On each error, investigate → fix or block** (below). Continue to the end.
+3. **After any fix, verify** (below).
+4. **Log the errors and their fixes** to the ledger.
 
-Run order: `null`, `full`, then one or more `partial` variants (regenerate for more).
-Fixes accumulate — each mode runs on the current, already-fixed workflow.
+## The input set
 
-## Payload generation (`cloudcruise workflows gen-payloads`)
-
-The server derives payloads from the workflow's input_schema with the same validator `run`
-enforces at run-start, so every payload is one a run will accept. Schema changes flow into
-payloads with no client work.
-
-```bash
-cloudcruise workflows gen-payloads <id> --profile <name>
-# → { payloads: [ { name, mode, payload, expectedOutcome? } ] }
-```
-
-Write each payload into `cc-workflows/<name>/payloads/`, then merge the test-rig `envelope`
-(below) into every one before dry-running.
-
-The spread covers three modes, each catching a different bug class:
-
-- **null** — every key present, leaves null, arrays empty. Production cold-start; catches
-  self-gating bugs (a `run_if` that should skip on an absent field but fires).
-- **full** — maximal coherent path; every reveal opens, so every detail node renders at least once.
-  Catches actuation/selector/timing bugs.
-- **partial** — mixed leaves. The only mode that catches gating-boundary bugs — mixed state makes
-  two controls diverge, which full (all open) and null (all closed) both miss.
-
-- **Envelope** — task-selection fields set verbatim in every payload (a run that can't find its
-  task tests nothing). Keep them in `cc-workflows/<name>/payloads/config.json` and merge into each
-  payload; they carry real test-rig identifiers, so gitignore that file if it matters.
-- **Vault** — alias → permissioned_user_id for the dry-run's credential selection.
-- Regenerate after **every** input_schema change.
+Testing runs the example input set the build process created (the `--use-example-inputs`
+values the workflow already carries) — one set, one pass, no generation. It already includes
+whatever a run needs to select and reach its task, since the build ran the workflow with it.
+Multi-mode coverage (null/full/partial) is deferred; see Status.
 
 ## Error handling — fix the sure ones, block the rest
 
@@ -67,7 +42,7 @@ On each error during a dry-run:
 A wrong fix masks the real bug and hands back false confidence — worse than a block. When
 confidence isn't there, block.
 
-### Verify after a fix (each mode)
+### Verify after a fix
 
 Re-run the full chain to confirm the fix and that nothing upstream regressed. Assess in order:
 
@@ -79,7 +54,6 @@ Re-run the full chain to confirm the fix and that nothing upstream regressed. As
 
 ## Outputs
 
-- `cc-workflows/<name>/payloads/` — payload files (record which modes you ran in the ledger).
 - `cc-workflows/<name>/ledger.md` — errors + fixes, from `references/templates/test-audit.md`:
   per error, `where · what failed · root cause · fix · verification`, or `blocked: <what's needed>`.
 - Rules discovered during testing (value constraints, null semantics, timing) codified back into
@@ -88,10 +62,5 @@ Re-run the full chain to confirm the fix and that nothing upstream regressed. As
 ## References
 
 - `references/track-branching.md` / `track-linear.md`.
-- `references/input-schema.md` — payload generation reads the same standard the build wrote.
+- `references/input-schema.md` — the standard the build wrote; codify discovered rules back into it.
 - `references/templates/test-audit.md`.
-
-## Status
-
-PARTIAL — payload generation is `workflows gen-payloads` (server-backed); fix-first error handling
-depends on the interact tool, still in development. No real-run CLI surface is touched.

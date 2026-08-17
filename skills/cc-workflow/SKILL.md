@@ -35,7 +35,3 @@ Router. Reads state, asks one question, hands off to a stage skill. Does no buil
 ## References
 
 - The `cloudcruise` CLI skill for every command.
-
-## Status
-
-DONE.

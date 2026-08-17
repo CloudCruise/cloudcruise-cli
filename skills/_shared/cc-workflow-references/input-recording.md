@@ -60,7 +60,3 @@ one skeleton draft, using the overlap to reconcile boundaries — the same actio
 seen at the tail of one batch and the head of the next is one step, not two. This
 draft is what enters the existing present → accept/amend/reject loop; nothing
 downstream needs to know it came from multiple partial reads.
-
-## Status
-
-DONE.

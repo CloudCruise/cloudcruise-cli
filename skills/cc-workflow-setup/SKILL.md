@@ -66,7 +66,3 @@ confirms the real entry state on the live page and amends if they differ.
 - `references/input-text.md`, `references/input-screenshots.md`,
   `references/input-recording.md` — how each gather modality maps into the
   skeleton, under the declared extraction mode.
-
-## Status
-
-DONE.

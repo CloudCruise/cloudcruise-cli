@@ -1,4 +1,3 @@
 {
-  "sharedReferences": "cc-workflow-references",
-  "requiresCli": "1.11.0"
+  "sharedReferences": "cc-workflow-references"
 }
