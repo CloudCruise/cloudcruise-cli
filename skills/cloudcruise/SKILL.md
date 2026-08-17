@@ -220,7 +220,7 @@ When the user asks to build a "workflow" / "cloudcruise workflow" / "cc workflow
 
 ```bash
 # ── Start a new workflow from scratch ──
-# --open-builder opens the builder in the browser so you can watch the agent work.
+# Always pass --open-builder when opening a session (builder start and builder edit both take it).
 cloudcruise builder start --start-url "https://app.example.com" --name "Login flow" --open-builder
 cloudcruise builder start --start-url "https://app.example.com" --open-builder \
   --vault-user-id "f47ac10b-58cc-4372-a567-0e02b2c3d479" --vault-domain "https://app.example.com" \

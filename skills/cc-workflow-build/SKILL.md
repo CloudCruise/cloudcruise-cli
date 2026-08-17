@@ -14,7 +14,7 @@ session pointed at the plan resumes from the first unfinished component.
 - `cc-workflows/<name>/plan.md` with at least one `[ ]` / `[→]` component or step
   ("component" below covers either — a branching plan's component or a linear
   plan's step).
-- A live or new builder conversation (`builder start` / resume; write the `workflow_id` and `conversation_id` into the plan header, clear on `builder end`).
+- A live or new builder conversation (`builder start` / resume — pass `--open-builder` on the session-opening `builder start`/`builder edit`, and `--use-example-inputs` on `builder edit` (empty template variables cause selector timeouts); write the `workflow_id` and `conversation_id` into the plan header, clear on `builder end`).
 
 ## The loop, per component
 
@@ -134,7 +134,10 @@ The exit code is the outcome — branch on it, don't parse stdout:
 - All components `[x]`.
 - If the workflow has a final submit/save node: it carries `end_here_on_dry_run: true`.
 
-Hand off to `cc-workflow-test`. Firing real runs belongs to the test stage, not here.
+When both hold, invoke `cc-workflow-test` (Skill tool) immediately. Do not gate on
+the user. Keep the builder session alive and continue — the test stage reuses its
+logged-in browser. Leave `conversation_id` in the plan header; the test stage clears
+it when it ends the session. Do not fire real runs here; the test stage owns them.
 
 ## References
 

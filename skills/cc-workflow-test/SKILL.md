@@ -8,6 +8,12 @@ description: Test a handoff-ready CloudCruise workflow inside builder-agent dry-
 Never fires a real backend run. Testing happens inside one continuous builder session, dry-run,
 driven by the interact tool. The same loop runs for every workflow.
 
+If the plan header carries a live `conversation_id` (the build stage hands its session over
+rather than ending it), reuse that conversation — the browser is already logged in and
+positioned. Start a fresh one only when none is live: `builder edit --workflow <id>
+--open-builder --use-example-inputs`. Clear `conversation_id` from the plan
+header when this stage ends the session.
+
 ## The loop
 
 One dry-run of the build's example input set, through the fix pipeline:
