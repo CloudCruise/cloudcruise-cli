@@ -16,6 +16,9 @@ cloudcruise login
 
 `cloudcruise login` is the primary authentication path. It uses browser OAuth, saves tokens to the OS keychain, and sets up the active workspace when possible. For CI or other non-interactive use, set `CLOUDCRUISE_TOKEN`; legacy API-key auth is still supported with `CLOUDCRUISE_API_KEY` for individual commands.
 
+Some coding-agent sandboxes cannot access the OS keychain. In that case, profile-backed OAuth may appear missing even
+when the user is authenticated; run commands that use profile OAuth outside the sandbox.
+
 ### Install Skills for Coding Agents
 
 After installing the CLI, run this in your project root to expose the skill reference to your coding agent:
