@@ -5,7 +5,12 @@ dist/
 .claude/
 .cursor/
 
+# workflow build/test working artifacts (carry real test-rig identifiers)
+cc-workflows/
+
 # npm pack artifacts
 *.tgz
 
+# macOS
+.DS_Store
 cc-workflows/
