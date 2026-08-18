@@ -1,6 +1,11 @@
+---
+name: cloudcruise
+description: CloudCruise CLI reference for building, editing, and debugging CloudCruise workflows — builder agent sessions, workflow/component CRUD, vault credentials, runs, and debug snapshots. Use whenever a task involves the `cloudcruise` CLI or CloudCruise workflows.
+---
+
 # CloudCruise CLI
 
-Command-line tool for managing CloudCruise workflows and runs. All output is JSON to stdout; errors go to stderr.
+Command-line tool for managing CloudCruise workflows and runs. All output is JSON to stdout; errors go to stderr — consume stdout only, never merge with `2>&1` when parsing, and branch poll loops on exit codes rather than matching strings in the JSON.
 
 ## Setup
 
@@ -10,6 +15,9 @@ cloudcruise login
 ```
 
 `cloudcruise login` is the primary authentication path. It uses browser OAuth, saves tokens to the OS keychain, and sets up the active workspace when possible. For CI or other non-interactive use, set `CLOUDCRUISE_TOKEN`; legacy API-key auth is still supported with `CLOUDCRUISE_API_KEY` for individual commands.
+
+Some coding-agent sandboxes cannot access the OS keychain. In that case, profile-backed OAuth may appear missing even
+when the user is authenticated; run commands that use profile OAuth outside the sandbox.
 
 ### Install Skills for Coding Agents
 
@@ -69,7 +77,10 @@ cloudcruise workflows versions <workflow_id>                                    
 cloudcruise workflows versions <workflow_id> --limit 10                          # Cap the list
 cloudcruise workflows update <workflow_id> --file w.json --version-note "..."   # Update workflow (creates new version)
 cloudcruise workflows update <workflow_id> --stdin --version-note "..."          # Update from piped JSON
+cloudcruise workflows validate-input <workflow_id> --file payload.json           # Validate a run input payload against the saved input schema
 ```
+
+**validate-input** checks a payload against the workflow's *saved* `input_schema` (push schema edits first). Exit `0` = valid; `1` = payload invalid, with per-field errors on stdout; `2` = the schema itself does not compile — fix the schema, no payload can pass. `<alias>` vault placeholders pass validation. Exit 0 means schema-valid, not run-will-succeed. Also accepts `--stdin`.
 
 **Workflow folders** are virtual: they are derived from each workflow's `folder_path` (a slash-separated string like `Claims/EOB`, max 5 levels) plus placeholder rows for empty folders. There is no folder ID. `workflows folders` returns `allFolderPaths` (the complete folder tree) and `folders` (direct subfolders under `--path`, with per-folder `workflow_count`). `workflows list --folder <path>` returns every workflow whose `folder_path` matches that path exactly (non-recursive).
 
@@ -215,8 +226,9 @@ When the user asks to build a "workflow" / "cloudcruise workflow" / "cc workflow
 
 ```bash
 # ── Start a new workflow from scratch ──
-cloudcruise builder start --start-url "https://app.example.com" --name "Login flow"
-cloudcruise builder start --start-url "https://app.example.com" \
+# Always pass --open-builder when opening a session (builder start and builder edit both take it).
+cloudcruise builder start --start-url "https://app.example.com" --name "Login flow" --open-builder
+cloudcruise builder start --start-url "https://app.example.com" --open-builder \
   --vault-user-id "f47ac10b-58cc-4372-a567-0e02b2c3d479" --vault-domain "https://app.example.com" \
   --proxy country --proxy-value US
 
@@ -306,11 +318,42 @@ printf '%s' '{"Portal Credentials":{"permissioned_user_id":"d2b9d80e-...","domai
 cloudcruise builder status
 ```
 
+**Driving one turn from a script.** Branch on the `status` exit code; don't parse
+stdout to decide whether a turn is over. Pass the message via `"$(cat file)"` —
+composing a long message inline invites the shell to eat it (backticks inside a
+double-quoted argument get command-substituted, truncating the message silently).
+
+```bash
+CID=conv-abc123
+cloudcruise builder send --conversation "$CID" "$(cat task.txt)"   # returns immediately
+while :; do
+  cloudcruise builder status --conversation "$CID" >/dev/null 2>&1; rc=$?
+  case $rc in
+    0) break ;;                      # completed / idle / ended — turn is over
+    9) sleep 15 ;;                   # processing — re-check (this also keeps the session alive)
+    7) echo "needs input";  break ;; # awaiting-human-input — relay, then `builder respond`
+    8) echo "agent errored"; break ;;# inspect `builder messages`, send a correction
+    *) echo "status exit $rc"; break ;;
+  esac
+done
+```
+
+**Reading the agent's report.** `builder messages` records carry
+`{ role, type, status, text }`. The report you want is the **last record with
+`role: "assistant"` and non-empty `text`**; `role: "tool"` rows have no `text`, and
+`type: "reasoning"` rows are the agent thinking rather than reporting. Use `--limit`
+rather than pulling the whole history — a long build accumulates hundreds of records.
+
+**Opening the builder UI.** `builder open` opens the current conversation. The app
+URL is inferred from the API base URL and can be overridden with `--app-url`
+(`--app-url http://localhost:3000` against a local API). The page is
+`<app-url>/workflows/builder/<conversationId>`.
+
 **Full example: Login → Navigate → Search**
 
 ```bash
 # Start
-cloudcruise builder start --start-url "https://app.example.com" --name "Search workflow" \
+cloudcruise builder start --start-url "https://app.example.com" --name "Search workflow" --open-builder \
   --vault-user-id "f47ac10b-58cc-4372-a567-0e02b2c3d479" --vault-domain "https://app.example.com"
 
 # Step 1: Login
@@ -332,7 +375,7 @@ cloudcruise builder end
 
 ## Workflow DSL Reference
 
-See `references/workflow-dsl.md` for the complete workflow DSL reference: all node types, parameters, edge structure, variable system, execution types, XPath best practices, data model schema extensions, and error classification.
+See the **cloudcruise-workflow-dsl** skill for the complete workflow DSL reference: all node types, parameters, edge structure, variable system, execution types, XPath best practices, data model schema extensions, and error classification. Read it before writing, editing, or debugging any workflow node.
 
 ## Error-Fix-Verify Loop
 

@@ -4,7 +4,13 @@ import { writeFileSync } from "fs"
 import { resolveAuth } from "../core/auth.js"
 import { ApiClient, ApiError } from "../core/api-client.js"
 import { outputJson, stripBase64 } from "../core/output.js"
-import { fail, echoSession, exitCodeForStatus, UsageError } from "../core/exit.js"
+import {
+  fail,
+  echoSession,
+  exitCodeForStatus,
+  ExitCode,
+  UsageError
+} from "../core/exit.js"
 import { addAuthOptions, type AuthOptions } from "../core/auth-options.js"
 import {
   resolveConversation,
@@ -27,6 +33,62 @@ function addConversationOption(cmd: Command): Command {
 }
 
 const BASE = "/workflow-builder/agent"
+
+/** Loose view of a /turn-state response — `phase` is `string` so an unknown
+ * (future) phase is handled, not a type error. */
+export interface AwaitTurnState {
+  conversationId?: string
+  phase: string
+  report?: string
+  humanInput?: unknown
+}
+
+/** What `await-turn` should do with one observed state. `null` means the turn
+ * hasn't settled — keep polling. Terminal outcomes carry the exit code the
+ * caller switches on. Exported so the mapping is unit-tested directly. */
+export type AwaitTurnOutcome =
+  | { kind: "report"; exitCode: number; report: string }
+  | { kind: "json"; exitCode: number; json: unknown }
+  | { kind: "fail"; exitCode: number; json?: unknown; message: string }
+
+export function classifyTurnState(state: AwaitTurnState): AwaitTurnOutcome | null {
+  switch (state.phase) {
+    case "completed": {
+      const report = (state.report ?? "").trim()
+      if (!report) {
+        // A completed turn with no report is a server contract violation, not a
+        // clean pass — a driver must not advance on an empty report.
+        return {
+          kind: "fail",
+          exitCode: ExitCode.FAILURE,
+          message: "await-turn: turn completed but /turn-state returned no report"
+        }
+      }
+      return { kind: "report", exitCode: ExitCode.SUCCESS, report }
+    }
+    case "awaiting-human-input":
+      return {
+        kind: "json",
+        exitCode: ExitCode.AWAITING_HUMAN_INPUT,
+        json: { phase: state.phase, humanInput: state.humanInput }
+      }
+    case "agent-errored":
+      return { kind: "json", exitCode: ExitCode.AGENT_ERROR, json: state }
+    case "idle":
+    case "ended":
+      // No turn completed. A real "nothing to await" outcome to handle, not a
+      // state to proceed past.
+      return {
+        kind: "fail",
+        exitCode: ExitCode.FAILURE,
+        json: state,
+        message: `await-turn: conversation ${state.phase} before a turn completed`
+      }
+    default:
+      // `processing` or an unrecognized future phase: keep polling.
+      return null
+  }
+}
 
 export function editCredentialFields(opts: {
   vaultUserId?: string
@@ -767,6 +829,111 @@ observations therefore exit non-zero — a nonzero status is the state, not a fa
       .command("poll", { hidden: true })
       .description("Deprecated alias for 'builder status'")
   )).action(statusAction)
+
+  // ── builder await-turn ─────────────────────────────────────────
+  // Thin poll over the server /turn-state endpoint until the turn settles.
+  // The endpoint owns the terminal-state enum and the report/humanInput
+  // extraction; this command only maps the phase to an exit code and prints
+  // what the phase carries. The exit code is the whole contract — a driver
+  // switches on it and never parses stdout to decide.
+  const sleep = (ms: number): Promise<void> =>
+    new Promise((resolve) => setTimeout(resolve, ms))
+
+  // Non-negative-integer flag or its default; a bad value is a usage error.
+  const parseSeconds = (
+    raw: string | undefined,
+    flag: string,
+    fallback: number
+  ): number => {
+    if (raw === undefined) return fallback
+    if (!/^\d+$/.test(raw)) {
+      throw new UsageError(`--${flag} must be a non-negative integer`)
+    }
+    return parseInt(raw, 10)
+  }
+
+  const awaitTurnAction = async (
+    opts: ConversationOptions & {
+      pollSeconds?: string
+      timeoutSeconds?: string
+    }
+  ): Promise<never> => {
+    try {
+      const pollMs = parseSeconds(opts.pollSeconds, "poll-seconds", 15) * 1000
+      const timeoutMs =
+        parseSeconds(opts.timeoutSeconds, "timeout-seconds", 1800) * 1000
+      const auth = await resolveAuth(opts)
+      const client = new ApiClient(auth)
+      const { conversationId, source } = await resolveConversation(
+        client,
+        opts,
+        auth.workspaceId
+      )
+      echoSession(conversationId, source)
+
+      const deadline = Date.now() + timeoutMs
+      for (;;) {
+        // /turn-state doubles as the keepalive while a long turn runs, exactly
+        // as /status does — polling it prevents idle-expiry mid-turn.
+        const state = await withAutoFollow(
+          client,
+          conversationId,
+          true,
+          auth.workspaceId,
+          (id) => client.get<AwaitTurnState>(`${BASE}/${id}/turn-state`)
+        ).then((r) => r.result)
+
+        const outcome = classifyTurnState(state)
+        if (outcome) {
+          if (outcome.kind === "report") {
+            // stdout is ONLY the report — no status/poll noise leaks in.
+            process.stdout.write(`${outcome.report}\n`)
+          } else if (outcome.kind === "json") {
+            outputJson(outcome.json)
+          } else {
+            if (outcome.json !== undefined) outputJson(outcome.json)
+            process.stderr.write(`${outcome.message}\n`)
+          }
+          process.exit(outcome.exitCode)
+        }
+
+        const remaining = deadline - Date.now()
+        if (remaining <= 0) {
+          process.stderr.write(
+            `await-turn: timed out after ${timeoutMs / 1000}s (still processing)\n`
+          )
+          process.exit(ExitCode.TIMEOUT)
+        }
+        await sleep(Math.min(pollMs, remaining))
+      }
+    } catch (err: unknown) {
+      fail(err)
+    }
+  }
+
+  addConversationOption(addAuthOptions(
+    builder
+      .command("await-turn")
+      .description("Block until the current builder turn settles; print its report")
+      .option(
+        "--poll-seconds <n>",
+        "Seconds between /turn-state polls (default 15)"
+      )
+      .option(
+        "--timeout-seconds <n>",
+        "Give up after this many seconds still processing (default 1800)"
+      )
+  )).addHelpText("after", `
+Polls /turn-state until the turn is terminal, then maps the phase to an exit
+code — the whole contract is the exit code, so a driver never parses stdout:
+  0   completed          stdout = the assistant report (plain text)
+  7   awaiting-human-input  stdout = { phase, humanInput } (feed 'builder respond')
+  8   agent-errored      stdout = the turn-state JSON
+  9   timed out still processing (raise --timeout-seconds or re-run)
+  1   idle / ended before a turn completed, or completed with no report
+  2   bad --poll-seconds / --timeout-seconds
+Other codes are the underlying API error (3 auth, 4 not-found, …), passed through.
+`).action(awaitTurnAction)
 
   // ── builder open ───────────────────────────────────────────────
   addConversationOption(addAuthOptions(

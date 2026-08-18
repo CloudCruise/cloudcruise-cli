@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.11.0
+
+### Added
+
+- `cc-workflow` skill harness: takes a workflow through setup → build → test autonomously, driving the builder agent from local plan files.
+- Installed skills warn when they drift from the CLI version that wrote them.
+- `builder await-turn` blocks until the current builder turn settles and reports the outcome via exit code.
+- `workflows validate-input` checks a run input payload against the workflow's saved input schema before running anything.
+
+### Changed
+
+- `install --skills` now supports Codex, Devin, Cursor, and other agents that read the shared `.agents/skills/` convention.
+- `run --dry-run` sends the object form the API now expects instead of a bare boolean.
+
 ## 1.10.1
 
 ### Fixed
