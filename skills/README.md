@@ -10,6 +10,7 @@ CLI skill, which it depends on and never duplicates.
 skills/
 ├── cloudcruise/              platform: CLI command reference (standalone skill)
 ├── cloudcruise-workflow-dsl/ platform: workflow DSL reference (standalone skill)
+├── cc-workflow-dispatch/     manager: one parallel worker per requested workflow
 ├── cc-workflow/              entry: roster, resume-or-new, route by plan state
 ├── cc-workflow-setup/        goal intake, config, gather → draft skeleton
 │                             (derives complexity) → confirm → plan
@@ -33,8 +34,8 @@ each to a target's skills root (`.claude/skills/<name>/`, `.cursor/skills/<name>
 or `.agents/skills/<name>/` per `--target`). The packs are pure text — no scripts,
 no bundled deps. Anything the lifecycle skills need at runtime is a `cloudcruise`
 CLI command (e.g. `builder await-turn`), so a pack ports to every agent runtime and
-OS with no interpreter concerns. The four `cc-workflow*`
-packs carry `references -> ../_shared/cc-workflow-references` symlinks; the installer
+OS with no interpreter concerns. The `cc-workflow`, setup, build, and test packs
+carry `references -> ../_shared/cc-workflow-references` symlinks; the installer
 materializes them into real files per pack. npm strips symlinks from tarballs, so
 each pack also declares `sharedReferences` in its `skill.meta.json` sidecar and the
 installer falls back to copying from `_shared/` — both paths are covered.

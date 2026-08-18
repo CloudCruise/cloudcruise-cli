@@ -1,0 +1,4 @@
+interface:
+  display_name: "Workflow Dispatcher"
+  short_description: "Dispatch several workflows to parallel workers"
+  default_prompt: "Use $cc-workflow-dispatch to delegate these independent CloudCruise workflows to separate workers."
