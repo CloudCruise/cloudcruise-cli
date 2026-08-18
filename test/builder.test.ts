@@ -3,7 +3,8 @@ import assert from "node:assert/strict"
 import {
   editCredentialFields,
   buildSaveBody,
-  MAX_VERSION_NOTE
+  MAX_VERSION_NOTE,
+  parseBuilderResponseValue
 } from "../dist/src/commands/builder.js"
 import { UsageError } from "../dist/src/core/exit.js"
 
@@ -58,4 +59,24 @@ test("buildSaveBody throws UsageError when over the max length", () => {
     () => buildSaveBody({ message: "x".repeat(MAX_VERSION_NOTE + 1) }),
     UsageError
   )
+})
+
+test("parseBuilderResponseValue parses an error suggestion response", () => {
+  assert.deepEqual(parseBuilderResponseValue('{"kind":"accept_suggestion"}'), {
+    kind: "accept_suggestion"
+  })
+})
+
+test("parseBuilderResponseValue preserves plain text", () => {
+  assert.equal(parseBuilderResponseValue("accepted"), "accepted")
+})
+
+test("parseBuilderResponseValue parses existing typed primitive responses", () => {
+  assert.equal(parseBuilderResponseValue("42"), 42)
+  assert.equal(parseBuilderResponseValue("false"), false)
+  assert.equal(parseBuilderResponseValue("null"), null)
+})
+
+test("parseBuilderResponseValue does not treat arrays as response objects", () => {
+  assert.equal(parseBuilderResponseValue('["one","two"]'), '["one","two"]')
 })

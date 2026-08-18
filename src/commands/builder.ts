@@ -262,6 +262,31 @@ function parseOffset(offset: string | undefined): number | undefined {
   return parsed
 }
 
+export type BuilderResponseValue =
+  | string
+  | number
+  | boolean
+  | null
+  | Record<string, unknown>
+
+/** Parse typed stdin responses while preserving unquoted text as a string. */
+export function parseBuilderResponseValue(rawValue: string): BuilderResponseValue {
+  try {
+    const parsed: unknown = JSON.parse(rawValue)
+    if (
+      typeof parsed === "number" ||
+      typeof parsed === "boolean" ||
+      parsed === null ||
+      (typeof parsed === "object" && !Array.isArray(parsed))
+    ) {
+      return parsed as Exclude<BuilderResponseValue, string>
+    }
+  } catch {
+    // Keep plain text and malformed JSON as strings for server-side validation.
+  }
+  return rawValue
+}
+
 export function registerBuilderCommands(program: Command): void {
   const builder = program
     .command("builder")
@@ -508,8 +533,9 @@ agent's response with 'cloudcruise builder status'.
   )
 
   // ── builder status (helpers) ────────────────────────────────────
-  // Status taxonomy emitted by GET /:id/status. `terminal` marks the states
-  // that will never change without a new turn (completed, agent-errored, ended).
+  // Status taxonomy emitted by GET /:id/status. `terminal` means the current
+  // turn has settled and needs no more polling; awaiting input is terminal
+  // because progress requires a caller response.
   type BuilderStatus =
     | "processing"
     | "awaiting-human-input"
@@ -530,8 +556,17 @@ agent's response with 'cloudcruise builder status'.
     name: string
     type: string
     description: string
+    warning?: string
     default?: string
     options?: string[]
+    rowType?: "set" | "remove"
+    targetNodeId?: string
+    targetParam?: string
+    suggestedErrorCodeId?: string
+    suggestedCode?: string
+    suggestedDescription?: string
+    suggestedEnrichedDescription?: string
+    currentErrorCodeId?: string
   }
 
   interface HumanInput {
@@ -611,6 +646,28 @@ agent's response with 'cloudcruise builder status'.
           field.default = input.default as string
         }
         if (input.options) field.options = input.options as string[]
+        if (input.warning) field.warning = input.warning as string
+        if (input.type === "error") {
+          field.rowType = input.rowType as "set" | "remove"
+          field.targetNodeId = input.targetNodeId as string
+          field.targetParam = input.targetParam as string
+          if (input.suggestedErrorCodeId) {
+            field.suggestedErrorCodeId = input.suggestedErrorCodeId as string
+          }
+          if (input.suggestedCode) {
+            field.suggestedCode = input.suggestedCode as string
+          }
+          if (input.suggestedDescription) {
+            field.suggestedDescription = input.suggestedDescription as string
+          }
+          if (input.suggestedEnrichedDescription) {
+            field.suggestedEnrichedDescription =
+              input.suggestedEnrichedDescription as string
+          }
+          if (input.currentErrorCodeId) {
+            field.currentErrorCodeId = input.currentErrorCodeId as string
+          }
+        }
         return field
       })
       return { messageId, prompt, fields }
@@ -650,7 +707,13 @@ agent's response with 'cloudcruise builder status'.
       .option("--value <value>", "Response value (rejected by default; use --value-stdin)")
       .option("--value-stdin", "Read response value from stdin")
       .option("--responses-stdin", "Read JSON object of name-to-value responses from stdin")
-  )).action(
+  )).addHelpText("after", `
+For an error-code suggestion, send a structured response via stdin:
+  $ printf '%s' '{"kind":"accept_suggestion"}' | cloudcruise builder respond --message-id <id> --value-stdin
+
+Other error-code responses are {"kind":"existing","error_code_id":"<id>"} and
+{"kind":"remove_confirmed"}. Use --responses-stdin when the request has multiple fields.
+`).action(
     async (
       opts: {
         messageId: string
@@ -711,21 +774,7 @@ agent's response with 'cloudcruise builder status'.
             ? (await readStdin()).trimEnd()
             : opts.value as string
 
-          // Try to parse as JSON for typed values (number, boolean, null)
-          let value: string | number | boolean | null = rawValue
-          try {
-            const parsed = JSON.parse(rawValue)
-            if (
-              typeof parsed === "number" ||
-              typeof parsed === "boolean" ||
-              parsed === null
-            ) {
-              value = parsed
-            }
-          } catch {
-            // Keep as string
-          }
-          body.value = value
+          body.value = parseBuilderResponseValue(rawValue)
         }
 
         const targetMsg = inputMessages.find(
