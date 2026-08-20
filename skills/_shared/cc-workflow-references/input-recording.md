@@ -9,7 +9,7 @@ reuses the frames-to-output half directly; `input-text.md` needs neither.
 Check up front:
 
 - `ffmpeg` — frames and audio extraction.
-- `curl` — the Loom acquire path.
+- `curl` and `jq` — the Loom acquire path.
 - an ASR tool (`mlx_whisper`, `whisper`, `whisper.cpp` — any installed) —
   narrated video without captions.
 
@@ -28,7 +28,7 @@ asked.
 ## Acquire: Loom URL → video + transcript
 
 A Loom share link (`loom.com/share/<id>`) yields metadata, the mp4, and the
-official captions in three `curl` calls. A video file handed over directly skips
+official captions with `curl`. A video file handed over directly skips
 this section and enters at Video → frames.
 
 ```bash
@@ -39,15 +39,16 @@ UA="Mozilla/5.0"
 curl -s -A "$UA" "https://www.loom.com/share/$ID" > page.html
 
 # 2. Video — POST mints a signed CDN URL; download immediately (~1h expiry)
-curl -s -X POST -A "$UA" -H "Content-Type: application/json" -d '{}' \
-  "https://www.loom.com/api/campaigns/sessions/$ID/transcoded-url"
-# → {"url": "https://cdn.loom.com/sessions/transcoded/<id>.mp4?Policy=..."}
+URL=$(curl -s -X POST -A "$UA" -H "Content-Type: application/json" -d '{}' \
+  "https://www.loom.com/api/campaigns/sessions/$ID/transcoded-url" | jq -r .url)
+# → https://cdn.loom.com/sessions/transcoded/<id>.mp4?Policy=...
+curl -s -A "$UA" -o video.mp4 "$URL"
 
 # 3. Transcript — POST GraphQL for the signed captions VTT; download immediately
-curl -s -X POST -A "$UA" -H "Content-Type: application/json" \
+VTT=$(curl -s -X POST -A "$UA" -H "Content-Type: application/json" \
   -d '{"operationName":"FetchVideoTranscript","variables":{"videoId":"'$ID'","password":null},"query":"query FetchVideoTranscript($videoId: ID!, $password: String) { fetchVideoTranscript(videoId: $videoId, password: $password) { ... on VideoTranscriptDetails { captions_source_url source_url __typename } ... on GenericError { message __typename } __typename } }"}' \
-  "https://www.loom.com/graphql"
-# → captions_source_url: signed cdn.loom.com .vtt
+  "https://www.loom.com/graphql" | jq -r .data.fetchVideoTranscript.captions_source_url)
+curl -s -A "$UA" -o captions.vtt "$VTT"
 ```
 
 Password-protected or workspace-restricted Looms: pass the password in the
