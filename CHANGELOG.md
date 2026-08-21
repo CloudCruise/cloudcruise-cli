@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.11.2
+
+### Changed
+
+- The `cc-workflow` recording reference now takes a Loom share URL directly: a worked `curl`/`jq` path fetches the metadata, the signed mp4 (short-lived URL, download immediately), and the official captions VTT, so a Loom link no longer needs a manual download first.
+- The same reference lists its prerequisites up front (`ffmpeg`, `curl`, `jq`, and an ASR tool for narrated video without captions) and covers the no-transcript path: scene-change detection to find page transitions, extraction from frames alone, with missing intent surfaced in the confirm loop instead of guessed.
+
+## 1.11.1
+
+### Added
+
+- `builder respond --value-stdin` accepts a structured JSON response, so error-code requests can be answered with their kind intact: `{"kind":"accept_suggestion"}`, `{"kind":"existing","error_code_id":"<id>"}`, or `{"kind":"remove_confirmed"}`. `builder status` surfaces the suggestion metadata on these requests.
+
+### Changed
+
+- `builder status` documents `terminal` as a settled turn, not an ended conversation: `awaiting-human-input` is terminal for polling, but the caller must respond before the builder proceeds.
+
 ## 1.11.0
 
 ### Added
@@ -12,6 +29,8 @@
 ### Changed
 
 - `install --skills` now supports Codex, Devin, Cursor, and other agents that read the shared `.agents/skills/` convention.
+- `install --skills` overwrites previously installed skill files instead of merging into them, so a reinstall can't leave stale references behind.
+- The packaged skill tells agents to run keychain-authenticated commands outside their sandbox, where macOS keychain access works.
 - `run --dry-run` sends the object form the API now expects instead of a bare boolean.
 
 ## 1.10.1
