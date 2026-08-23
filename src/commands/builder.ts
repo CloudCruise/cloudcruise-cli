@@ -34,6 +34,11 @@ function addConversationOption(cmd: Command): Command {
 
 const BASE = "/workflow-builder/agent"
 
+/** Archive routes. The transcript and workflow snapshot of a conversation live
+ * in the conversations bucket, not Redis, so they outlive the live session that
+ * `BASE` serves. */
+const CONVERSATIONS_BASE = "/workflow-builder/conversations"
+
 /** Loose view of a /turn-state response — `phase` is `string` so an unknown
  * (future) phase is handled, not a type error. */
 export interface AwaitTurnState {
@@ -250,6 +255,32 @@ function parseLimit(limit: string | undefined): number | undefined {
   return parsed
 }
 
+/**
+ * --limit for `conversations get`. Two departures from parseLimit, both because
+ * this limit never reaches the backend — it windows an array already in memory:
+ *
+ * 0 is meaningful (read the conversation row, skip the transcript), where
+ * `builder messages` forwards its limit and a 0 there falls through to "no
+ * limit" — the opposite. And there is no upper bound: parseLimit's ceiling
+ * exists to keep a request sane, but nothing is requested here, and a limit
+ * past the end of the transcript just means "all of it".
+ */
+export function parseTranscriptLimit(
+  limit: string | undefined
+): number | undefined {
+  if (limit === undefined) return undefined
+  if (!/^\d+$/.test(limit)) {
+    throw new UsageError(
+      "--limit must be a non-negative integer (0 for metadata only)"
+    )
+  }
+  const parsed = Number.parseInt(limit, 10)
+  if (!Number.isSafeInteger(parsed)) {
+    throw new UsageError("--limit is too large")
+  }
+  return parsed
+}
+
 function parseOffset(offset: string | undefined): number | undefined {
   if (offset === undefined) return undefined
   if (!/^\d+$/.test(offset)) {
@@ -285,6 +316,130 @@ export function parseBuilderResponseValue(rawValue: string): BuilderResponseValu
     // Keep plain text and malformed JSON as strings for server-side validation.
   }
   return rawValue
+}
+
+/** Reconcile the two ways `conversations get` can name a conversation. The
+ * positional id and --conversation mean the same thing, so agreeing is fine and
+ * disagreeing is a mistake worth failing on rather than silently picking one. */
+export function pickConversationSelector(
+  id: string | undefined,
+  flag: string | undefined
+): string | undefined {
+  if (id && flag && id !== flag) {
+    throw new UsageError(
+      `Conflicting conversation ids: <id> ${id} and --conversation ${flag}. Pass one, or the same value twice.`
+    )
+  }
+  return id ?? flag
+}
+
+export interface ChatTail {
+  chat: unknown[]
+  total: number
+  limit: number | null
+  hasMore: boolean
+}
+
+/**
+ * Take the last `limit` messages, or all of them when no limit is given.
+ *
+ * Deliberately not a paginator. The archive route accepts no query params, so
+ * every call re-signs the S3 URL and re-downloads the whole transcript
+ * server-side — walking one in pages would cost a full fetch per page. `--output`
+ * plus a local slice is the tool for anything deeper than "show me the end".
+ */
+export function tailChat(chat: unknown[], limit?: number): ChatTail {
+  const total = chat.length
+  const kept =
+    limit === undefined ? chat : chat.slice(Math.max(0, total - limit))
+  return {
+    chat: kept,
+    total,
+    limit: limit ?? null,
+    hasMore: kept.length < total
+  }
+}
+
+/** The archive route's response. Every artifact is optional: the row always
+ * exists, the bucket objects may not. */
+export interface ConversationArchive {
+  conversation?: unknown
+  chat?: unknown
+  chat_error?: string | null
+  workflow_snapshot?: unknown
+  workflow_snapshot_error?: string | null
+}
+
+/**
+ * Drop system-role messages, as the live /messages route does server-side. The
+ * archive is the raw message hash, so it also carries the traffic the live route
+ * filters: on a measured 304-message transcript, 90 system messages (mostly
+ * network_traffic_batch) were 64% of the bytes. Keeping them by default would
+ * bury the conversation in page traffic.
+ */
+function withoutSystemMessages(chat: unknown[]): unknown[] {
+  return chat.filter(
+    (msg) =>
+      !(
+        msg !== null &&
+        typeof msg === "object" &&
+        (msg as { role?: unknown }).role === "system"
+      )
+  )
+}
+
+/**
+ * Shape the archive response for a machine reader: the metadata a caller needs
+ * to decide what to fetch next comes first, the (potentially enormous) message
+ * array last. The snapshot is dropped unless asked for — it duplicates
+ * `workflows get` and dwarfs everything else in the payload. Sharing flags
+ * (workflow_accessible, can_manage_sharing, can_reshare) are UI concerns and
+ * are dropped; --output keeps the unfiltered response.
+ *
+ * `total` counts the messages after filtering, so it agrees with what `chat`
+ * is a tail of. Dropped system messages are reported as `systemMessagesOmitted`
+ * rather than silently vanishing.
+ */
+export function buildArchiveOutput(
+  conversationId: string,
+  raw: ConversationArchive,
+  opts: {
+    limit?: number
+    snapshot?: boolean
+    includeSystem?: boolean
+    /** Path --output wrote the unfiltered response to, reported alongside the
+     * other metadata rather than trailing the message array. */
+    file?: string
+  } = {}
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {
+    conversationId,
+    conversation: raw.conversation ?? null,
+    chat_error: raw.chat_error ?? null
+  }
+  if (opts.file) out.file = opts.file
+  if (raw.workflow_snapshot_error) {
+    out.workflow_snapshot_error = raw.workflow_snapshot_error
+  }
+
+  let chat: unknown = raw.chat ?? null
+  if (Array.isArray(raw.chat)) {
+    const kept = opts.includeSystem
+      ? raw.chat
+      : withoutSystemMessages(raw.chat)
+    const omitted = raw.chat.length - kept.length
+    if (omitted > 0) out.systemMessagesOmitted = omitted
+
+    const page = tailChat(kept, opts.limit)
+    out.total = page.total
+    out.limit = page.limit
+    out.hasMore = page.hasMore
+    chat = page.chat
+  }
+
+  if (opts.snapshot) out.workflow_snapshot = raw.workflow_snapshot ?? null
+  out.chat = chat
+  return out
 }
 
 export function registerBuilderCommands(program: Command): void {
@@ -1039,6 +1194,76 @@ Other codes are the underlying API error (3 auth, 4 not-found, …), passed thro
       fail(err)
     }
   })
+
+  // ── builder conversations get ───────────────────────────────────
+  // The archived counterpart of `builder messages`. `messages` reads the live
+  // Redis log and 404s (CONVERSATION_NOT_FOUND) once a conversation is gone;
+  // this reads the transcript the backend writes to the conversations bucket on
+  // every save, on clear, and on end — so it answers for ended conversations,
+  // and for live ones as of their last save.
+  addConversationOption(addAuthOptions(
+    conversations
+      .command("get [id]")
+      .description(
+        "Get an archived conversation transcript«"
+      )
+      .option(
+        "--limit <n>",
+        "Print only the last N messages; 0 for metadata only"
+      )
+      .option("--snapshot", "Include the saved workflow snapshot")
+      .option(
+        "--include-system",
+        "Keep system-role messages (page network traffic, run dispatches)"
+      )
+      .option("--output <path>", "Write the full response JSON to file")
+  )).addHelpText("after", `
+Returns { conversationId, conversation, chat_error, total, limit, hasMore, chat }
+
+`).action(
+    async (
+      id: string | undefined,
+      opts: {
+        limit?: string
+        snapshot?: boolean
+        includeSystem?: boolean
+        output?: string
+      } & ConversationOptions
+    ) => {
+      try {
+        const limit = parseTranscriptLimit(opts.limit)
+        const auth = await resolveAuth(opts)
+        const client = new ApiClient(auth)
+        const { conversationId, source } = await resolveConversation(
+          client,
+          { conversation: pickConversationSelector(id, opts.conversation) },
+          auth.workspaceId
+        )
+        echoSession(conversationId, source)
+
+        // No auto-follow: a cleared conversation's transcript is archived under
+        // the id that was cleared, so following to the chain tip would return
+        // the wrong conversation's history.
+        const raw = await client.get<ConversationArchive>(
+          `${CONVERSATIONS_BASE}/${encodeURIComponent(conversationId)}`
+        )
+
+        if (opts.output) {
+          writeFileSync(opts.output, JSON.stringify(raw, null, 2) + "\n")
+        }
+
+        const out = buildArchiveOutput(conversationId, raw, {
+          limit,
+          snapshot: opts.snapshot,
+          includeSystem: opts.includeSystem,
+          file: opts.output
+        })
+        outputJson(stripBase64(out))
+      } catch (err: unknown) {
+        fail(err)
+      }
+    }
+  )
 
   // ── builder screenshot ─────────────────────────────────────────
   addConversationOption(addAuthOptions(
