@@ -8,9 +8,11 @@ import {
   pickConversationSelector,
   parseTranscriptLimit,
   tailChat,
-  buildArchiveOutput
+  buildArchiveOutput,
+  archiveFallbackHint
 } from "../dist/src/commands/builder.js"
 import { UsageError } from "../dist/src/core/exit.js"
+import { ApiError } from "../dist/src/core/api-client.js"
 
 test("editCredentialFields maps both flags to permissionedUserId/authUrl", () => {
   const fields = editCredentialFields({
@@ -297,4 +299,34 @@ test("buildArchiveOutput with limit 0 keeps the metadata and empties the chat", 
   assert.equal(out.limit, 0)
   assert.equal(out.hasMore, true)
   assert.equal(out.systemMessagesOmitted, 2)
+})
+
+test("archiveFallbackHint points a gone-conversation 404 at the archive", () => {
+  const err = new ApiError(
+    "Conversation not found",
+    404,
+    JSON.stringify({ code: "CONVERSATION_NOT_FOUND" }),
+    "CONVERSATION_NOT_FOUND"
+  )
+  const hint = archiveFallbackHint(err, "30074632")
+  assert.match(hint, /conversation 30074632 is no longer live/)
+  assert.match(hint, /builder conversations get 30074632/)
+  assert.match(hint, /\n$/)
+})
+
+test("archiveFallbackHint stays quiet for other API errors", () => {
+  const busy = new ApiError(
+    "Session busy",
+    409,
+    JSON.stringify({ code: "SESSION_BUSY" }),
+    "SESSION_BUSY"
+  )
+  assert.equal(archiveFallbackHint(busy, "30074632"), undefined)
+  const bare = new ApiError("Not found", 404, "{}")
+  assert.equal(archiveFallbackHint(bare, "30074632"), undefined)
+})
+
+test("archiveFallbackHint stays quiet for non-API errors", () => {
+  assert.equal(archiveFallbackHint(new Error("network down"), "1"), undefined)
+  assert.equal(archiveFallbackHint(undefined, "1"), undefined)
 })

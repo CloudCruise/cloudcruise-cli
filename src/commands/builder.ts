@@ -333,6 +333,26 @@ export function pickConversationSelector(
   return id ?? flag
 }
 
+/**
+ * The pointer a whole-chain-dead 404 owes the caller. `builder messages` reads
+ * the live turn log, which is gone once a conversation ends (or is cleared with
+ * no live successor) — but the bucket transcript normally outlives it, so exit 4
+ * on its own hides a still-readable answer. Returns undefined for every error
+ * but a gone-conversation 404.
+ */
+export function archiveFallbackHint(
+  err: unknown,
+  conversationId: string
+): string | undefined {
+  if (!(err instanceof ApiError) || err.code !== "CONVERSATION_NOT_FOUND") {
+    return undefined
+  }
+  return (
+    `conversation ${conversationId} is no longer live; its archived transcript ` +
+    `may still be readable with 'builder conversations get ${conversationId}'\n`
+  )
+}
+
 export interface ChatTail {
   chat: unknown[]
   total: number
@@ -1443,16 +1463,25 @@ isProcessing }. By default offset counts from the newest message (tail); pass
         }
 
         const query = params.toString() ? `?${params.toString()}` : ""
-        const r = await withAutoFollow(
-          client,
-          conversationId,
-          true,
-          auth.workspaceId,
-          (id) =>
-            client.get<Record<string, unknown>>(
-              `${BASE}/${id}/messages${query}`
-            )
-        )
+        // A dead conversation with no successor re-throws here; point at the
+        // archive before the 404 becomes a bare exit 4.
+        let r
+        try {
+          r = await withAutoFollow(
+            client,
+            conversationId,
+            true,
+            auth.workspaceId,
+            (id) =>
+              client.get<Record<string, unknown>>(
+                `${BASE}/${id}/messages${query}`
+              )
+          )
+        } catch (err: unknown) {
+          const hint = archiveFallbackHint(err, conversationId)
+          if (hint) process.stderr.write(hint)
+          throw err
+        }
         const stripped = stripBase64(r.result) as object
         outputJson(withReconcileFields(stripped, r))
       } catch (err: unknown) {
