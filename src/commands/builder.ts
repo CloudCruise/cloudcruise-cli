@@ -1205,7 +1205,7 @@ Other codes are the underlying API error (3 auth, 4 not-found, …), passed thro
     conversations
       .command("get [id]")
       .description(
-        "Get an archived conversation transcript«"
+        "Get an archived conversation transcript"
       )
       .option(
         "--limit <n>",
