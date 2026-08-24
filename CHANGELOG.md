@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+## 1.11.3
+
+- `builder conversations get [id]` reads a conversation's archived transcript
+
 ## 1.11.2
 
 ### Changed

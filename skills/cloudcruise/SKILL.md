@@ -251,6 +251,14 @@ cloudcruise builder messages --limit 5     # Last 5 messages only
 cloudcruise builder messages --limit 20 --offset 20            # Page backward from the end
 cloudcruise builder messages --limit 20 --offset 0 --no-tail   # Page forward from the start
 
+# ── Read an ended conversation's transcript (archive, not the live log) ──
+# `messages` exits 4 once a conversation is gone; the archive still answers.
+# `chat: null` means no transcript (never saved, or retention expired) — exit is still 0.
+cloudcruise builder conversations get "conv-abc123"              # Full transcript
+cloudcruise builder conversations get "conv-abc123" --limit 20   # Last 20 messages only
+cloudcruise builder conversations get "conv-abc123" --limit 0    # Metadata only, no transcript
+cloudcruise builder conversations get "conv-abc123" --limit 0 --output ./conv.json   # Full response to file, metadata to stdout
+
 # ── Target a specific conversation (concurrent/multi-conversation) ──
 cloudcruise builder status --conversation "conv-abc123"
 CLOUDCRUISE_CONVERSATION="conv-abc123" cloudcruise builder send "Click login"
