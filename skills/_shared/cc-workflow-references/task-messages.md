@@ -1,8 +1,8 @@
 # Builder task messages
 
-The shape of one message to the builder agent. The task hands the builder one
-component; a turn explores, builds, proves, and saves it. Exploration happens inside
-the component's turn.
+The shape of one message to the builder agent. A branching task hands the builder
+one component; a linear task hands over the whole plan. Either way, exploration
+happens inside the turn.
 
 ## Anatomy
 
@@ -24,12 +24,20 @@ the component's turn.
 - Goal, not clicks. Never selectors, execution types, or node structure.
 - State required actions directly. Use conditional phrasing only when evaluating
   that condition is itself part of the workflow behavior.
-- Dispatch one component as one task with phases explore, build, prove, save; its
-  phases may complete in one or more builder turns.
+- A branching task dispatches one component with phases explore, build, prove; a
+  linear task dispatches the whole plan in one message. Either way, phases may
+  complete in one or more builder turns.
 - Text only — the builder reads the page directly, so a screenshot adds nothing.
 - Exact paths verbatim; a paraphrased path wires the wrong variable silently.
 - Default completion: a debug execution succeeds. Spell out extras only for unusual
   components.
+
+## Linear: one message, the whole plan
+
+The task carries the plan whole — goal, ordered steps, the data map, every
+variable already named with its shape. Status comes from the turn's report rather
+than a per-task count: steps attempted, completed, and any that stalled with why,
+folded into the skeleton after each turn.
 
 ## The schema block
 
@@ -49,10 +57,6 @@ A component whose shape genuinely wants something else — a leaf that must neve
 null, an object that legitimately takes unknown keys — diverges deliberately and
 **says so in the task message**. A slice that diverges silently, because nobody
 stated the default, is the failure this prevents.
-
-Component creation is the tail of the same turn: after proving the nodes, the builder
-saves the reusable component from them. Name the component and the exact node set in
-the task message. Saving the component is distinct from `saveWorkflow`.
 
 ## Worked example: branching track
 

@@ -1,9 +1,9 @@
 ---
 name: cc-workflow-build
-description: Drive the CloudCruise builder agent through the build loop for a planned workflow - each task hands the builder one component to explore (interact), build, prove, and save as a component; the builder runs it through or stops to ask, then the plan markers advance. Use when a plan has unfinished components or steps.
+description: Drive the CloudCruise builder agent through the build loop for a planned workflow - a branching task hands the builder one component to explore (interact), build, and prove, while a linear task hands over the whole plan for the builder to pace itself through; either way the builder runs it through or stops to ask, then the plan markers advance. Use when a plan has unfinished components or steps.
 ---
 
-# cc-workflow-build — the per-component loop
+# cc-workflow-build — the build loop
 
 Consumes the plan; drives the builder agent over the CLI. All web interaction goes
 through the builder. The plan's status markers are the only progress state — a fresh
@@ -16,11 +16,22 @@ session pointed at the plan resumes from the first unfinished component.
   plan's step).
 - A live or new builder conversation (`builder start` / resume — pass `--open-builder` on the session-opening `builder start`/`builder edit`, and `--use-example-inputs` on `builder edit` (empty template variables cause selector timeouts); write the `workflow_id` and `conversation_id` into the plan header, clear on `builder end`).
 
-## The loop, per component
+## The loop
 
-**The task is one component, stated as a goal.** The builder carries it through one
-turn — explore with interact, build the nodes, prove them, save the component — or
-stops partway and hands back for direction. What a turn covers:
+Two shapes, chosen by the plan's `complexity`.
+
+**Branching: one component, one turn.** The task is one component, stated as a
+goal. The builder carries it through one turn — explore with interact, build the
+nodes, prove them — or stops partway and hands back for direction.
+
+**Linear: the whole plan, one turn.** The task hands over the plan whole — goal
+and every step already drafted toward it. The builder paces itself across it,
+checking its work when the page actually changes rather than after each step. It
+keeps going through whatever the page throws in on the way to the goal, answering
+what the page or the given inputs can answer. It stops only where neither can — a
+fact or a choice nothing yet in hand supplies. The turn's report names how far it
+got — steps reached, completed, stalled and why — and the plan advances by that
+count in one pass.
 
 ### Explore and build
 
@@ -101,15 +112,13 @@ a broken node. Never a real backend run. On a fail, a bare re-run grades the pag
 last attempt already mutated, not the fix — restore a clean base with `interact` and
 retry, or hand back.
 
-**Save as a component.** After proving the nodes, save the reusable component from
-them in the same turn. Name the component and the exact node set. Saving a component
-is distinct from saving the workflow.
-
 ### Advance
 
-When a component is done, mark it `[x]` and move to the next. When the builder stops
-to ask, `builder await-turn` exits `7` with the question on stdout — relay it,
-get direction, mark `[→]`, and resume the same conversation.
+Mark every component or step the turn's report reached — `[x]` for what completed,
+`[→]` for the one it stopped on. A branching turn's report covers one component; a
+linear turn's report can cover several steps, each marked from it in the same pass.
+When the builder stops to ask, `builder await-turn` exits `7` with the question on
+stdout — relay it, get direction, mark `[→]`, and resume the same conversation.
 
 ## Awaiting a builder turn
 

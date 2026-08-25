@@ -4,6 +4,13 @@
 
 ### Added
 
+## 1.11.4
+
+### Changed
+
+- `cc-workflow-build` no longer auto-saves each branching component as a reusable CloudCruise component after proving it — component creation is a deliberate, separate action.
+- `cc-workflow-build` dispatches linear-track plans as one whole-plan task instead of one message per step; the builder paces itself through the steps and checkpoints against real browser-state changes rather than the plan's line breaks.
+
 ## 1.11.3
 
 - `builder conversations get [id]` reads a conversation's archived transcript
