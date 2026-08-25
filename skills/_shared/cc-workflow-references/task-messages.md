@@ -96,37 +96,24 @@ A fresh browser at a deep frontier. This turn just gets there:
 > eDoc — office `Test`, any test patient — and use the form's Page navigation to jump to
 > Integumentary Status. Stop there; build and save nothing this turn.
 
-## Worked example: linear track with input variables
+## Worked example: linear track, whole plan
 
-Plain navigation and clicks:
+Benefits claim lookup, one message for the full plan:
 
-> "navigate to the benefits claim lookup page" · "click search" · "click save"
-
-A first touch on a new input variable names it once, with its shape:
-
-> "enter the claim ID into the claim number field — register a new input variable
-> `context.inputs.claim_id` (string, example `CLM-2049123`)"
+> **Goal:** Look up a benefits claim by ID and record the caller's callback note.
 >
-> "enter the caller's phone number — register `context.inputs.caller_phone` (string,
-> example `312-555-0142`)"
+> **Steps:**
+> 1. Navigate to the benefits claim lookup page.
+> 2. Enter the claim ID into the claim number field — register a new input
+>    variable `context.inputs.claim_id` (string, example `CLM-2049123`).
+> 3. Click search.
+> 4. If no claim is found, click save-as-not-found and end; otherwise continue.
+> 5. Enter the caller's phone number — register `context.inputs.caller_phone`
+>    (string, example `312-555-0142`).
+> 6. Set the follow-up note to "Callback confirmed for " followed by the existing
+>    `context.inputs.caller_phone` — don't register a second phone variable.
+> 7. Click save.
+> 8. Extract the claim status and confirmation number, the standard way.
 
-A locally-resolved decision point stays inside one message:
-
-> "if no claim is found, click save-as-not-found and end; otherwise continue to the
-> follow-up note"
-
-A later reference to an already-registered variable names it back, verbatim, and
-says explicitly that it isn't new:
-
-> "the follow-up note field should read 'Callback confirmed for ' followed by the
-> existing `context.inputs.caller_phone` — don't register a second phone variable"
-
-Drop that last clause and the builder can't tell "the phone from before" from a new
-field — it mints a stray `phone_number` while `caller_phone` sits unused, or the
-reverse.
-
-Output uses the linear track's fixed convention, so the message only needs to name
-the fields, not the mechanism:
-
-> "extract the claim status and confirmation number, the standard way" — "the
-> standard way" is `track-linear.md`'s fixed screenshot-plus-extract-datamodel pair.
+A turn may get through every step, or only some — either way the report names
+what it reached and, for anything short of the goal, why.
