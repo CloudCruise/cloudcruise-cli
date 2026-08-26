@@ -30,8 +30,10 @@ downstream re-asks what the plan already answers.
    path to the goal — from what they hand over; don't ask. See the matching
    `references/input-*.md` for how each modality maps in under that mode.
    Draft skeleton content in whichever shape the gathered context actually
-   calls for — flat ordered steps per `track-linear.md`, or goal-oriented
-   components at the granularity `track-branching.md` pins down — and set
+   calls for — flat ordered steps per the track-linear reference at
+   `references/track-linear.md`, or goal-oriented components at the
+   granularity the track-branching reference at `references/track-branching.md`
+   pins down — and set
    `complexity` to match what got drafted; both `complexity` and the extraction
    mode are observed, not asked. Present the draft back and record the outcome as
    `skeleton_status` in the plan header:

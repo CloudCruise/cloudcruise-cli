@@ -4,6 +4,12 @@
 
 ### Added
 
+## 1.11.5
+
+### Changed
+
+- Improved skill file reference prose for `cc-workflow-setup`, `cc-workflow-build`, and `cc-workflow-test`
+
 ## 1.11.4
 
 ### Changed
