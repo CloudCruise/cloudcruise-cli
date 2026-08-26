@@ -96,6 +96,6 @@ Re-run the full chain to confirm the fix and that nothing upstream regressed. As
 ## References
 
 - `references/payload-guidance.md` — how to draft and edit agent-authored payloads.
-- `references/track-branching.md` / `track-linear.md`.
+- `references/track-branching.md` / `references/track-linear.md`.
 - `references/input-schema.md` — the standard the build wrote; codify discovered rules back into it.
 - `references/templates/test-audit.md`.
