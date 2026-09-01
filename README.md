@@ -20,7 +20,16 @@ Copy [.env.example](./.env.example) to `.env`, fill in the environment you want,
 
 ## Coding Agent Integration
 
-Install skill files so your coding agent has the full CLI and workflow DSL reference:
+**Claude Code** — install the plugin from this repo's marketplace:
+
+```
+/plugin marketplace add CloudCruise/cloudcruise-cli
+/plugin install cloudcruise@cloudcruise
+```
+
+This registers all six skills (workflow build, test, debug, CLI and DSL reference) and keeps them updated with `/plugin update cloudcruise`.
+
+**Other agents (Cursor, or Claude Code without plugins)** — install the skill files directly:
 
 ```bash
 cloudcruise install --skills                  # Claude Code + Cursor

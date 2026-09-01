@@ -1,0 +1,13 @@
+{
+  "name": "cloudcruise",
+  "owner": { "name": "CloudCruise", "url": "https://cloudcruise.com" },
+  "description": "Skills for building, testing, and debugging CloudCruise browser automation workflows.",
+  "plugins": [
+    {
+      "name": "cloudcruise",
+      "source": "./",
+      "description": "CloudCruise workflow build, test, and debug skills.",
+      "category": "automation"
+    }
+  ]
+}
