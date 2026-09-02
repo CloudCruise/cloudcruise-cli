@@ -8,7 +8,7 @@
   "homepage": "https://github.com/CloudCruise/cloudcruise-cli",
   "repository": "https://github.com/CloudCruise/cloudcruise-cli",
   "license": "MIT",
-  "keywords": ["browser-automation", "workflow", "cloudcruise", "cli"],
+  "keywords": ["browser-automation", "rpa", "self-healing", "healthcare", "payer-portal", "ehr"],
   "category": "automation",
   "logo": "assets/logo.svg"
 }

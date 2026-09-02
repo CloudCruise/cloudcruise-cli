@@ -1,14 +1,14 @@
 {
   "name": "cloudcruise",
   "owner": { "name": "CloudCruise", "url": "https://cloudcruise.com" },
-  "description": "Skills for building, testing, and debugging CloudCruise browser automation workflows.",
+  "description": "Official CloudCruise plugins for Claude Code.",
   "plugins": [
     {
       "name": "cloudcruise",
       "source": "./",
-      "description": "CloudCruise workflow build, test, and debug skills.",
+      "description": "Build, edit, and debug CloudCruise browser automation workflows from your coding agent.",
       "category": "automation",
-      "keywords": ["browser-automation", "workflow", "cloudcruise", "cli"]
+      "keywords": ["browser-automation", "rpa", "self-healing", "healthcare", "payer-portal", "ehr"]
     }
   ]
 }
