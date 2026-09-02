@@ -7,6 +7,9 @@ in the same PR when a skill's behavior changes.
 Submission path: **Skills only** (no MCP server). Upload the zip produced by
 `npm run build:openai-plugin`.
 
+Each actual submission gets a dated record in `docs/submissions/` (release
+notes + the exact zip uploaded), cut from this template.
+
 ## Listing fields
 
 - **Name**: CloudCruise
@@ -19,7 +22,7 @@ Submission path: **Skills only** (no MCP server). Upload the zip produced by
   run diagnostics. Requires the CloudCruise CLI (`npm install -g
   @cloudcruise/cli`) and a CloudCruise account.
 - **Category**: Developer tools / automation
-- **Logo**: `assets/logo.svg` (portal may require raster; export PNG from it)
+- **Logo**: `assets/logo-512.png` (512×512, exported from `assets/logo.svg`)
 - **Website**: https://cloudcruise.com
 - **Support URL**: https://github.com/CloudCruise/cloudcruise-cli/issues
 - **Privacy policy**: https://github.com/CloudCruise/terms/blob/main/privacy-policy.md
@@ -81,10 +84,9 @@ Submission path: **Skills only** (no MCP server). Upload the zip produced by
 
 ## Reviewer notes
 
-The skills drive the `cloudcruise` CLI, which requires an account. Test
-credentials for review: <!-- fill in before submitting; must work without
-MFA/SMS/email confirmation --> . The CLI outputs JSON to stdout; skills operate
-in any coding-agent harness with shell access.
+The skills drive the `cloudcruise` CLI, which requires an account.
+The CLI outputs JSON to stdout; skills operate in any coding-agent 
+harness with shell access.
 
 ## Release notes template
 
