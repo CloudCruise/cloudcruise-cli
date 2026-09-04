@@ -1,0 +1,14 @@
+{
+  "name": "cloudcruise",
+  "displayName": "CloudCruise",
+  "version": "1.11.5",
+  "description": "Build, edit, and debug CloudCruise browser automation workflows from your coding agent.",
+  "author": { "name": "CloudCruise" },
+  "publisher": "CloudCruise",
+  "homepage": "https://github.com/CloudCruise/cloudcruise-cli",
+  "repository": "https://github.com/CloudCruise/cloudcruise-cli",
+  "license": "MIT",
+  "keywords": ["browser-automation", "rpa", "self-healing", "healthcare", "payer-portal", "ehr"],
+  "category": "automation",
+  "logo": "assets/logo.svg"
+}

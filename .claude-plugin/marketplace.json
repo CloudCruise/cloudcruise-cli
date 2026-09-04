@@ -1,0 +1,14 @@
+{
+  "name": "cloudcruise",
+  "owner": { "name": "CloudCruise", "url": "https://cloudcruise.com" },
+  "description": "Official CloudCruise plugins for Claude Code.",
+  "plugins": [
+    {
+      "name": "cloudcruise",
+      "source": "./",
+      "description": "Build, edit, and debug CloudCruise browser automation workflows from your coding agent.",
+      "category": "automation",
+      "keywords": ["browser-automation", "rpa", "self-healing", "healthcare", "payer-portal", "ehr"]
+    }
+  ]
+}

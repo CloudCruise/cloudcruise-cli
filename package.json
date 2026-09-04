@@ -30,7 +30,8 @@
     "dev": "tsc --watch",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "npm run build",
-    "test": "npm run build && node --test test/*.test.ts"
+    "test": "npm run build && node --test test/*.test.ts",
+    "build:openai-plugin": "node scripts/build-openai-plugin.mjs"
   },
   "files": [
     ".env.example",

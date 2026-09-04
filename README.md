@@ -20,7 +20,26 @@ Copy [.env.example](./.env.example) to `.env`, fill in the environment you want,
 
 ## Coding Agent Integration
 
-Install skill files so your coding agent has the full CLI and workflow DSL reference:
+**Claude Code** — install the plugin from this repo's marketplace:
+
+```
+/plugin marketplace add CloudCruise/cloudcruise-cli
+/plugin install cloudcruise@cloudcruise
+```
+
+This registers all six skills (workflow build, test, debug, CLI and DSL reference) and keeps them updated with `/plugin update cloudcruise`.
+
+**Devin** — an org admin adds this repo to the plugin manifest at **Settings → Resources → Plugins → Configuration**:
+
+```json
+{
+  "requiredPlugins": ["CloudCruise/cloudcruise-cli"]
+}
+```
+
+Installs for the whole org from the next session; use `optionalPlugins` instead to make it opt-in. Devin reads the `.claude-plugin/plugin.json` manifest directly. Requires plugin access on your Devin org (currently closed beta — support@cognition.ai).
+
+**Other agents (Cursor, or Claude Code without plugins)** — install the skill files directly:
 
 ```bash
 cloudcruise install --skills                  # Claude Code + Cursor

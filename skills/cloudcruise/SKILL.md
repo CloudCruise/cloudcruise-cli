@@ -24,9 +24,9 @@ when the user is authenticated; run commands that use profile OAuth outside the 
 After installing the CLI, run this in your project root to expose the skill reference to your coding agent:
 
 ```bash
-cloudcruise install --skills                  # Install for both Claude Code and Cursor
-cloudcruise install --skills --target claude   # Claude Code only (.claude/skills/cloudcruise/)
-cloudcruise install --skills --target cursor   # Cursor only (.cursor/rules/cloudcruise-cli.mdc)
+cloudcruise install --skills                  # install for all supported targets
+cloudcruise install --skills --target claude   # .claude/skills/cloudcruise/ only
+cloudcruise install --skills --target cursor   # .cursor/rules/cloudcruise-cli.mdc only
 ```
 
 ## Commands
