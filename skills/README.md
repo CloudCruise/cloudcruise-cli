@@ -25,6 +25,7 @@ skills/
     ├── input-text.md, input-screenshots.md, input-recording.md
     │                             per-modality mapping into the skeleton, under
     │                             the declared extraction mode
+    ├── captcha.md                what auto-solves, manual_captcha_solve, CAPTCHA node
     └── templates/                artifact templates (plan headers, patterns, audit)
 ```
 

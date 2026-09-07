@@ -4,6 +4,12 @@
 
 ### Added
 
+## 1.11.6
+
+### Added
+
+- `cloudcruise-workflow-dsl` documents the CAPTCHA node; a shared `captcha.md` reference covers what auto-solves, `manual_captcha_solve`, and when to insert a CAPTCHA node. `cc-workflow-build` and `cc-workflow-test` point at it.
+
 ## 1.11.5
 
 ### Changed

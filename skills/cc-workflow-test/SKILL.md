@@ -99,3 +99,5 @@ Re-run the full chain to confirm the fix and that nothing upstream regressed. As
 - `references/track-branching.md` / `references/track-linear.md`.
 - `references/input-schema.md` — the standard the build wrote; codify discovered rules back into it.
 - `references/templates/test-audit.md`.
+- `references/captcha.md` — captcha re-solves seen in a dry run: when to switch to
+  `manual_captcha_solve` and the `CAPTCHA` node.
