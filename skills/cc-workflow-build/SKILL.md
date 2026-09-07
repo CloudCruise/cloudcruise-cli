@@ -155,5 +155,7 @@ it when it ends the session. Do not fire real runs here; the test stage owns the
 - `references/node-naming.md` — node naming (branching workflows).
 - `references/track-branching.md` / `references/track-linear.md` — spine definitions
   for the drafted `complexity`.
+- `references/captcha.md` — what the platform auto-solves, the
+  `manual_captcha_solve` flag, the `CAPTCHA` node, when to switch to manual.
 - The `cloudcruise` CLI skill for command mechanics; the `cloudcruise-workflow-dsl`
   skill for node semantics.
