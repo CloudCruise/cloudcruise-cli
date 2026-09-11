@@ -26,6 +26,21 @@ function parseSince(since: string): Date {
   }
 }
 
+export function buildRunStartBody(
+  workflowId: string,
+  inputVariables: Record<string, unknown>,
+  opts: { debug?: boolean; dryRun?: boolean; notifications?: boolean }
+): Record<string, unknown> {
+  const body: Record<string, unknown> = {
+    workflow_id: workflowId,
+    run_input_variables: inputVariables
+  }
+  if (opts.debug) body.debug = true
+  if (opts.dryRun) body.dry_run = { enabled: true }
+  if (opts.notifications === false) body.notifications = { enabled: false }
+  return body
+}
+
 export function registerRunCommands(program: Command): void {
   const run = program.command("run").description("Manage runs")
 
@@ -36,6 +51,7 @@ export function registerRunCommands(program: Command): void {
       .option("--input <json>", "Input variables as JSON string", "{}")
       .option("--debug", "Enable debug snapshots on every node")
       .option("--dry-run", "Run the workflow but skip final submit/save actions (nodes marked end_here_on_dry_run)")
+      .option("--no-notifications", "Suppress workspace run notifications (Slack/email) for this run")
   ).addHelpText("after", `
 Returns { session_id } immediately. Poll status with 'cloudcruise run get <session_id>'.
 
@@ -43,6 +59,7 @@ Examples:
   $ cloudcruise run start wf_abc123
   $ cloudcruise run start wf_abc123 --debug
   $ cloudcruise run start wf_abc123 --dry-run
+  $ cloudcruise run start wf_abc123 --no-notifications
   $ cloudcruise run start wf_abc123 --input '{"USER":"f47ac10b-58cc-4372-a567-0e02b2c3d479"}'
 `).action(
     async (
@@ -51,6 +68,7 @@ Examples:
         input: string
         debug?: boolean
         dryRun?: boolean
+        notifications: boolean
       } & AuthOptions
     ) => {
       try {
@@ -64,12 +82,7 @@ Examples:
           throw new UsageError(`Invalid --input JSON: ${opts.input}`)
         }
 
-        const body: Record<string, unknown> = {
-          workflow_id: workflowId,
-          run_input_variables: inputVariables
-        }
-        if (opts.debug) body.debug = true
-        if (opts.dryRun) body.dry_run = { enabled: true }
+        const body = buildRunStartBody(workflowId, inputVariables, opts)
 
         const result = await client.post<{ session_id: string }>("/run", body)
         outputJson(result)
