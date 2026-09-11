@@ -384,7 +384,7 @@ CloudCruise extends JSON Schema with:
 
 ### BOOL_CONDITION
 
-Conditional branching. Uses `true`/`false` edges. A BOOL_CONDITION must never point its `true` and `false` edges at the same node.
+Conditional branching. Uses `true`/`false` edges. A BOOL_CONDITION must never point its `true` and `false` edges at the same node. Use a 0-second `DELAY` node as a placeholder for a branch not decided yet (e.g. both would otherwise go to END), and replace it once the real behavior is known.
 
 ```json
 {
