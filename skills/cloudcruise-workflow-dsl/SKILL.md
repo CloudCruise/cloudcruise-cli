@@ -186,7 +186,7 @@ Entry point. Every workflow has exactly one.
 
 ### END
 
-Exit point. No parameters needed.
+Exit point. No parameters needed. A workflow has exactly one END node.
 
 ```json
 {
@@ -384,7 +384,7 @@ CloudCruise extends JSON Schema with:
 
 ### BOOL_CONDITION
 
-Conditional branching. Uses `true`/`false` edges.
+Conditional branching. Uses `true`/`false` edges. A BOOL_CONDITION must never point its `true` and `false` edges at the same node.
 
 ```json
 {
