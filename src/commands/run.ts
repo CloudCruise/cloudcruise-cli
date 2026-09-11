@@ -26,6 +26,21 @@ function parseSince(since: string): Date {
   }
 }
 
+export function buildRunStartBody(
+  workflowId: string,
+  inputVariables: Record<string, unknown>,
+  opts: { debug?: boolean; dryRun?: boolean; notifications?: boolean }
+): Record<string, unknown> {
+  const body: Record<string, unknown> = {
+    workflow_id: workflowId,
+    run_input_variables: inputVariables
+  }
+  if (opts.debug) body.debug = true
+  if (opts.dryRun) body.dry_run = { enabled: true }
+  if (opts.notifications === false) body.notifications = { enabled: false }
+  return body
+}
+
 export function registerRunCommands(program: Command): void {
   const run = program.command("run").description("Manage runs")
 
@@ -67,13 +82,7 @@ Examples:
           throw new UsageError(`Invalid --input JSON: ${opts.input}`)
         }
 
-        const body: Record<string, unknown> = {
-          workflow_id: workflowId,
-          run_input_variables: inputVariables
-        }
-        if (opts.debug) body.debug = true
-        if (opts.dryRun) body.dry_run = { enabled: true }
-        if (opts.notifications === false) body.notifications = { enabled: false }
+        const body = buildRunStartBody(workflowId, inputVariables, opts)
 
         const result = await client.post<{ session_id: string }>("/run", body)
         outputJson(result)
