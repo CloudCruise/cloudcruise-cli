@@ -186,7 +186,7 @@ Entry point. Every workflow has exactly one.
 
 ### END
 
-Exit point. No parameters needed. A workflow has exactly one END node.
+Exit point. No parameters needed.
 
 ```json
 {
@@ -408,8 +408,6 @@ Conditional branching. Uses `true`/`false` edges.
 | `clear_cookies_on_false` | boolean | No                       | Clear cookies when false (useful for login flows, default false)           |
 | `wait_time`              | number  | No                       | Max ms to wait before evaluation (default 15000)                          |
 | `error_on_false_message` | string  | No                       | Custom error code to throw when false                                      |
-
-A BOOL_CONDITION must never point its `true` and `false` edges at the same node — including both pointing at END.
 
 #### XPath evaluation with `<<xpath:...>>`
 
