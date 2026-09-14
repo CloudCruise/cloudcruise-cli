@@ -65,6 +65,9 @@ cloudcruise run start <workflow_id> --debug
 # Run the workflow but skip final submit/save actions (validates writes without submitting)
 cloudcruise run start <workflow_id> --dry-run
 
+# Start a run without workspace notifications (Slack/email) for this run
+cloudcruise run start <workflow_id> --no-notifications
+
 # Inspect a run (poll until the status is terminal)
 cloudcruise run get <session_id>
 

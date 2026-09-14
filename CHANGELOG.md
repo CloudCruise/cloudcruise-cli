@@ -1,8 +1,10 @@
 # Changelog
 
-## Unreleased
+## 1.11.6
 
 ### Added
+
+- `run start --no-notifications` suppresses workspace run notifications for that run (sends `notifications: { enabled: false }`; default stays enabled)
 
 ## 1.11.5
 
