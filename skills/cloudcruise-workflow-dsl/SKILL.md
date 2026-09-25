@@ -241,17 +241,63 @@ Type text into form fields.
 }
 ```
 
-| Parameter            | Type    | Required         | Description                                                                                                             |
-| -------------------- | ------- | ---------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `text`               | string  | Yes              | Text to type (supports variables and JSONata)                                                                           |
-| `execution`          | string  | Yes              | `STATIC` or `LLM_VISION`                                                                                                |
-| `selector`           | string  | Yes (STATIC)     | XPath selector                                                                                                          |
-| `prompt`             | string  | Yes (LLM_VISION) | Natural language field description                                                                                      |
-| `do_not_clear`       | boolean | No               | Append without clearing existing content                                                                                |
-| `submit_after_input` | boolean | No               | Press Enter after typing                                                                                                |
-| `aggressive_clear`   | boolean | No               | Adds a second clear pass. Enable only after observing typing leaves old text behind or appends to it — not preemptively |
-| `wait_time`          | number  | No               | Max ms to wait. Default: 15000                                                                                          |
-| `human_mode`         | boolean | No               | Human-like typing behavior                                                                                              |
+| Parameter             | Type    | Required         | Description                                                                                                             |
+| --------------------- | ------- | ---------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `text`                | string  | Yes              | Text to type (supports variables and JSONata). `{{...}}` keystroke tokens press keys — see below                        |
+| `execution`           | string  | Yes              | `STATIC` or `LLM_VISION`                                                                                                |
+| `selector`            | string  | Yes (STATIC)     | XPath selector                                                                                                          |
+| `prompt`              | string  | Yes (LLM_VISION) | Natural language field description                                                                                      |
+| `do_not_clear`        | boolean | No               | Append without clearing existing content                                                                                |
+| `submit_after_input`  | boolean | No               | Press Enter after typing                                                                                                |
+| `aggressive_clear`    | boolean | No               | Adds a second clear pass. Enable only after observing typing leaves old text behind or appends to it — not preemptively |
+| `wait_time`           | number  | No               | Max ms to wait. Default: 15000                                                                                          |
+| `human_mode`          | boolean | No               | Human-like typing behavior                                                                                              |
+| `omit_focus`          | boolean | No               | Send the keys to whatever currently has focus. No `selector`, no click, no clearing. Native/desktop (RDP) runs only     |
+| `paste_via_clipboard` | boolean | No               | Paste the resolved text via the OS clipboard (ctrl+v) instead of typing it. Ignored when `text` has keystroke tokens. Native/desktop (RDP) runs only |
+| `typing_delay_ms`     | integer | No               | Delay between keystrokes in ms (1–1000). Use when typed characters get dropped, e.g. over RDP. Native/desktop (RDP) runs only |
+
+**Keystroke tokens.** `text` presses a key wherever it contains one of the tokens below; any other `{{...}}` goes through normal variable and JSONata interpolation. Tokens and text within one node run in order, so `"john{{tab}}secret{{enter}}"` types, tabs, types, enters. Tokens work only on native/desktop (RDP) runs — the browser DOM path rejects them. Reach for these only when the user asks for them or the site offers no other way — ordinary `CLICK` and `INPUT_TEXT` nodes remain the default.
+
+| Token                                         | Key                                               |
+| --------------------------------------------- | ------------------------------------------------- |
+| `{{tab}}`                                     | Tab                                               |
+| `{{enter}}`, `{{return}}`                     | Enter                                             |
+| `{{escape}}`, `{{esc}}`                       | Escape                                            |
+| `{{space}}`                                   | Space                                             |
+| `{{backspace}}`                               | Backspace                                         |
+| `{{delete}}`, `{{del}}`                       | Delete                                            |
+| `{{up}}`, `{{down}}`, `{{left}}`, `{{right}}` | Arrow keys (`{{arrow_up}}` and friends also work) |
+| `{{ctrl_a}}`, `{{ctrl_c}}`, `{{ctrl_v}}`      | Select all, copy, paste                           |
+
+Keep the `selector` when the keys belong in a field that must be focused first. The node clicks the element before typing, so the selector must be the field itself, and a key that follows the text acts on whatever that field opened.
+
+```json
+{
+  "id": "a1b2c3d4-5678-4abc-def0-123456789abc",
+  "name": "Set start date and dismiss the picker",
+  "action": "INPUT_TEXT",
+  "parameters": {
+    "execution": "STATIC",
+    "selector": "//input[@id='start-date']",
+    "text": "03/15/2025{{escape}}"
+  }
+}
+```
+
+For keys with no field to type into, set `omit_focus: true` and give no `selector` and no `prompt`.
+
+```json
+{
+  "id": "b2c3d4e5-6789-4abc-def0-123456789abc",
+  "name": "Dismiss dialog",
+  "action": "INPUT_TEXT",
+  "parameters": {
+    "execution": "STATIC",
+    "omit_focus": true,
+    "text": "{{esc}}"
+  }
+}
+```
 
 ### INPUT_SELECT
 
