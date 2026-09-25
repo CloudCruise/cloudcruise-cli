@@ -271,33 +271,7 @@ Type text into form fields.
 
 Keep the `selector` when the keys belong in a field that must be focused first. The node clicks the element before typing, so the selector must be the field itself, and a key that follows the text acts on whatever that field opened.
 
-```json
-{
-  "id": "a1b2c3d4-5678-4abc-def0-123456789abc",
-  "name": "Set start date and dismiss the picker",
-  "action": "INPUT_TEXT",
-  "parameters": {
-    "execution": "STATIC",
-    "selector": "//input[@id='start-date']",
-    "text": "03/15/2025{{escape}}"
-  }
-}
-```
-
 For keys with no field to type into, set `omit_focus: true` and give no `selector` and no `prompt`.
-
-```json
-{
-  "id": "b2c3d4e5-6789-4abc-def0-123456789abc",
-  "name": "Dismiss dialog",
-  "action": "INPUT_TEXT",
-  "parameters": {
-    "execution": "STATIC",
-    "omit_focus": true,
-    "text": "{{esc}}"
-  }
-}
-```
 
 ### INPUT_SELECT
 
