@@ -252,11 +252,11 @@ Type text into form fields.
 | `aggressive_clear`    | boolean | No               | Adds a second clear pass. Enable only after observing typing leaves old text behind or appends to it — not preemptively |
 | `wait_time`           | number  | No               | Max ms to wait. Default: 15000                                                                                          |
 | `human_mode`          | boolean | No               | Human-like typing behavior                                                                                              |
-| `omit_focus`          | boolean | No               | Send the keys to whatever currently has focus. No `selector`, no click, no clearing. Native/desktop (RDP) runs only     |
-| `paste_via_clipboard` | boolean | No               | Paste the resolved text via the OS clipboard (ctrl+v) instead of typing it. Ignored when `text` has keystroke tokens. Native/desktop (RDP) runs only |
-| `typing_delay_ms`     | integer | No               | Delay between keystrokes in ms (1–1000). Use when typed characters get dropped, e.g. over RDP. Native/desktop (RDP) runs only |
+| `omit_focus`          | boolean | No               | Send the keys to whatever currently has focus. No `selector`, no click, no clearing     |
+| `paste_via_clipboard` | boolean | No               | Paste the resolved text via the OS clipboard (ctrl+v) instead of typing it. Ignored when `text` has keystroke tokens |
+| `typing_delay_ms`     | integer | No               | Delay between keystrokes in ms (1–1000). Use when typed characters get dropped, e.g. over RDP |
 
-**Keystroke tokens.** `text` presses a key wherever it contains one of the tokens below; any other `{{...}}` goes through normal variable and JSONata interpolation. Tokens and text within one node run in order, so `"john{{tab}}secret{{enter}}"` types, tabs, types, enters. Tokens work only on native/desktop (RDP) runs — the browser DOM path rejects them. Reach for these only when the user asks for them or the site offers no other way — ordinary `CLICK` and `INPUT_TEXT` nodes remain the default.
+**Keystroke tokens.** `text` presses a key wherever it contains one of the tokens below; any other `{{...}}` goes through normal variable and JSONata interpolation. Tokens and text within one node run in order, so `"john{{tab}}secret{{enter}}"` types, tabs, types, enters. Reach for these only when the user asks for them or the site offers no other way — ordinary `CLICK` and `INPUT_TEXT` nodes remain the default.
 
 | Token                                         | Key                                               |
 | --------------------------------------------- | ------------------------------------------------- |
