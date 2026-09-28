@@ -5,18 +5,6 @@ import { outputJson } from "../core/output.js"
 import { fail, UsageError } from "../core/exit.js"
 import { addAuthOptions, type AuthOptions } from "../core/auth-options.js"
 
-// Mirrors ErrorCodeActions in the backend (packages/types/types.ts).
-export const ERROR_CODE_ACTIONS = [
-  "alert",
-  "cancel",
-  "pause",
-  "retry",
-  "input_required"
-] as const
-
-const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-
 const parseNonNegativeInt = (value: string): number => {
   const parsed = Number(value)
   if (!/^\d+$/.test(value) || !Number.isSafeInteger(parsed)) {
@@ -25,15 +13,6 @@ const parseNonNegativeInt = (value: string): number => {
     )
   }
   return parsed
-}
-
-const parseAction = (value: string): string => {
-  if (!(ERROR_CODE_ACTIONS as readonly string[]).includes(value)) {
-    throw new InvalidArgumentError(
-      `Must be one of ${ERROR_CODE_ACTIONS.join(", ")} (got: ${value}).`
-    )
-  }
-  return value
 }
 
 export type ErrorCodeFieldOptions = {
@@ -66,8 +45,20 @@ function parseJsonObject(raw: string): Record<string, unknown> {
   return value as Record<string, unknown>
 }
 
-function fieldsToBody(opts: ErrorCodeFieldOptions): Record<string, unknown> {
-  const body: Record<string, unknown> = {}
+export function buildListErrorCodesPath(opts: { workflowId?: string }): string {
+  if (opts.workflowId === undefined) return "/error-codes"
+  return `/error-codes?workflow_id=${encodeURIComponent(opts.workflowId)}`
+}
+
+/**
+ * Request body for POST and PATCH /error-codes: the --stdin object with any
+ * flags laid over it. Field rules are left to the API.
+ */
+export function buildErrorCodeBody(
+  opts: ErrorCodeFieldOptions,
+  stdinBody?: Record<string, unknown>
+): Record<string, unknown> {
+  const body: Record<string, unknown> = { ...(stdinBody ?? {}) }
   if (opts.code !== undefined) body.error_code = opts.code
   if (opts.description !== undefined) body.description = opts.description
   if (opts.enrichedDescription !== undefined) {
@@ -76,93 +67,6 @@ function fieldsToBody(opts: ErrorCodeFieldOptions): Record<string, unknown> {
   if (opts.action !== undefined) body.error_action = opts.action
   if (opts.retries !== undefined) body.retries = opts.retries
   if (opts.retryAfter !== undefined) body.retry_after = opts.retryAfter
-  return body
-}
-
-const BODY_FIELDS = [
-  "error_code",
-  "description",
-  "enriched_description",
-  "error_action",
-  "retries",
-  "retry_after"
-]
-
-/**
- * Applies the flag rules to the merged body so --stdin fields are checked
- * the same way as flags.
- */
-function assertValidBody(body: Record<string, unknown>): void {
-  const unknown = Object.keys(body).filter((key) => !BODY_FIELDS.includes(key))
-  if (unknown.length > 0) {
-    throw new UsageError(
-      `Unknown field(s): ${unknown.join(", ")}. Allowed: ${BODY_FIELDS.join(", ")}`
-    )
-  }
-  for (const key of ["error_code", "description", "enriched_description"]) {
-    if (key in body && typeof body[key] !== "string") {
-      throw new UsageError(`${key} must be a string`)
-    }
-  }
-  if (
-    "error_action" in body &&
-    !(ERROR_CODE_ACTIONS as readonly unknown[]).includes(body.error_action)
-  ) {
-    throw new UsageError(
-      `error_action must be one of ${ERROR_CODE_ACTIONS.join(", ")}`
-    )
-  }
-  for (const key of ["retries", "retry_after"]) {
-    if (
-      key in body &&
-      !(Number.isSafeInteger(body[key]) && (body[key] as number) >= 0)
-    ) {
-      throw new UsageError(`${key} must be a non-negative integer`)
-    }
-  }
-}
-
-export function buildListErrorCodesPath(opts: { workflowId?: string }): string {
-  if (opts.workflowId === undefined) return "/error-codes"
-  if (!UUID_RE.test(opts.workflowId)) {
-    throw new UsageError(`--workflow-id must be a UUID (got: ${opts.workflowId})`)
-  }
-  return `/error-codes?workflow_id=${encodeURIComponent(opts.workflowId)}`
-}
-
-/**
- * Body for POST /error-codes. Flags override fields from a --stdin JSON
- * object; error_code and description are required either way.
- */
-export function buildCreateErrorCodeBody(
-  opts: ErrorCodeFieldOptions,
-  stdinBody?: Record<string, unknown>
-): Record<string, unknown> {
-  const body = { ...(stdinBody ?? {}), ...fieldsToBody(opts) }
-  assertValidBody(body)
-  if (typeof body.error_code !== "string" || !body.error_code.trim()) {
-    throw new UsageError("Provide --code <name> (or error_code via --stdin)")
-  }
-  if (typeof body.description !== "string" || !body.description.trim()) {
-    throw new UsageError(
-      "Provide --description <text> (or description via --stdin)"
-    )
-  }
-  return body
-}
-
-/** Body for PATCH /error-codes/:id. At least one field is required. */
-export function buildUpdateErrorCodeBody(
-  opts: ErrorCodeFieldOptions,
-  stdinBody?: Record<string, unknown>
-): Record<string, unknown> {
-  const body = { ...(stdinBody ?? {}), ...fieldsToBody(opts) }
-  assertValidBody(body)
-  if (Object.keys(body).length === 0) {
-    throw new UsageError(
-      "Provide at least one of --code, --description, --enriched-description, --action, --retries, --retry-after, or --stdin"
-    )
-  }
   return body
 }
 
@@ -176,8 +80,7 @@ function addFieldOptions(cmd: Command): Command {
     )
     .option(
       "--action <action>",
-      `What happens when the code fires: ${ERROR_CODE_ACTIONS.join(", ")}`,
-      parseAction
+      "What happens when the code fires (error_action), e.g. alert or retry"
     )
     .option("--retries <n>", "Retries for this code", parseNonNegativeInt)
     .option(
@@ -251,7 +154,7 @@ Examples:
     .action(async (opts: ErrorCodeFieldOptions & { stdin?: boolean } & AuthOptions) => {
       try {
         const stdinBody = opts.stdin ? parseJsonObject(await readStdin()) : undefined
-        const body = buildCreateErrorCodeBody(opts, stdinBody)
+        const body = buildErrorCodeBody(opts, stdinBody)
         const client = new ApiClient(await resolveAuth(opts))
         outputJson(await client.post("/error-codes", body))
       } catch (err: unknown) {
@@ -283,13 +186,10 @@ Examples:
         opts: ErrorCodeFieldOptions & { stdin?: boolean } & AuthOptions
       ) => {
         try {
-          if (!UUID_RE.test(id)) {
-            throw new UsageError(`Error code id must be a UUID (got: ${id})`)
-          }
           const stdinBody = opts.stdin ? parseJsonObject(await readStdin()) : undefined
-          const body = buildUpdateErrorCodeBody(opts, stdinBody)
+          const body = buildErrorCodeBody(opts, stdinBody)
           const client = new ApiClient(await resolveAuth(opts))
-          outputJson(await client.patch(`/error-codes/${id}`, body))
+          outputJson(await client.patch(`/error-codes/${encodeURIComponent(id)}`, body))
         } catch (err: unknown) {
           fail(err)
         }
