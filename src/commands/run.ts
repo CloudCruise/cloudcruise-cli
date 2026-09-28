@@ -1,10 +1,10 @@
-import { readFileSync } from "node:fs"
 import { Command } from "commander"
 import { resolveAuth } from "../core/auth.js"
 import { ApiClient } from "../core/api-client.js"
 import { outputJson } from "../core/output.js"
 import { fail, UsageError } from "../core/exit.js"
 import { addAuthOptions, type AuthOptions } from "../core/auth-options.js"
+import { requireJsonObject } from "../core/input.js"
 
 function parseSince(since: string): Date {
   const match = since.match(/^(\d+)(h|d|m)$/)
@@ -217,36 +217,10 @@ Examples:
       } & AuthOptions
     ) => {
       try {
-        const sources = [opts.data, opts.file, opts.stdin].filter(Boolean)
-        if (sources.length === 0) {
-          throw new UsageError("Provide interaction data via --data, --file, or --stdin")
-        }
-        if (sources.length > 1) {
-          throw new UsageError("Pass only one of --data, --file, or --stdin")
-        }
-
-        let raw: string
-        if (opts.stdin) {
-          const chunks: Buffer[] = []
-          for await (const chunk of process.stdin) {
-            chunks.push(chunk as Buffer)
-          }
-          raw = Buffer.concat(chunks).toString("utf-8")
-        } else if (opts.file) {
-          raw = readFileSync(opts.file, "utf-8")
-        } else {
-          raw = opts.data as string
-        }
-
-        let body: unknown
-        try {
-          body = JSON.parse(raw)
-        } catch {
-          throw new UsageError(`Invalid interaction data JSON: ${raw}`)
-        }
-        if (typeof body !== "object" || body === null || Array.isArray(body)) {
-          throw new UsageError("Interaction data must be a JSON object of key-value pairs")
-        }
+        const body = await requireJsonObject(
+          opts,
+          "Provide interaction data via --data, --file, or --stdin"
+        )
 
         const auth = await resolveAuth(opts)
         const client = new ApiClient(auth)

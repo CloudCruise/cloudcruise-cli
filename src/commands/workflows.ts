@@ -1,10 +1,10 @@
 import { Command, InvalidArgumentError } from "commander"
-import { readFileSync } from "fs"
 import { resolveAuth } from "../core/auth.js"
 import { ApiClient } from "../core/api-client.js"
 import { outputJson } from "../core/output.js"
-import { ExitCode, fail, UsageError } from "../core/exit.js"
+import { ExitCode, fail } from "../core/exit.js"
 import { addAuthOptions, type AuthOptions } from "../core/auth-options.js"
+import { requireJsonObject } from "../core/input.js"
 
 export function registerWorkflowCommands(program: Command): void {
   const workflows = program.command("workflows").description("Manage workflows")
@@ -275,30 +275,7 @@ Examples:
       opts: { file?: string; stdin?: boolean } & AuthOptions
     ) => {
       try {
-        if (opts.stdin && opts.file) {
-          throw new UsageError("Pass either --file or --stdin, not both")
-        }
-        let payload: unknown
-        if (opts.stdin) {
-          const chunks: Buffer[] = []
-          for await (const chunk of process.stdin) {
-            chunks.push(chunk as Buffer)
-          }
-          payload = JSON.parse(Buffer.concat(chunks).toString("utf-8"))
-        } else if (opts.file) {
-          payload = JSON.parse(readFileSync(opts.file, "utf-8"))
-        } else {
-          throw new UsageError("Provide --file <path> or --stdin")
-        }
-        if (
-          payload === null ||
-          typeof payload !== "object" ||
-          Array.isArray(payload)
-        ) {
-          throw new UsageError(
-            "Payload must be a JSON object of run input variables"
-          )
-        }
+        const payload = await requireJsonObject(opts)
 
         const auth = await resolveAuth(opts)
         const client = new ApiClient(auth)
@@ -362,21 +339,7 @@ Examples:
 `).action(
     async (opts: { file?: string; stdin?: boolean } & AuthOptions) => {
       try {
-        if (opts.stdin && opts.file) {
-          throw new UsageError("Pass either --file or --stdin, not both")
-        }
-        let body: Record<string, unknown>
-        if (opts.stdin) {
-          const chunks: Buffer[] = []
-          for await (const chunk of process.stdin) {
-            chunks.push(chunk as Buffer)
-          }
-          body = JSON.parse(Buffer.concat(chunks).toString("utf-8"))
-        } else if (opts.file) {
-          body = JSON.parse(readFileSync(opts.file, "utf-8"))
-        } else {
-          throw new UsageError("Provide --file <path> or --stdin")
-        }
+        const body = await requireJsonObject(opts)
 
         const auth = await resolveAuth(opts)
         const client = new ApiClient(auth)
@@ -423,21 +386,7 @@ Examples:
       } & AuthOptions
     ) => {
       try {
-        if (opts.stdin && opts.file) {
-          throw new UsageError("Pass either --file or --stdin, not both")
-        }
-        let body: Record<string, unknown>
-        if (opts.stdin) {
-          const chunks: Buffer[] = []
-          for await (const chunk of process.stdin) {
-            chunks.push(chunk as Buffer)
-          }
-          body = JSON.parse(Buffer.concat(chunks).toString("utf-8"))
-        } else if (opts.file) {
-          body = JSON.parse(readFileSync(opts.file, "utf-8"))
-        } else {
-          throw new UsageError("Provide --file <path> or --stdin")
-        }
+        const body = await requireJsonObject(opts)
 
         for (const field of READONLY_FIELDS) {
           delete body[field]

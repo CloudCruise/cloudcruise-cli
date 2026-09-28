@@ -12,6 +12,7 @@
 
 ### Changed
 
+- Every command that takes a JSON payload (`workflows update|import|validate-input`, `components create|update`, `vault create|update`, `run respond`, `error-codes create|update`) now reads it through one helper. Invalid JSON, a non-object payload, an unreadable `--file`, or passing more than one of `--data`/`--file`/`--stdin` now exit 2 (`BAD_ARGS`) with a message naming the flag; some of these used to exit 1. `vault create|update` with both `--file` and `--stdin` is now an error instead of silently using stdin.
 - DSL skill documents the error-code params as error code ids and adds an Error Codes section; the builder `respond` example uses a UUID instead of `ec_...`.
 ## 1.11.7
 

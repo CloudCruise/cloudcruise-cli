@@ -46,6 +46,7 @@ import {
   type WorkspaceSummary,
 } from "../core/workspaces.js"
 import { enforceNoArgSecrets } from "../core/secret-args.js"
+import { readStdin } from "../core/input.js"
 import { outputJson, outputError } from "../core/output.js"
 import {
   clearWorkspaceProfile,
@@ -83,14 +84,6 @@ interface WorkspaceSelectionOutput {
 
 function maskKey(key: string): string {
   return key.slice(0, 6) + "..." + key.slice(-4)
-}
-
-async function readStdin(): Promise<string> {
-  const chunks: Buffer[] = []
-  for await (const chunk of process.stdin) {
-    chunks.push(chunk as Buffer)
-  }
-  return Buffer.concat(chunks).toString("utf-8")
 }
 
 function loadStoredApiKey(profileName: string, profile: ProfileConfig): string | null {

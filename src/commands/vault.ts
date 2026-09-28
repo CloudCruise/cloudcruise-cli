@@ -1,5 +1,4 @@
 import { Command } from "commander"
-import { readFileSync } from "fs"
 import { resolveAuth, requireEncryptionKey } from "../core/auth.js"
 import { ApiClient } from "../core/api-client.js"
 import { encrypt, decrypt, validateHexKey } from "../core/crypto.js"
@@ -7,6 +6,7 @@ import { outputJson } from "../core/output.js"
 import { fail, UsageError } from "../core/exit.js"
 import { addAuthOptions, type AuthOptions } from "../core/auth-options.js"
 import { enforceNoArgSecrets } from "../core/secret-args.js"
+import { readJsonObject, readStdin } from "../core/input.js"
 import type { VaultEntry, VaultEntryPayload } from "../types/vault.js"
 
 const ENCRYPTED_FIELDS = ["user_name", "password", "tfa_secret"] as const
@@ -212,14 +212,6 @@ async function applySecretStdinOptions(opts: {
   }
 }
 
-async function readStdin(): Promise<string> {
-  const chunks: Buffer[] = []
-  for await (const chunk of process.stdin) {
-    chunks.push(chunk as Buffer)
-  }
-  return Buffer.concat(chunks).toString("utf-8")
-}
-
 export function registerVaultCommands(program: Command): void {
   const vault = program.command("vault").description("Manage vault credentials")
 
@@ -367,10 +359,9 @@ Examples:
         const client = new ApiClient(auth)
         let payload: Record<string, unknown>
 
-        if (opts.stdin) {
-          payload = JSON.parse(await readStdin())
-        } else if (opts.file) {
-          payload = JSON.parse(readFileSync(opts.file, "utf-8"))
+        const input = await readJsonObject(opts)
+        if (input) {
+          payload = input
         } else {
           if (!opts.userId || !opts.domain) {
             throw new UsageError(
@@ -463,10 +454,9 @@ Examples:
         const client = new ApiClient(auth)
         let payload: Record<string, unknown>
 
-        if (opts.stdin) {
-          payload = JSON.parse(await readStdin())
-        } else if (opts.file) {
-          payload = JSON.parse(readFileSync(opts.file, "utf-8"))
+        const input = await readJsonObject(opts)
+        if (input) {
+          payload = input
         } else {
           if (!opts.userId || !opts.domain) {
             throw new UsageError(
