@@ -13,6 +13,11 @@
 ### Changed
 
 - DSL skill documents the error-code params as error code ids and adds an Error Codes section; the builder `respond` example uses a UUID instead of `ec_...`.
+## 1.11.7
+
+### Changed
+
+- `cloudcruise-workflow-dsl` documents the newer `INPUT_TEXT` parameters: `omit_focus`, `paste_via_clipboard`, and `typing_delay_ms`, plus `{{...}}` keystroke tokens in `text` (`{{tab}}`, `{{enter}}`, `{{esc}}`, arrows, `{{ctrl_a}}`, …).
 
 ## 1.11.6
 
