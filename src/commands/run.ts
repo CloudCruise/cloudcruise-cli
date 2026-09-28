@@ -56,11 +56,11 @@ export function registerRunCommands(program: Command): void {
 Returns { session_id } immediately. Poll status with 'cloudcruise run get <session_id>'.
 
 Examples:
-  $ cloudcruise run start wf_abc123
-  $ cloudcruise run start wf_abc123 --debug
-  $ cloudcruise run start wf_abc123 --dry-run
-  $ cloudcruise run start wf_abc123 --no-notifications
-  $ cloudcruise run start wf_abc123 --input '{"USER":"f47ac10b-58cc-4372-a567-0e02b2c3d479"}'
+  $ cloudcruise run start <workflow_id>
+  $ cloudcruise run start <workflow_id> --debug
+  $ cloudcruise run start <workflow_id> --dry-run
+  $ cloudcruise run start <workflow_id> --no-notifications
+  $ cloudcruise run start <workflow_id> --input '{"USER":"f47ac10b-58cc-4372-a567-0e02b2c3d479"}'
 `).action(
     async (
       workflowId: string,
@@ -128,8 +128,8 @@ By default, the API returns runs from the last 24 hours.
 
 Examples:
   $ cloudcruise run list
-  $ cloudcruise run list --workflow wf_abc123 --status completed --limit 10
-  $ cloudcruise run list --workflow wf_abc123 --since 7d
+  $ cloudcruise run list --workflow <workflow_id> --status completed --limit 10
+  $ cloudcruise run list --workflow <workflow_id> --since 7d
 `).action(
     async (opts: {
       workflow?: string
@@ -295,9 +295,9 @@ Examples:
       .option("--limit <n>", "Max results", "1000")
   ).addHelpText("after", `
 Examples:
-  $ cloudcruise run errors wf_abc123
-  $ cloudcruise run errors wf_abc123 --since 7d
-  $ cloudcruise run errors wf_abc123 --since 30m --limit 50
+  $ cloudcruise run errors <workflow_id>
+  $ cloudcruise run errors <workflow_id> --since 7d
+  $ cloudcruise run errors <workflow_id> --since 30m --limit 50
 `).action(
     async (
       workflowId: string,

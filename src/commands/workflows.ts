@@ -193,9 +193,9 @@ Examples:
       )
   ).addHelpText("after", `
 Examples:
-  $ cloudcruise workflows get wf_abc123
-  $ cloudcruise workflows get wf_abc123 > workflow.json
-  $ cloudcruise workflows get wf_abc123 --version-number 18
+  $ cloudcruise workflows get <workflow_id>
+  $ cloudcruise workflows get <workflow_id> > workflow.json
+  $ cloudcruise workflows get <workflow_id> --version-number 18
 `).action(async (id: string, opts: { versionNumber?: number } & AuthOptions) => {
     try {
       const auth = await resolveAuth(opts)
@@ -222,8 +222,8 @@ Examples:
       )
   ).addHelpText("after", `
 Examples:
-  $ cloudcruise workflows versions wf_abc123
-  $ cloudcruise workflows versions wf_abc123 --limit 10
+  $ cloudcruise workflows versions <workflow_id>
+  $ cloudcruise workflows versions <workflow_id> --limit 10
 `).action(async (id: string, opts: { limit?: number } & AuthOptions) => {
     try {
       const auth = await resolveAuth(opts)
@@ -267,8 +267,8 @@ The result is printed on stdout. Exit codes:
      fix the schema, no payload can pass
 
 Examples:
-  $ cloudcruise workflows validate-input wf_abc123 --file payloads/null.json
-  $ cat payload.json | cloudcruise workflows validate-input wf_abc123 --stdin
+  $ cloudcruise workflows validate-input <workflow_id> --file payloads/null.json
+  $ cat payload.json | cloudcruise workflows validate-input <workflow_id> --stdin
 `).action(
     async (
       id: string,
@@ -329,9 +329,9 @@ Workspace resolution: --workspace-id, else CLOUDCRUISE_WORKSPACE_ID, else the
 profile's default workspace.
 
 Examples:
-  $ cloudcruise workflows export wf_abc123 --profile staging > bundle.json
-  $ cloudcruise workflows export wf_abc123 --profile prod
-  $ cloudcruise workflows export wf_abc123 --profile prod --workspace-id ws_123
+  $ cloudcruise workflows export <workflow_id> --profile staging > bundle.json
+  $ cloudcruise workflows export <workflow_id> --profile prod
+  $ cloudcruise workflows export <workflow_id> --profile prod --workspace-id ws_123
 `).action(async (id: string, opts: AuthOptions) => {
     try {
       const auth = await resolveAuth(opts)
@@ -358,7 +358,7 @@ profile's default workspace.
 Examples:
   $ cloudcruise workflows import --file bundle.json --profile prod
   $ cloudcruise workflows import --file bundle.json --profile prod --workspace-id ws_123
-  $ cloudcruise workflows export wf_abc123 --profile staging | cloudcruise workflows import --stdin --profile prod
+  $ cloudcruise workflows export <workflow_id> --profile staging | cloudcruise workflows import --stdin --profile prod
 `).action(
     async (opts: { file?: string; stdin?: boolean } & AuthOptions) => {
       try {
@@ -410,8 +410,8 @@ Examples:
       .option("--version-note <note>", "Description of changes for this version")
   ).addHelpText("after", `
 Examples:
-  $ cloudcruise workflows update wf_abc123 --file workflow.json --version-note "Fixed login XPath"
-  $ cat workflow.json | cloudcruise workflows update wf_abc123 --stdin --version-note "Updated selectors"
+  $ cloudcruise workflows update <workflow_id> --file workflow.json --version-note "Fixed login XPath"
+  $ cat workflow.json | cloudcruise workflows update <workflow_id> --stdin --version-note "Updated selectors"
 `).action(
     async (
       id: string,
