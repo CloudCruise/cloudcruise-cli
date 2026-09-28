@@ -19,6 +19,7 @@ import {
 } from "../core/conversation.js"
 import type { RosterEntry } from "../core/conversation.js"
 import { enforceNoArgSecrets } from "../core/secret-args.js"
+import { readStdin } from "../core/input.js"
 
 /** Options carried by every command that targets an existing conversation. */
 type ConversationOptions = AuthOptions & { conversation?: string }
@@ -233,14 +234,6 @@ function normalizeUrl(value: string, flagName: string): string {
   } catch {
     throw new UsageError(`${flagName}: Invalid URL (${JSON.stringify(value)})`)
   }
-}
-
-async function readStdin(): Promise<string> {
-  const chunks: Buffer[] = []
-  for await (const chunk of process.stdin) {
-    chunks.push(chunk as Buffer)
-  }
-  return Buffer.concat(chunks).toString("utf-8")
 }
 
 function parseLimit(limit: string | undefined): number | undefined {

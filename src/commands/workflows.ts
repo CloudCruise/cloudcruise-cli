@@ -1,10 +1,10 @@
 import { Command, InvalidArgumentError } from "commander"
-import { readFileSync } from "fs"
 import { resolveAuth } from "../core/auth.js"
 import { ApiClient } from "../core/api-client.js"
 import { outputJson } from "../core/output.js"
-import { ExitCode, fail, UsageError } from "../core/exit.js"
+import { ExitCode, fail } from "../core/exit.js"
 import { addAuthOptions, type AuthOptions } from "../core/auth-options.js"
+import { requireJsonObject } from "../core/input.js"
 
 export function registerWorkflowCommands(program: Command): void {
   const workflows = program.command("workflows").description("Manage workflows")
@@ -193,9 +193,9 @@ Examples:
       )
   ).addHelpText("after", `
 Examples:
-  $ cloudcruise workflows get wf_abc123
-  $ cloudcruise workflows get wf_abc123 > workflow.json
-  $ cloudcruise workflows get wf_abc123 --version-number 18
+  $ cloudcruise workflows get <workflow_id>
+  $ cloudcruise workflows get <workflow_id> > workflow.json
+  $ cloudcruise workflows get <workflow_id> --version-number 18
 `).action(async (id: string, opts: { versionNumber?: number } & AuthOptions) => {
     try {
       const auth = await resolveAuth(opts)
@@ -222,8 +222,8 @@ Examples:
       )
   ).addHelpText("after", `
 Examples:
-  $ cloudcruise workflows versions wf_abc123
-  $ cloudcruise workflows versions wf_abc123 --limit 10
+  $ cloudcruise workflows versions <workflow_id>
+  $ cloudcruise workflows versions <workflow_id> --limit 10
 `).action(async (id: string, opts: { limit?: number } & AuthOptions) => {
     try {
       const auth = await resolveAuth(opts)
@@ -267,38 +267,15 @@ The result is printed on stdout. Exit codes:
      fix the schema, no payload can pass
 
 Examples:
-  $ cloudcruise workflows validate-input wf_abc123 --file payloads/null.json
-  $ cat payload.json | cloudcruise workflows validate-input wf_abc123 --stdin
+  $ cloudcruise workflows validate-input <workflow_id> --file payloads/null.json
+  $ cat payload.json | cloudcruise workflows validate-input <workflow_id> --stdin
 `).action(
     async (
       id: string,
       opts: { file?: string; stdin?: boolean } & AuthOptions
     ) => {
       try {
-        if (opts.stdin && opts.file) {
-          throw new UsageError("Pass either --file or --stdin, not both")
-        }
-        let payload: unknown
-        if (opts.stdin) {
-          const chunks: Buffer[] = []
-          for await (const chunk of process.stdin) {
-            chunks.push(chunk as Buffer)
-          }
-          payload = JSON.parse(Buffer.concat(chunks).toString("utf-8"))
-        } else if (opts.file) {
-          payload = JSON.parse(readFileSync(opts.file, "utf-8"))
-        } else {
-          throw new UsageError("Provide --file <path> or --stdin")
-        }
-        if (
-          payload === null ||
-          typeof payload !== "object" ||
-          Array.isArray(payload)
-        ) {
-          throw new UsageError(
-            "Payload must be a JSON object of run input variables"
-          )
-        }
+        const payload = await requireJsonObject(opts)
 
         const auth = await resolveAuth(opts)
         const client = new ApiClient(auth)
@@ -329,9 +306,9 @@ Workspace resolution: --workspace-id, else CLOUDCRUISE_WORKSPACE_ID, else the
 profile's default workspace.
 
 Examples:
-  $ cloudcruise workflows export wf_abc123 --profile staging > bundle.json
-  $ cloudcruise workflows export wf_abc123 --profile prod
-  $ cloudcruise workflows export wf_abc123 --profile prod --workspace-id ws_123
+  $ cloudcruise workflows export <workflow_id> --profile staging > bundle.json
+  $ cloudcruise workflows export <workflow_id> --profile prod
+  $ cloudcruise workflows export <workflow_id> --profile prod --workspace-id ws_123
 `).action(async (id: string, opts: AuthOptions) => {
     try {
       const auth = await resolveAuth(opts)
@@ -358,25 +335,11 @@ profile's default workspace.
 Examples:
   $ cloudcruise workflows import --file bundle.json --profile prod
   $ cloudcruise workflows import --file bundle.json --profile prod --workspace-id ws_123
-  $ cloudcruise workflows export wf_abc123 --profile staging | cloudcruise workflows import --stdin --profile prod
+  $ cloudcruise workflows export <workflow_id> --profile staging | cloudcruise workflows import --stdin --profile prod
 `).action(
     async (opts: { file?: string; stdin?: boolean } & AuthOptions) => {
       try {
-        if (opts.stdin && opts.file) {
-          throw new UsageError("Pass either --file or --stdin, not both")
-        }
-        let body: Record<string, unknown>
-        if (opts.stdin) {
-          const chunks: Buffer[] = []
-          for await (const chunk of process.stdin) {
-            chunks.push(chunk as Buffer)
-          }
-          body = JSON.parse(Buffer.concat(chunks).toString("utf-8"))
-        } else if (opts.file) {
-          body = JSON.parse(readFileSync(opts.file, "utf-8"))
-        } else {
-          throw new UsageError("Provide --file <path> or --stdin")
-        }
+        const body = await requireJsonObject(opts)
 
         const auth = await resolveAuth(opts)
         const client = new ApiClient(auth)
@@ -399,6 +362,7 @@ Examples:
     "workflow_id",
     "loginStructure",
     "encrypted_keys",
+    "conversation_id",
   ]
 
   addAuthOptions(
@@ -410,8 +374,8 @@ Examples:
       .option("--version-note <note>", "Description of changes for this version")
   ).addHelpText("after", `
 Examples:
-  $ cloudcruise workflows update wf_abc123 --file workflow.json --version-note "Fixed login XPath"
-  $ cat workflow.json | cloudcruise workflows update wf_abc123 --stdin --version-note "Updated selectors"
+  $ cloudcruise workflows update <workflow_id> --file workflow.json --version-note "Fixed login XPath"
+  $ cat workflow.json | cloudcruise workflows update <workflow_id> --stdin --version-note "Updated selectors"
 `).action(
     async (
       id: string,
@@ -422,21 +386,7 @@ Examples:
       } & AuthOptions
     ) => {
       try {
-        if (opts.stdin && opts.file) {
-          throw new UsageError("Pass either --file or --stdin, not both")
-        }
-        let body: Record<string, unknown>
-        if (opts.stdin) {
-          const chunks: Buffer[] = []
-          for await (const chunk of process.stdin) {
-            chunks.push(chunk as Buffer)
-          }
-          body = JSON.parse(Buffer.concat(chunks).toString("utf-8"))
-        } else if (opts.file) {
-          body = JSON.parse(readFileSync(opts.file, "utf-8"))
-        } else {
-          throw new UsageError("Provide --file <path> or --stdin")
-        }
+        const body = await requireJsonObject(opts)
 
         for (const field of READONLY_FIELDS) {
           delete body[field]

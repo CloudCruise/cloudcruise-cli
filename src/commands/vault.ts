@@ -1,5 +1,4 @@
 import { Command } from "commander"
-import { readFileSync } from "fs"
 import { resolveAuth, requireEncryptionKey } from "../core/auth.js"
 import { ApiClient } from "../core/api-client.js"
 import { encrypt, decrypt, validateHexKey } from "../core/crypto.js"
@@ -7,6 +6,12 @@ import { outputJson } from "../core/output.js"
 import { fail, UsageError } from "../core/exit.js"
 import { addAuthOptions, type AuthOptions } from "../core/auth-options.js"
 import { enforceNoArgSecrets } from "../core/secret-args.js"
+import {
+  hasJsonObjectSource,
+  readJsonObject,
+  readStdin,
+  type JsonObjectSource,
+} from "../core/input.js"
 import type { VaultEntry, VaultEntryPayload } from "../types/vault.js"
 
 const ENCRYPTED_FIELDS = ["user_name", "password", "tfa_secret"] as const
@@ -212,12 +217,42 @@ async function applySecretStdinOptions(opts: {
   }
 }
 
-async function readStdin(): Promise<string> {
-  const chunks: Buffer[] = []
-  for await (const chunk of process.stdin) {
-    chunks.push(chunk as Buffer)
+const FIELD_FLAGS = {
+  userId: "--user-id",
+  domain: "--domain",
+  userName: "--user-name",
+  password: "--password",
+  passwordStdin: "--password-stdin",
+  userAlias: "--user-alias",
+  tfaSecret: "--tfa-secret",
+  tfaSecretStdin: "--tfa-secret-stdin",
+  tfaMethod: "--tfa-method",
+  secretProviderId: "--secret-provider-id",
+  secretRef: "--secret-ref",
+  secretCacheTtlSeconds: "--secret-cache-ttl-seconds",
+  proxyEnable: "--proxy-enable",
+  proxyIp: "--proxy-ip",
+  proxy: "--proxy",
+  proxyValue: "--proxy-value",
+  proxyValueStdin: "--proxy-value-stdin",
+} as const
+
+/**
+ * The entry comes from the field flags or from --file/--stdin, never both, so
+ * no flag is silently dropped.
+ */
+export function assertFlagsOrPayload(
+  opts: Partial<Record<keyof typeof FIELD_FLAGS, unknown>> & JsonObjectSource
+): void {
+  if (!hasJsonObjectSource(opts)) return
+  const passed = (Object.keys(FIELD_FLAGS) as (keyof typeof FIELD_FLAGS)[])
+    .filter((key) => opts[key] !== undefined)
+    .map((key) => FIELD_FLAGS[key])
+  if (passed.length > 0) {
+    throw new UsageError(
+      `Pass the entry as flags or as a JSON object via --file/--stdin, not both (got ${passed.join(", ")})`
+    )
   }
-  return Buffer.concat(chunks).toString("utf-8")
 }
 
 export function registerVaultCommands(program: Command): void {
@@ -330,6 +365,8 @@ Examples:
   $ cloudcruise vault create --user-id acme-prod --domain "https://acme.com" --secret-provider-id 25290e80-bbd5-41b3-861e-dea30cc26e27 --secret-ref "op://vaultId/itemId"
   $ cloudcruise vault create --file payload.json
   $ cat payload.json | cloudcruise vault create --stdin
+
+Pass the entry as flags or as a JSON object via --file/--stdin, not both.
 `).action(
     async (
       opts: {
@@ -355,6 +392,7 @@ Examples:
       } & AuthOptions
     ) => {
       try {
+        assertFlagsOrPayload(opts)
         if (!opts.stdin && !opts.file) {
           await applySecretStdinOptions(opts)
         }
@@ -367,10 +405,9 @@ Examples:
         const client = new ApiClient(auth)
         let payload: Record<string, unknown>
 
-        if (opts.stdin) {
-          payload = JSON.parse(await readStdin())
-        } else if (opts.file) {
-          payload = JSON.parse(readFileSync(opts.file, "utf-8"))
+        const input = await readJsonObject(opts)
+        if (input) {
+          payload = input
         } else {
           if (!opts.userId || !opts.domain) {
             throw new UsageError(
@@ -426,6 +463,8 @@ Examples:
   $ cloudcruise vault update --user-id acme-prod --domain "https://acme.com" --secret-provider-id 25290e80-bbd5-41b3-861e-dea30cc26e27 --secret-ref "op://vaultId/itemId"
   $ cloudcruise vault update --file payload.json
   $ cat payload.json | cloudcruise vault update --stdin
+
+Pass the entry as flags or as a JSON object via --file/--stdin, not both.
 `).action(
     async (
       opts: {
@@ -451,6 +490,7 @@ Examples:
       } & AuthOptions
     ) => {
       try {
+        assertFlagsOrPayload(opts)
         if (!opts.stdin && !opts.file) {
           await applySecretStdinOptions(opts)
         }
@@ -463,10 +503,9 @@ Examples:
         const client = new ApiClient(auth)
         let payload: Record<string, unknown>
 
-        if (opts.stdin) {
-          payload = JSON.parse(await readStdin())
-        } else if (opts.file) {
-          payload = JSON.parse(readFileSync(opts.file, "utf-8"))
+        const input = await readJsonObject(opts)
+        if (input) {
+          payload = input
         } else {
           if (!opts.userId || !opts.domain) {
             throw new UsageError(

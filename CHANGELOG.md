@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.12.0
+
+### Added
+
+- `error-codes list|get|create|update` manage workspace error codes. `create` is find-or-create by name and prints the code's `id`, which is what `error_on_false_message`, `error_message` and `selector_error_message` take. The backend rejects names, placeholders and free text in those params on `workflows update`. Fields come from flags or from one JSON object via `--file`/`--stdin`, not both. There are no `--retries`/`--retry-after` flags: the backend stores those values but nothing reads them, and the `retry` action only labels the error.
+
+### Fixed
+
+- `workflows update` strips `conversation_id` from the payload, so a `workflows get` → edit → `update` round trip no longer fails with "property conversation_id should not exist" on workflows last saved by the builder.
+
+### Changed
+
+- Every command that takes a JSON payload (`workflows update|import|validate-input`, `components create|update`, `vault create|update`, `run respond`, `error-codes create|update`) now reads it through one helper. Invalid JSON, a non-object payload, an unreadable `--file`, or passing more than one of `--data`/`--file`/`--stdin` now exit 2 (`BAD_ARGS`) with a message naming the flag; some of these used to exit 1. `vault create|update` with both `--file` and `--stdin` is now an error instead of silently using stdin.
+- `vault create|update` reject field flags (`--domain`, `--password-stdin`, …) combined with `--file`/`--stdin` (exit 2). They used to send the JSON object and drop the flags without warning.
+- DSL skill documents the error-code params as error code ids and adds an Error Codes section; the builder `respond` example uses a UUID instead of `ec_...`.
 ## 1.11.7
 
 ### Changed

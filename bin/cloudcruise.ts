@@ -15,6 +15,7 @@ import { registerVaultCommands } from "../src/commands/vault.js"
 import { registerSecretProviderCommands } from "../src/commands/secret-providers.js"
 import { registerBuilderCommands } from "../src/commands/builder.js"
 import { registerWorkspaceCommands } from "../src/commands/workspaces.js"
+import { registerErrorCodeCommands } from "../src/commands/error-codes.js"
 import { CLI_VERSION } from "../src/core/version.js"
 import { checkInstalledSkills } from "../src/core/skills.js"
 
@@ -36,6 +37,7 @@ registerAuthCommands(program)
 registerWorkflowCommands(program)
 registerWorkspaceCommands(program)
 registerComponentCommands(program)
+registerErrorCodeCommands(program)
 registerRunCommands(program)
 registerBuilderCommands(program)
 registerInstallCommands(program)

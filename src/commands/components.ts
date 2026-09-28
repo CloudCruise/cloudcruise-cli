@@ -1,10 +1,10 @@
 import { Command, InvalidArgumentError } from "commander"
-import { readFileSync } from "fs"
 import { resolveAuth } from "../core/auth.js"
 import { ApiClient } from "../core/api-client.js"
 import { outputJson } from "../core/output.js"
 import { fail, UsageError } from "../core/exit.js"
 import { addAuthOptions, type AuthOptions } from "../core/auth-options.js"
+import { requireJsonObject } from "../core/input.js"
 
 const parsePositiveInt = (value: string): number => {
   if (!/^\d+$/.test(value)) {
@@ -44,35 +44,11 @@ const READONLY_FIELDS = [
   "proxy_setting"
 ]
 
-async function readStdin(): Promise<string> {
-  const chunks: Buffer[] = []
-  for await (const chunk of process.stdin) {
-    chunks.push(chunk as Buffer)
-  }
-  return Buffer.concat(chunks).toString("utf-8")
-}
-
 function assertJsonObject(value: unknown): Record<string, unknown> {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     throw new UsageError("Expected a JSON object")
   }
   return value as Record<string, unknown>
-}
-
-async function readPayload(opts: {
-  file?: string
-  stdin?: boolean
-}): Promise<Record<string, unknown>> {
-  if (opts.stdin && opts.file) {
-    throw new UsageError("Pass either --file or --stdin, not both")
-  }
-  if (opts.stdin) {
-    return assertJsonObject(JSON.parse(await readStdin()))
-  }
-  if (opts.file) {
-    return assertJsonObject(JSON.parse(readFileSync(opts.file, "utf-8")))
-  }
-  throw new UsageError("Provide --file <path> or --stdin")
 }
 
 function extractComponentData(
@@ -266,7 +242,7 @@ Examples:
         opts: { name: string; file?: string; stdin?: boolean } & AuthOptions
       ) => {
         try {
-          const raw = await readPayload(opts)
+          const raw = await requireJsonObject(opts)
           const componentData = extractComponentData(raw)
           const body: CreateComponentBody = { name: opts.name, componentData }
           const auth = await resolveAuth(opts)
@@ -349,7 +325,7 @@ Examples:
         } & AuthOptions
       ) => {
         try {
-          const raw = await readPayload(opts)
+          const raw = await requireJsonObject(opts)
           const componentData = extractComponentData(raw)
 
           const body: UpdateComponentBody = { componentData }
