@@ -18,12 +18,13 @@ const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 const parseNonNegativeInt = (value: string): number => {
-  if (!/^\d+$/.test(value)) {
+  const parsed = Number(value)
+  if (!/^\d+$/.test(value) || !Number.isSafeInteger(parsed)) {
     throw new InvalidArgumentError(
       `Must be a non-negative integer (got: ${value}).`
     )
   }
-  return Number(value)
+  return parsed
 }
 
 const parseAction = (value: string): string => {
@@ -78,6 +79,49 @@ function fieldsToBody(opts: ErrorCodeFieldOptions): Record<string, unknown> {
   return body
 }
 
+const BODY_FIELDS = [
+  "error_code",
+  "description",
+  "enriched_description",
+  "error_action",
+  "retries",
+  "retry_after"
+]
+
+/**
+ * Applies the flag rules to the merged body so --stdin fields are checked
+ * the same way as flags.
+ */
+function assertValidBody(body: Record<string, unknown>): void {
+  const unknown = Object.keys(body).filter((key) => !BODY_FIELDS.includes(key))
+  if (unknown.length > 0) {
+    throw new UsageError(
+      `Unknown field(s): ${unknown.join(", ")}. Allowed: ${BODY_FIELDS.join(", ")}`
+    )
+  }
+  for (const key of ["error_code", "description", "enriched_description"]) {
+    if (key in body && typeof body[key] !== "string") {
+      throw new UsageError(`${key} must be a string`)
+    }
+  }
+  if (
+    "error_action" in body &&
+    !(ERROR_CODE_ACTIONS as readonly unknown[]).includes(body.error_action)
+  ) {
+    throw new UsageError(
+      `error_action must be one of ${ERROR_CODE_ACTIONS.join(", ")}`
+    )
+  }
+  for (const key of ["retries", "retry_after"]) {
+    if (
+      key in body &&
+      !(Number.isSafeInteger(body[key]) && (body[key] as number) >= 0)
+    ) {
+      throw new UsageError(`${key} must be a non-negative integer`)
+    }
+  }
+}
+
 export function buildListErrorCodesPath(opts: { workflowId?: string }): string {
   if (opts.workflowId === undefined) return "/error-codes"
   if (!UUID_RE.test(opts.workflowId)) {
@@ -95,6 +139,7 @@ export function buildCreateErrorCodeBody(
   stdinBody?: Record<string, unknown>
 ): Record<string, unknown> {
   const body = { ...(stdinBody ?? {}), ...fieldsToBody(opts) }
+  assertValidBody(body)
   if (typeof body.error_code !== "string" || !body.error_code.trim()) {
     throw new UsageError("Provide --code <name> (or error_code via --stdin)")
   }
@@ -112,6 +157,7 @@ export function buildUpdateErrorCodeBody(
   stdinBody?: Record<string, unknown>
 ): Record<string, unknown> {
   const body = { ...(stdinBody ?? {}), ...fieldsToBody(opts) }
+  assertValidBody(body)
   if (Object.keys(body).length === 0) {
     throw new UsageError(
       "Provide at least one of --code, --description, --enriched-description, --action, --retries, --retry-after, or --stdin"

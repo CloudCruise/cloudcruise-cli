@@ -73,3 +73,31 @@ test("buildUpdateErrorCodeBody sends only the fields passed", () => {
 test("buildUpdateErrorCodeBody requires at least one field", () => {
   assert.throws(() => buildUpdateErrorCodeBody({}), UsageError)
 })
+
+test("buildCreateErrorCodeBody rejects invalid stdin fields the flags would reject", () => {
+  const base = { error_code: "X", description: "x" }
+  assert.throws(
+    () => buildCreateErrorCodeBody({}, { ...base, error_action: "invalid" }),
+    UsageError
+  )
+  assert.throws(
+    () => buildCreateErrorCodeBody({}, { ...base, retries: "two" }),
+    UsageError
+  )
+  assert.throws(
+    () => buildCreateErrorCodeBody({}, { ...base, retry_after: -1 }),
+    UsageError
+  )
+  assert.throws(
+    () => buildCreateErrorCodeBody({}, { ...base, retries: 2 ** 53 }),
+    UsageError
+  )
+  assert.throws(
+    () => buildCreateErrorCodeBody({}, { ...base, description: 5 }),
+    UsageError
+  )
+})
+
+test("buildUpdateErrorCodeBody rejects unknown stdin fields", () => {
+  assert.throws(() => buildUpdateErrorCodeBody({}, { id: "x" }), UsageError)
+})
