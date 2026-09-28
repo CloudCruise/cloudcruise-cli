@@ -6,6 +6,10 @@
 
 - `error-codes list|create|update` manage workspace error codes. `create` is find-or-create by name and prints the code's `id`, which is what `error_on_false_message`, `error_message` and `selector_error_message` take. The backend rejects names, placeholders and free text in those params on `workflows update`.
 
+### Fixed
+
+- `workflows update` strips `conversation_id` from the payload, so a `workflows get` → edit → `update` round trip no longer fails with "property conversation_id should not exist" on workflows last saved by the builder.
+
 ### Changed
 
 - DSL skill documents the error-code params as error code ids and adds an Error Codes section; the builder `respond` example uses a UUID instead of `ec_...`.

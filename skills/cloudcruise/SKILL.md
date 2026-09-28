@@ -92,7 +92,7 @@ cloudcruise workflows validate-input <workflow_id> --file payload.json          
 cloudcruise workflows get <workflow_id> > workflow.json
 # Edit workflow.json with your file editing tools (targeted replacements, not full rewrites)
 # Read-only fields (id, version_id, version_number, created_at, created_by,
-# workspace_id, loginStructure, updated_at, workflow_id, encrypted_keys) are stripped automatically.
+# workspace_id, loginStructure, updated_at, workflow_id, encrypted_keys, conversation_id) are stripped automatically.
 cloudcruise workflows update <workflow_id> --file workflow.json --version-note "Description of changes"
 ```
 

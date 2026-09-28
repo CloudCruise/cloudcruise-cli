@@ -399,6 +399,7 @@ Examples:
     "workflow_id",
     "loginStructure",
     "encrypted_keys",
+    "conversation_id",
   ]
 
   addAuthOptions(
