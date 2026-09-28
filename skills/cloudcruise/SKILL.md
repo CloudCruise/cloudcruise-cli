@@ -224,11 +224,15 @@ echo "secret" | cloudcruise vault encrypt --stdin                   # Encrypt fr
 ```bash
 cloudcruise error-codes list                                        # List workspace error codes
 cloudcruise error-codes list --workflow-id <id>                     # Only codes linked to a workflow
+cloudcruise error-codes get <id>                                    # One code by id (exit 1 if not in the workspace)
 cloudcruise error-codes create --code <NAME> --description "<text>" # Find-or-create by name; prints { id, created, ... }
 cloudcruise error-codes create --code <NAME> --description "<text>" \
-  --action retry --retries 2                                        # Actions: alert, cancel, pause, retry, input_required
+  --action input_required                                           # Actions: alert (default), cancel, pause, retry, input_required
 cloudcruise error-codes update <id> --description "<text>"         # Change only the fields passed
+cloudcruise error-codes create --file code.json                     # Or pass one JSON object (API field names), not both
 ```
+
+`create` returns an existing code unchanged when the name is taken (`"created": false`); run `update` if its fields differ from what you need. The `retry` action only labels the error; nothing reruns the run.
 
 When editing the DSL directly (outside the builder), create or look up codes here and put the returned `id` into `error_on_false_message`, `error_message` or `selector_error_message`. Names, placeholders and free text are rejected by `workflows update`. See the DSL skill's Error Codes section.
 

@@ -4,7 +4,7 @@
 
 ### Added
 
-- `error-codes list|create|update` manage workspace error codes. `create` is find-or-create by name and prints the code's `id`, which is what `error_on_false_message`, `error_message` and `selector_error_message` take. The backend rejects names, placeholders and free text in those params on `workflows update`.
+- `error-codes list|get|create|update` manage workspace error codes. `create` is find-or-create by name and prints the code's `id`, which is what `error_on_false_message`, `error_message` and `selector_error_message` take. The backend rejects names, placeholders and free text in those params on `workflows update`. Fields come from flags or from one JSON object via `--file`/`--stdin`, not both. There are no `--retries`/`--retry-after` flags: the backend stores those values but nothing reads them, and the `retry` action only labels the error.
 
 ### Fixed
 

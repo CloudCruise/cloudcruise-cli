@@ -741,6 +741,7 @@ cloudcruise error-codes create --code CLAIM_NOT_FOUND --description "Claim not f
 
 cloudcruise error-codes list                          # All workspace codes
 cloudcruise error-codes list --workflow-id <id>       # Codes linked to one workflow
+cloudcruise error-codes get <id>                      # One code by id
 ```
 
 Put the returned `id` in the node param and save with `workflows update`. Saving links the code to the workflow; any other value is rejected with a 400.
