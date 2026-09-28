@@ -723,11 +723,7 @@ cloudcruise error-codes list                          # All workspace codes
 cloudcruise error-codes list --workflow-id <id>       # Codes linked to one workflow
 ```
 
-Put the returned `id` in the node param and save with `workflows update`. Saving links the code to the workflow.
-
-- **Save rejects anything else.** A value that is not the id of a code in the workspace (for example `<ERROR_CODE_UUID:CLAIM_NOT_FOUND>` or `"Claim not found"`) fails with a 400 naming the node. Values already saved in the previous version are left alone.
-- **Why it matters at run time.** With a real code, a failed run reports `error_code: "CLAIM_NOT_FOUND"` and the code's description, and the code's `error_action` applies. With anything else, the run reports the generic `SERVER-E0002` with the raw text as the message.
-- **Named stops.** To end a run on purpose with a code, use a BOOL_CONDITION that is always false (`comparison_value_1: "{{1 = 2}}"`, `comparison_value_2: "true"`, `EQUAL`) with `error_on_false_message` set.
+Put the returned `id` in the node param and save with `workflows update`. Saving links the code to the workflow; any other value is rejected with a 400.
 
 Error codes are separate from the maintenance agent's error categories below.
 
