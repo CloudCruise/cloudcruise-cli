@@ -219,6 +219,19 @@ cloudcruise vault decrypt "ciphertext"                              # Decrypt a 
 echo "secret" | cloudcruise vault encrypt --stdin                   # Encrypt from stdin
 ```
 
+### Error Codes
+
+```bash
+cloudcruise error-codes list                                        # List workspace error codes
+cloudcruise error-codes list --workflow-id <id>                     # Only codes linked to a workflow
+cloudcruise error-codes create --code <NAME> --description "<text>" # Find-or-create by name; prints { id, created, ... }
+cloudcruise error-codes create --code <NAME> --description "<text>" \
+  --action retry --retries 2                                        # Actions: alert, cancel, pause, retry, input_required
+cloudcruise error-codes update <id> --description "<text>"         # Change only the fields passed
+```
+
+When editing the DSL directly (outside the builder), create or look up codes here and put the returned `id` into `error_on_false_message`, `error_message` or `selector_error_message`. Names, placeholders and free text are rejected by `workflows update`. See the DSL skill's Error Codes section.
+
 ### Builder
 
 Use the builder to create new workflows from scratch. For editing existing workflows, use `workflows get` + `workflows update` instead.
@@ -331,7 +344,7 @@ printf '%s' '{"Portal Credentials":{"permissioned_user_id":"d2b9d80e-...","domai
 printf '%s' '{"kind":"accept_suggestion"}' | cloudcruise builder respond --message-id m2 --value-stdin
 
 # To select an existing error code instead:
-printf '%s' '{"kind":"existing","error_code_id":"ec_..."}' | cloudcruise builder respond --message-id m2 --value-stdin
+printf '%s' '{"kind":"existing","error_code_id":"3f2b9c1e-..."}' | cloudcruise builder respond --message-id m2 --value-stdin
 
 # To confirm a proposed removal (type: "error", rowType: "remove"):
 printf '%s' '{"kind":"remove_confirmed"}' | cloudcruise builder respond --message-id m3 --value-stdin

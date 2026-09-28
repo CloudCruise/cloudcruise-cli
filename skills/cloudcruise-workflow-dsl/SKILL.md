@@ -220,7 +220,7 @@ Click on page elements.
 | `prompt`                 | string  | Yes (LLM_VISION) | Natural language target description                                                                                                                                                |
 | `click_type`             | string  | No               | `click` (default), `double_click`, `right_click`, `hover`                                                                                                                          |
 | `wait_time`              | number  | No               | Max ms to wait for element. Default: 15000                                                                                                                                         |
-| `selector_error_message` | string  | No               | Custom error message if element not found                                                                                                                                          |
+| `selector_error_message` | string  | No               | Error code id (UUID) to fail with if the element is not found. See [Error Codes](#error-codes)                                                                                    |
 | `human_mode`             | boolean | No               | Human-like click behavior                                                                                                                                                          |
 | `end_here_on_dry_run`    | boolean | No               | Skip this node and end the workflow during dry runs. Set on the final submit/save click of write workflows so dry runs validate everything without submitting to the target system |
 
@@ -407,7 +407,7 @@ Conditional branching. Uses `true`/`false` edges.
 | `prompt`                 | string  | Yes (LLM_VISION, PROMPT) | Natural language condition                                                 |
 | `clear_cookies_on_false` | boolean | No                       | Clear cookies when false (useful for login flows, default false)           |
 | `wait_time`              | number  | No                       | Max ms to wait before evaluation (default 15000)                          |
-| `error_on_false_message` | string  | No                       | Custom error code to throw when false                                      |
+| `error_on_false_message` | string  | No                       | Error code id (UUID) to fail with when false, instead of following the `false` edge. See [Error Codes](#error-codes) |
 
 #### XPath evaluation with `<<xpath:...>>`
 
@@ -674,9 +674,9 @@ Pause for human input. Triggers `interaction.waiting` webhook.
 | `expected_datamodel` | object | Yes      | JSON Schema for data to collect             |
 | `server_message`     | string | No       | Message shown to user (supports variables)  |
 | `timeout`            | number | No       | Max ms to wait for response. Default: 10000 |
+| `error_message`      | string | No       | Error code id (UUID) to fail with on timeout. See [Error Codes](#error-codes) |
 
 While a run is paused on this node, submit the collected data with `cloudcruise run respond <session_id> --data '{"approval_code":"123456"}'` (keys must match `expected_datamodel`). The user's input becomes available to later nodes via `{{context.<key>}}`.
-| `error_message`      | string | No       | Custom error code on timeout                |
 
 ### EXTRACT_NETWORK
 
@@ -709,6 +709,27 @@ Intercept XHR/Fetch requests and extract data from responses.
 | `full_request`       | boolean | No       | Include full request/response metadata             |
 
 Path syntax: `$` (root), `$.field` (direct), `$.parent.child` (nested), `$[0]` (array index).
+
+# Error Codes
+
+`error_on_false_message` (BOOL_CONDITION), `error_message` (USER_INTERACTION) and `selector_error_message` (selector nodes) take the **id of a workspace error code**: a lowercase UUID. They do not take a code name, a placeholder or a free-text message.
+
+```bash
+# Find-or-create by name: returns the existing code if the name is taken ("created": false)
+cloudcruise error-codes create --code CLAIM_NOT_FOUND --description "Claim not found in the portal"
+# → {"id":"3f2b9c1e-...","error_code":"CLAIM_NOT_FOUND","created":true,...}
+
+cloudcruise error-codes list                          # All workspace codes
+cloudcruise error-codes list --workflow-id <id>       # Codes linked to one workflow
+```
+
+Put the returned `id` in the node param and save with `workflows update`. Saving links the code to the workflow.
+
+- **Save rejects anything else.** A value that is not the id of a code in the workspace (for example `<ERROR_CODE_UUID:CLAIM_NOT_FOUND>` or `"Claim not found"`) fails with a 400 naming the node. Values already saved in the previous version are left alone.
+- **Why it matters at run time.** With a real code, a failed run reports `error_code: "CLAIM_NOT_FOUND"` and the code's description, and the code's `error_action` applies. With anything else, the run reports the generic `SERVER-E0002` with the raw text as the message.
+- **Named stops.** To end a run on purpose with a code, use a BOOL_CONDITION that is always false (`comparison_value_1: "{{1 = 2}}"`, `comparison_value_2: "true"`, `EQUAL`) with `error_on_false_message` set.
+
+Error codes are separate from the maintenance agent's error categories below.
 
 # Error Classification
 
