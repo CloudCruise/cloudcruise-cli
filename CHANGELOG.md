@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.11.7
+
+### Changed
+
+- `cloudcruise-workflow-dsl` documents the newer `INPUT_TEXT` parameters: `omit_focus`, `paste_via_clipboard`, and `typing_delay_ms`, plus `{{...}}` keystroke tokens in `text` (`{{tab}}`, `{{enter}}`, `{{esc}}`, arrows, `{{ctrl_a}}`, …).
+
 ## 1.11.6
 
 ### Added
