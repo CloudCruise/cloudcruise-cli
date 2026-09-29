@@ -170,7 +170,7 @@ A node's `parameters.run_if` decides, before the node is dispatched, whether it 
 
 `IS_NULL` treats `null`, a missing path, `""`, `"null"` and `[]` as absent.
 
-**Supported only on:** CLICK, INPUT_TEXT, INPUT_SELECT, EXTRACT_DATAMODEL, EXTRACT_NETWORK, SCREENSHOT, TFA, FILE_DOWNLOAD and API_FLOW. On any other node type (DELAY, SCROLL, BOOL_CONDITION, NAVIGATE, TRANSFORM, LOOP, FILE_UPLOAD, USER_INTERACTION, TAB_MANAGEMENT, CAPTCHA, START, END) the workflow is rejected with `nodes.N.parameters.run_if: property run_if should not exist`.
+**Supported only on:** CLICK, INPUT_TEXT, INPUT_SELECT, EXTRACT_DATAMODEL, EXTRACT_NETWORK, SCREENSHOT, TFA, FILE_DOWNLOAD and API_FLOW. On any other node type the workflow is rejected with `nodes.N.parameters.run_if: property run_if should not exist`.
 
 **Gating a section that contains structural nodes:**
 
