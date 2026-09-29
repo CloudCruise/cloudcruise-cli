@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.12.1
+
+### Changed
+
+- `cloudcruise-workflow-dsl` documents `run_if`: syntax, operators, the node types that support it, and how to gate DELAY, SCROLL and BOOL_CONDITION nodes inside a gated section.
+- `cloudcruise-workflow-dsl` documents TRANSFORM. Every `SET` is required by default; `optional: true` allows an empty result, and there is no `required` field.
+- `cloudcruise-workflow-dsl`: to wait after an action, raise the next node's `wait_time`. Use DELAY only when that element may already exist, isn't usable yet, or the next node has no selector.
+- `cloudcruise-workflow-dsl` lists `end_here_on_dry_run` on INPUT_TEXT, INPUT_SELECT and EXTRACT_NETWORK, not only CLICK.
+- `cc-workflow` references gate reveal-dependent nodes with `run_if` only on supported node types.
+
 ## 1.12.0
 
 ### Added
