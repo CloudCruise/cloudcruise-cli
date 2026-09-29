@@ -148,6 +148,36 @@ Edges are a map of `source_node_id → target`. The target type depends on the s
 | `true` / `false`              | BOOL_CONDITION | Branch based on condition result |
 | `loop_not_done` / `loop_done` | LOOP           | Continue iterating / exit loop   |
 
+## Conditional skip (`run_if`)
+
+A node's `parameters.run_if` decides, before the node is dispatched, whether it runs. If the condition is false the node is skipped: the run follows the node's `to` edge, and the skip is recorded in the run's edge history.
+
+```json
+"run_if": {
+  "match": "all",
+  "conditions": [
+    { "field": "context.inputs.provider.middle_name", "operator": "IS_NOT_NULL" }
+  ]
+}
+```
+
+| Field                   | Values                                                                                                   |
+| ----------------------- | -------------------------------------------------------------------------------------------------------- |
+| `match`                 | `all` (default) or `any`                                                                                 |
+| `conditions[].field`    | Path under `context.`                                                                                    |
+| `conditions[].operator` | `EQUAL`, `NOT_EQUAL`, `CONTAINS`, `NOT_CONTAINS`, `IS_NULL`, `IS_NOT_NULL`, `STARTS_WITH`, `ENDS_WITH` |
+| `conditions[].value`    | String; omit for `IS_NULL` and `IS_NOT_NULL`                                                             |
+
+`IS_NULL` treats `null`, a missing path, `""`, `"null"` and `[]` as absent.
+
+**Supported only on:** CLICK, INPUT_TEXT, INPUT_SELECT, EXTRACT_DATAMODEL, EXTRACT_NETWORK, SCREENSHOT, TFA, FILE_DOWNLOAD and API_FLOW. On any other node type (DELAY, SCROLL, BOOL_CONDITION, NAVIGATE, TRANSFORM, LOOP, FILE_UPLOAD, USER_INTERACTION, TAB_MANAGEMENT, CAPTCHA, START, END) the workflow is rejected with `nodes.N.parameters.run_if: property run_if should not exist`.
+
+**Gating a section that contains structural nodes:**
+
+- **Settle delay after a gated step:** remove the DELAY and raise the `wait_time` of the next gated node instead. That node only runs when the section does, and it waits for its own element (see DELAY).
+- **SCROLL, or any other node that must run only sometimes:** branch around it with a BOOL_CONDITION on the same condition (for example `comparison_value_1: "{{$exists(context.inputs.additional_addresses[0])}}"`, `comparison_operator: "EQUAL"`, `comparison_value_2: "true"`). The `true` edge goes to the node; the `false` edge goes to the node after it.
+- **BOOL_CONDITION inside a gated section:** it cannot be skipped, because it has two exits. Put the gate into its own comparison, or gate the nodes on its branches.
+
 ## Node Structure
 
 Every node has:

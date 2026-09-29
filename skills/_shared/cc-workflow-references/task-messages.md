@@ -16,8 +16,8 @@ happens inside the turn.
 4. **Status skeleton** — compact whole-build progress block so the builder knows
    where this task sits. Never the full plan, other components' details, or history.
 5. **Conventions** — inputs via `{{context.inputs.…}}` never literals; `run_if`
-   gating stated as data; node naming per the naming reference; the pattern contract
-   if the component matched one.
+   gating stated as data, on supported node types only (DSL: Conditional skip); node
+   naming per the naming reference; the pattern contract if the component matched one.
 
 ## Rules
 
@@ -81,7 +81,9 @@ Component `cardiac_status.cardiac_assessment`:
 > 41 of 63 overall.
 >
 > **Conventions:** inputs via `{{context.inputs...}}`, never literals. `run_if`
-> gates every reveal-dependent node on `findings` per the schema's `contains` rule.
+> gates every reveal-dependent node that supports it on `findings` per the schema's
+> `contains` rule; structural nodes in the reveal (settle delays, scrolls,
+> already-selected checks) follow the DSL's "Gating a section" rules.
 > Node names: `cardiac_status.cardiac_assessment.findings — check findings`,
 > `cardiac_status.cardiac_assessment.abnormal_pulses_type — enter type`.
 
