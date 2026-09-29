@@ -482,6 +482,48 @@ Iterate over arrays or repeat N times. Uses `loop_done`/`loop_not_done` edges.
 
 The last node in the loop body must edge back to the loop node. Access items via `{{context.runtime.current_order}}`.
 
+### TRANSFORM
+
+Clean, derive, or reshape data already in `context.*` without touching the browser. Uses a single `to` edge.
+
+```json
+{
+  "id": "b4c5d6e7-8901-4234-b567-890123456789",
+  "name": "Normalize contact fields",
+  "action": "TRANSFORM",
+  "parameters": {
+    "operations": [
+      {
+        "type": "SET",
+        "target": "context.email_clean",
+        "value": "context.inputs.email ~> $trim ~> $lowercase"
+      },
+      {
+        "type": "SET",
+        "target": "context.middle_name",
+        "value": "context.inputs.provider.middle_name",
+        "optional": true
+      }
+    ]
+  }
+}
+```
+
+| Parameter    | Type  | Required | Description                                                      |
+| ------------ | ----- | -------- | ---------------------------------------------------------------- |
+| `operations` | array | Yes      | Ordered list of `{ type, target, value?, optional? }` operations |
+
+| Operation field | Type    | Required        | Description                                                                                          |
+| --------------- | ------- | --------------- | ---------------------------------------------------------------------------------------------------- |
+| `type`          | string  | Yes             | `SET` (assign) or `DELETE` (remove the path)                                                         |
+| `target`        | string  | Yes             | Dot-path under `context.`, identifier segments only (e.g. `context.email_clean`, `context.inputs.x`) |
+| `value`         | string  | For `SET`       | Raw JSONata expression, **no** `{{...}}` wrapping. Omit for `DELETE`                                 |
+| `optional`      | boolean | No (`false`)    | Allow a `SET` to produce an empty value (see below)                                                  |
+
+**Every `SET` is required by default.** If its expression evaluates to empty (`null`, empty string, or empty array), the node fails with `Transform node "<name>" has N unmet required output(s)`. When an empty value is legitimate (an optional field such as a middle name), set `optional: true` on that operation. There is no `required` field. The operation still runs and writes the empty value to `target`; do not substitute a placeholder such as `" "` to get past the check.
+
+Operations run top to bottom and see each other's writes. Use TRANSFORM for data shaping (turning context into another shape) and for execution-state updates (pagination cursors, derived runtime values).
+
 ### DELAY
 
 Pause execution.
@@ -499,7 +541,7 @@ Pause execution.
 | ------------ | ------ | -------- | --------------- |
 | `delay_time` | number | Yes      | Seconds to wait |
 
-Prefer using `wait_time` on action nodes over separate Delay nodes.
+To wait after an action, raise the **next** node's `wait_time` instead of adding a Delay node: it waits (in ms) until that node's element appears, so it waits only as long as needed. Use a DELAY node (`delay_time`, in seconds) or a readiness check (a BOOL_CONDITION on a spinner or a changed value) only when the next node's element may already be present before the action takes effect, is present but not yet usable, or when the next node has no selector.
 
 ### SCREENSHOT
 
@@ -768,7 +810,7 @@ When a run fails, the maintenance agent classifies errors:
 
 1. **Use descriptive node names.** The maintenance agent uses them during recovery.
 2. **Prefer STATIC execution** for speed and reliability. For Click and InputText, use `LLM_VISION` when a selector-driven interaction is not viable.
-3. **Use `wait_time` on action nodes** instead of separate Delay nodes.
+3. **Wait with the next node's `wait_time`** instead of separate Delay nodes; see DELAY for when a fixed pause or readiness check is needed.
 4. **Use variables** (`{{context.inputs.*}}`) instead of hardcoded values.
 5. **XPath selectors should be semantic** — use @id, @name, @aria-label, @placeholder, not generated class names.
 6. **For STATIC Click/InputText/InputSelect**, the selector must match exactly one element.
