@@ -32,7 +32,7 @@ A workflow is a directed graph of nodes (actions) connected by edges. The browse
 
 **Required:** `nodes`, `edges`, `name`, `input_schema`, `output_schema`, `max_retries`
 
-**Optional:** `description`, `version_note`, `use_native_actions`, `video_record_session`, `extract_network_urls`, `popup_xpaths`, `vault_schema`, `enable_popup_handling`, `enable_action_timing_recovery`, `enable_xpath_recovery`, `enable_error_code_generation`, `enable_service_unavailable_recovery`, `proxy_setting`, `proxy_value`, `enable_network_listener`
+**Optional:** `description`, `version_note`, `use_native_actions`, `video_record_session`, `extract_network_urls`, `popup_xpaths`, `vault_schema`, `enable_popup_handling`, `enable_action_timing_recovery`, `enable_xpath_recovery`, `enable_error_code_generation`, `enable_service_unavailable_recovery`, `proxy_setting`, `proxy_value`, `enable_network_listener`, `manual_captcha_solve`
 
 ### `popup_xpaths`
 
@@ -501,6 +501,25 @@ Pause execution.
 
 Prefer using `wait_time` on action nodes over separate Delay nodes.
 
+### CAPTCHA
+
+Solve one captcha at this point in the run. Runs the platform's solver for the named captcha whether or not the workflow's automatic captcha solving is on.
+
+```json
+{
+  "id": "f2a3b4c5-6789-4d01-a234-ef0123456789",
+  "name": "Solve Turnstile before submit",
+  "action": "CAPTCHA",
+  "parameters": { "captcha_type": "turnstile" }
+}
+```
+
+| Parameter      | Type   | Required | Description                                          |
+| -------------- | ------ | -------- | ---------------------------------------------------- |
+| `captcha_type` | string | Yes      | `turnstile` (Cloudflare Turnstile) or `recaptcha_v2` |
+
+Outcome: no captcha of that type on the page → the node passes and the run continues. Captcha present and solved → passes. Captcha present and not solved → the node fails with error code `CAPTCHA-E0001`, so the workflow's error-code actions (retry, alert, pause) apply. Captchas rendered inside an iframe are not detected and count as absent.
+
 ### SCREENSHOT
 
 Capture a screenshot.
@@ -747,6 +766,54 @@ cloudcruise error-codes get <id>                      # One code by id
 Put the returned `id` in the node param and save with `workflows update`. Saving links the code to the workflow; any other value is rejected with a 400.
 
 Error codes are separate from the maintenance agent's error categories below.
+
+## Captchas
+
+The platform solves Cloudflare Turnstile and reCAPTCHA v2. By default the solver runs before every action, in builder sessions and in runs. Do not author a `CLICK` on a captcha widget: clicking into a half-solved widget breaks the solver.
+
+Keep automatic solving on unless asked, or unless one of these problems appears:
+
+- A submit refreshes the widget on the same page, and the solver solves it again for no reason.
+- A long page fill lets the token expire before the action that needs it.
+
+To solve explicitly, in the same update set `manual_captcha_solve: true` and add a `CAPTCHA` node immediately before each action that needs the captcha cleared. Set `captcha_type` to the captcha shown on the page. With the flag on, the platform solves captchas only at `CAPTCHA` nodes, so the flag without the nodes leaves every captcha unsolved.
+
+**Text-transcription captchas** (a distorted-character image plus a text input) are not auto-solved. The transcription can be wrong, and a rejected attempt renders a fresh challenge, so author a retry loop, not a straight line:
+
+```
+[fill form fields]
+  → EXTRACT_DATAMODEL ("Read captcha image", LLM_VISION)
+  → INPUT_TEXT ("Enter captcha code", human_mode)
+  → CLICK ("Submit")
+  → BOOL_CONDITION ("Captcha still present?", max_iterations)
+      ├─ true → back to EXTRACT_DATAMODEL (rejected — re-read the new challenge)
+      └─ false → [next node]
+```
+
+The `EXTRACT_DATAMODEL` uses `execution: "LLM_VISION"` and a single string field whose `description` tells the model to transcribe the challenge image:
+
+```json
+{
+  "id": "<crypto.randomUUID()>",
+  "name": "Read captcha image",
+  "action": "EXTRACT_DATAMODEL",
+  "parameters": {
+    "execution": "LLM_VISION",
+    "model": "gemini | gemini-2.5-flash",
+    "extract_data_model": {
+      "type": "object",
+      "properties": {
+        "captcha_text": {
+          "type": "string",
+          "selected": true,
+          "description": "The characters shown in the captcha challenge image, exactly as displayed"
+        }
+      },
+      "required": ["captcha_text"]
+    }
+  }
+}
+```
 
 # Error Classification
 
