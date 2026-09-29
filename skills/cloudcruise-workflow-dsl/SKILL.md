@@ -282,6 +282,7 @@ Type text into form fields.
 | `aggressive_clear`    | boolean | No               | Adds a second clear pass. Enable only after observing typing leaves old text behind or appends to it — not preemptively |
 | `wait_time`           | number  | No               | Max ms to wait. Default: 15000                                                                                          |
 | `human_mode`          | boolean | No               | Human-like typing behavior                                                                                              |
+| `end_here_on_dry_run` | boolean | No               | In dry runs, end the workflow before this node runs                                                                    |
 | `omit_focus`          | boolean | No               | Send the keys to whatever currently has focus. No `selector`, no click, no clearing     |
 | `paste_via_clipboard` | boolean | No               | Paste the resolved text via the OS clipboard (ctrl+v) instead of typing it. Ignored when `text` has keystroke tokens |
 | `typing_delay_ms`     | integer | No               | Delay between keystrokes in ms (1–1000). Use when typed characters get dropped, e.g. over RDP |
@@ -326,6 +327,7 @@ Select options from dropdowns. Handles native `<select>`, Select2, and similar l
 | `fuzzy_match` | boolean | No       | Fuzzy matching for option values (e.g., "New Patient" matches "New Patient Visit") |
 | `prompt`      | string  | No       | Natural language description (LLM execution)                                       |
 | `wait_time`   | number  | No       | Max ms to wait. Default: 15000                                                     |
+| `end_here_on_dry_run` | boolean | No | In dry runs, end the workflow before this node runs                            |
 
 ### NAVIGATE
 
@@ -799,6 +801,7 @@ Intercept XHR/Fetch requests and extract data from responses.
 | `selector`           | string  | No       | XPath to wait for before extracting                |
 | `wait_time`          | number  | No       | Max ms to wait for selector. Default: 15000        |
 | `full_request`       | boolean | No       | Include full request/response metadata             |
+| `end_here_on_dry_run` | boolean | No      | In dry runs, end the workflow before this node runs |
 
 Path syntax: `$` (root), `$.field` (direct), `$.parent.child` (nested), `$[0]` (array index).
 
