@@ -5,7 +5,6 @@
 ### Changed
 
 - DSL skill documents the `CAPTCHA` node, the `manual_captcha_solve` workflow field, and a Captchas section: when to keep automatic solving on, how to switch to explicit solving, and the retry loop for text-transcription captchas.
-- Every skill pack declares `requiresCli: "1.12.1"` in its `skill.meta.json`, so skills installed from this version flag a CLI older than 1.12.1 as incompatible.
 
 ## 1.12.0
 
