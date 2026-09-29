@@ -150,7 +150,7 @@ Edges are a map of `source_node_id → target`. The target type depends on the s
 
 ## Conditional skip (`run_if`)
 
-A node's `parameters.run_if` decides, before the node is dispatched, whether it runs. If the condition is false the node is skipped: the run follows the node's `to` edge, and the skip is recorded in the run's edge history.
+A node runs only if its `parameters.run_if` holds; otherwise the run skips to the node's `to` edge.
 
 ```json
 "run_if": {
@@ -168,15 +168,15 @@ A node's `parameters.run_if` decides, before the node is dispatched, whether it 
 | `conditions[].operator` | `EQUAL`, `NOT_EQUAL`, `CONTAINS`, `NOT_CONTAINS`, `IS_NULL`, `IS_NOT_NULL`, `STARTS_WITH`, `ENDS_WITH` |
 | `conditions[].value`    | String; omit for `IS_NULL` and `IS_NOT_NULL`                                                             |
 
-`IS_NULL` treats `null`, a missing path, `""`, `"null"` and `[]` as absent.
+`IS_NULL` treats `null`, missing, `""`, `"null"` and `[]` as absent.
 
-**Supported only on:** CLICK, INPUT_TEXT, INPUT_SELECT, EXTRACT_DATAMODEL, EXTRACT_NETWORK, SCREENSHOT, TFA, FILE_DOWNLOAD and API_FLOW. On any other node type the workflow is rejected with `nodes.N.parameters.run_if: property run_if should not exist`.
+**Supported on:** CLICK, INPUT_TEXT, INPUT_SELECT, EXTRACT_DATAMODEL, EXTRACT_NETWORK, SCREENSHOT, TFA, FILE_DOWNLOAD and API_FLOW. Other node types reject it (`property run_if should not exist`).
 
-**Gating a section that contains structural nodes:**
+**Gating structural nodes:**
 
-- **Settle delay after a gated step:** remove the DELAY and raise the `wait_time` of the next gated node instead. That node only runs when the section does, and it waits for its own element (see DELAY).
-- **SCROLL, or any other node that must run only sometimes:** branch around it with a BOOL_CONDITION on the same condition (for example `comparison_value_1: "{{$exists(context.inputs.additional_addresses[0])}}"`, `comparison_operator: "EQUAL"`, `comparison_value_2: "true"`). The `true` edge goes to the node; the `false` edge goes to the node after it.
-- **BOOL_CONDITION inside a gated section:** it cannot be skipped, because it has two exits. Put the gate into its own comparison, or gate the nodes on its branches.
+- **DELAY:** drop it and raise the next gated node's `wait_time`.
+- **SCROLL (or any other unsupported node):** route around it with a BOOL_CONDITION on the same condition.
+- **BOOL_CONDITION:** fold the gate into its comparison; it has two exits, so it cannot be skipped.
 
 ## Node Structure
 
@@ -514,7 +514,7 @@ The last node in the loop body must edge back to the loop node. Access items via
 
 ### TRANSFORM
 
-Clean, derive, or reshape data already in `context.*` without touching the browser. Uses a single `to` edge.
+Reshape data in `context.*` without touching the browser.
 
 ```json
 {
@@ -543,16 +543,16 @@ Clean, derive, or reshape data already in `context.*` without touching the brows
 | ------------ | ----- | -------- | ---------------------------------------------------------------- |
 | `operations` | array | Yes      | Ordered list of `{ type, target, value?, optional? }` operations |
 
-| Operation field | Type    | Required        | Description                                                                                          |
-| --------------- | ------- | --------------- | ---------------------------------------------------------------------------------------------------- |
-| `type`          | string  | Yes             | `SET` (assign) or `DELETE` (remove the path)                                                         |
-| `target`        | string  | Yes             | Dot-path under `context.`, identifier segments only (e.g. `context.email_clean`, `context.inputs.x`) |
-| `value`         | string  | For `SET`       | Raw JSONata expression, **no** `{{...}}` wrapping. Omit for `DELETE`                                 |
-| `optional`      | boolean | No (`false`)    | Allow a `SET` to produce an empty value (see below)                                                  |
+| Operation field | Type    | Required     | Description                                      |
+| --------------- | ------- | ------------ | ------------------------------------------------ |
+| `type`          | string  | Yes          | `SET` or `DELETE`                                |
+| `target`        | string  | Yes          | Path under `context.` (e.g. `context.email_clean`) |
+| `value`         | string  | For `SET`    | Raw JSONata, no `{{...}}`                        |
+| `optional`      | boolean | No (`false`) | Allow an empty result                            |
 
-**Every `SET` is required by default.** If its expression evaluates to empty (`null`, empty string, or empty array), the node fails with `Transform node "<name>" has N unmet required output(s)`. When an empty value is legitimate (an optional field such as a middle name), set `optional: true` on that operation. There is no `required` field. The operation still runs and writes the empty value to `target`; do not substitute a placeholder such as `" "` to get past the check.
+**Every `SET` is required by default:** an empty result (`null`, `""`, `[]`) fails the node with `unmet required output(s)`. Set `optional: true` to allow it; there is no `required` field. Don't use placeholders like `" "`.
 
-Operations run top to bottom and see each other's writes. Use TRANSFORM for data shaping (turning context into another shape) and for execution-state updates (pagination cursors, derived runtime values).
+Operations run in order and see each other's writes.
 
 ### DELAY
 
@@ -571,7 +571,7 @@ Pause execution.
 | ------------ | ------ | -------- | --------------- |
 | `delay_time` | number | Yes      | Seconds to wait |
 
-To wait after an action, raise the **next** node's `wait_time` instead of adding a Delay node: it waits (in ms) until that node's element appears, so it waits only as long as needed. Use a DELAY node (`delay_time`, in seconds) or a readiness check (a BOOL_CONDITION on a spinner or a changed value) only when the next node's element may already be present before the action takes effect, is present but not yet usable, or when the next node has no selector.
+To wait after an action, raise the **next** node's `wait_time` (ms; it waits until that node's element appears). Use DELAY or a readiness check only if that element may already exist, isn't usable yet, or the next node has no selector.
 
 ### SCREENSHOT
 
@@ -840,7 +840,7 @@ When a run fails, the maintenance agent classifies errors:
 
 1. **Use descriptive node names.** The maintenance agent uses them during recovery.
 2. **Prefer STATIC execution** for speed and reliability. For Click and InputText, use `LLM_VISION` when a selector-driven interaction is not viable.
-3. **Wait with the next node's `wait_time`** instead of separate Delay nodes; see DELAY for when a fixed pause or readiness check is needed.
+3. **Wait with the next node's `wait_time`**, not a Delay node (see DELAY for exceptions).
 4. **Use variables** (`{{context.inputs.*}}`) instead of hardcoded values.
 5. **XPath selectors should be semantic** — use @id, @name, @aria-label, @placeholder, not generated class names.
 6. **For STATIC Click/InputText/InputSelect**, the selector must match exactly one element.

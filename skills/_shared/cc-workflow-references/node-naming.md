@@ -24,7 +24,7 @@ are metadata-only and safe).
 The schema key `demographics.properties.visit_information.properties.visit_start_time`
 becomes the node `demographics.visit_information.visit_start_time — enter Visit
 Start Time`, which also appears verbatim as the `run_if.field` on every node it
-gates (only node types that support `run_if`; see the DSL's Conditional skip). Same string, three of the four places at once — the fourth (input template)
+gates (supported node types only; see the DSL). Same string, three of the four places at once — the fourth (input template)
 reads `{{context.inputs.demographics.visit_information.visit_start_time}}`.
 
 Structural node, page-path-alone per the exemption above:

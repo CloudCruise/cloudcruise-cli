@@ -81,9 +81,8 @@ Component `cardiac_status.cardiac_assessment`:
 > 41 of 63 overall.
 >
 > **Conventions:** inputs via `{{context.inputs...}}`, never literals. `run_if`
-> gates every reveal-dependent node that supports it on `findings` per the schema's
-> `contains` rule; structural nodes in the reveal (settle delays, scrolls,
-> already-selected checks) follow the DSL's "Gating a section" rules.
+> gates every reveal-dependent node on `findings` per the schema's `contains` rule
+> (supported node types only; see the DSL's Conditional skip).
 > Node names: `cardiac_status.cardiac_assessment.findings — check findings`,
 > `cardiac_status.cardiac_assessment.abnormal_pulses_type — enter type`.
 
