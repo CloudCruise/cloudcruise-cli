@@ -174,9 +174,9 @@ A node runs only if its `parameters.run_if` holds; otherwise the run skips to th
 
 **Gating structural nodes:**
 
-- **DELAY:** drop it and raise the next gated node's `wait_time`.
+- **DELAY:** if the next gated node's element only appears after this step, drop the DELAY and raise that node's `wait_time`; otherwise route around the DELAY as for SCROLL.
 - **SCROLL (or any other unsupported node):** route around it with a BOOL_CONDITION on the same condition.
-- **BOOL_CONDITION:** fold the gate into its comparison; it has two exits, so it cannot be skipped.
+- **BOOL_CONDITION:** it can't be skipped. Route around it as for SCROLL, or gate the nodes on its branches. Fold the gate into its comparison only when a false gate should take its false path.
 
 ## Node Structure
 
