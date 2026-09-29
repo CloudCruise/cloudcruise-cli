@@ -163,6 +163,56 @@ Every node has:
 
 **IMPORTANT:** The `id` field must be a valid UUID (e.g., `"f47ac10b-58cc-4372-a567-0e02b2c3d479"`). Do not use natural language IDs like `"click-submit-button"`. Generate UUIDs with `cloudcruise utils uuid`.
 
+## Conditional Nodes (`run_if`) and Dry-Run Stops
+
+### `run_if`
+
+`run_if` is an optional parameter that guards a single node. The node runs only if the condition matches. Otherwise it is skipped and traversal continues on its `to` edge. It is a data-only check (no DOM access).
+
+```json
+"parameters": {
+  "execution": "STATIC",
+  "selector": "//textarea[@name='ostomy_details']",
+  "text": "{{context.inputs.gi.ostomy_details}}",
+  "run_if": {
+    "match": "all",
+    "conditions": [
+      { "field": "context.inputs.gi.gi_checkboxes", "operator": "CONTAINS", "value": "Ostomy" }
+    ]
+  }
+}
+```
+
+| Key                      | Type   | Required | Description                                                                                                                  |
+| ------------------------ | ------ | -------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `match`                  | string | No       | `all` (AND, default) or `any` (OR)                                                                                           |
+| `conditions`             | array  | Yes      | Non-empty list of comparisons                                                                                                |
+| `conditions[].field`     | string | Yes      | Context path or JSONata expression, e.g. `context.inputs.provider.npi`. A full `{{...}}` template is also accepted          |
+| `conditions[].operator`  | string | Yes      | `EQUAL`, `NOT_EQUAL`, `CONTAINS`, `NOT_CONTAINS`, `IS_NULL`, `IS_NOT_NULL`, `STARTS_WITH`, `ENDS_WITH`                       |
+| `conditions[].value`     | string | Depends  | Literal to compare against, or `{{...}}` to compare another field. Required for every operator except `IS_NULL`/`IS_NOT_NULL` |
+
+`IS_NULL` treats `null`, `undefined`, `"null"`, `""` and `[]` as absent. `CONTAINS` on an array checks membership. The most common guards are `IS_NOT_NULL` ("this input was provided") and `CONTAINS` ("this option is selected").
+
+Use `run_if` for "run this one node or skip it". Use a BOOL_CONDITION only for real two-way forks where both branches do work. A BOOL_CONDITION whose `true` and `false` edges point to the same node is rejected by the API.
+
+### Which nodes accept `run_if` and `end_here_on_dry_run`
+
+Both parameters are validated per node type. Setting them on a node type that does not support them fails the whole `workflows update` or `workflows import` with a 400 such as `nodes.12.parameters.run_if: property run_if should not exist`.
+
+| Node type           | `run_if` | `end_here_on_dry_run` |
+| ------------------- | -------- | --------------------- |
+| CLICK               | Yes      | Yes                   |
+| INPUT_TEXT          | Yes      | Yes                   |
+| INPUT_SELECT        | Yes      | Yes                   |
+| EXTRACT_NETWORK     | Yes      | Yes                   |
+| EXTRACT_DATAMODEL   | Yes      | No                    |
+| SCREENSHOT          | Yes      | No                    |
+| FILE_DOWNLOAD       | Yes      | No                    |
+| TFA                 | Yes      | No                    |
+| All other node types | No      | No                    |
+
+"All other node types" includes START, END, NAVIGATE, BOOL_CONDITION, LOOP, DELAY, SCROLL, TRANSFORM, FILE_UPLOAD, TAB_MANAGEMENT, WINDOW_MANAGEMENT, USER_INTERACTION, APP_ACTION and CAPTCHA. To skip one of these conditionally, put a BOOL_CONDITION in front of it that routes around it, with the `true` and `false` edges pointing to different nodes.
+
 ## Node Types
 
 ### START
@@ -223,6 +273,7 @@ Click on page elements.
 | `selector_error_message` | string  | No               | Error code id (UUID) to fail with if the element is not found. See [Error Codes](#error-codes)                                                                                    |
 | `human_mode`             | boolean | No               | Human-like click behavior                                                                                                                                                          |
 | `end_here_on_dry_run`    | boolean | No               | Skip this node and end the workflow during dry runs. Set on the final submit/save click of write workflows so dry runs validate everything without submitting to the target system |
+| `run_if`                 | object  | No               | Run this node only if the condition matches, otherwise skip it and continue on the `to` edge. See [Conditional Nodes](#conditional-nodes-run_if-and-dry-run-stops) |
 
 ### INPUT_TEXT
 
@@ -405,6 +456,8 @@ CloudCruise extends JSON Schema with:
 ### BOOL_CONDITION
 
 Conditional branching. Uses `true`/`false` edges.
+
+The `true` and `false` edges must point to different nodes. To run or skip a single node, prefer a `run_if` on that node (see [Conditional Nodes](#conditional-nodes-run_if-and-dry-run-stops)).
 
 ```json
 {
