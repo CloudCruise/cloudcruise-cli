@@ -163,56 +163,6 @@ Every node has:
 
 **IMPORTANT:** The `id` field must be a valid UUID (e.g., `"f47ac10b-58cc-4372-a567-0e02b2c3d479"`). Do not use natural language IDs like `"click-submit-button"`. Generate UUIDs with `cloudcruise utils uuid`.
 
-## Conditional Nodes (`run_if`) and Dry-Run Stops
-
-### `run_if`
-
-`run_if` is an optional parameter that guards a single node. The node runs only if the condition matches. Otherwise it is skipped and traversal continues on its `to` edge. It is a data-only check (no DOM access).
-
-```json
-"parameters": {
-  "execution": "STATIC",
-  "selector": "//textarea[@name='ostomy_details']",
-  "text": "{{context.inputs.gi.ostomy_details}}",
-  "run_if": {
-    "match": "all",
-    "conditions": [
-      { "field": "context.inputs.gi.gi_checkboxes", "operator": "CONTAINS", "value": "Ostomy" }
-    ]
-  }
-}
-```
-
-| Key                      | Type   | Required | Description                                                                                                                  |
-| ------------------------ | ------ | -------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `match`                  | string | No       | `all` (AND, default) or `any` (OR)                                                                                           |
-| `conditions`             | array  | Yes      | Non-empty list of comparisons                                                                                                |
-| `conditions[].field`     | string | Yes      | Context path or JSONata expression, e.g. `context.inputs.provider.npi`. A full `{{...}}` template is also accepted          |
-| `conditions[].operator`  | string | Yes      | `EQUAL`, `NOT_EQUAL`, `CONTAINS`, `NOT_CONTAINS`, `IS_NULL`, `IS_NOT_NULL`, `STARTS_WITH`, `ENDS_WITH`                       |
-| `conditions[].value`     | string | Depends  | Literal to compare against, or `{{...}}` to compare another field. Required for every operator except `IS_NULL`/`IS_NOT_NULL` |
-
-`IS_NULL` treats `null`, `undefined`, `"null"`, `""` and `[]` as absent. `CONTAINS` on an array checks membership. The most common guards are `IS_NOT_NULL` ("this input was provided") and `CONTAINS` ("this option is selected").
-
-Use `run_if` for "run this one node or skip it". Use a BOOL_CONDITION only for real two-way forks where both branches do work. A BOOL_CONDITION whose `true` and `false` edges point to the same node is rejected by the API.
-
-### Which nodes accept `run_if` and `end_here_on_dry_run`
-
-Both parameters are validated per node type. Setting them on a node type that does not support them fails the whole `workflows update` or `workflows import` with a 400 such as `nodes.12.parameters.run_if: property run_if should not exist`.
-
-| Node type           | `run_if` | `end_here_on_dry_run` |
-| ------------------- | -------- | --------------------- |
-| CLICK               | Yes      | Yes                   |
-| INPUT_TEXT          | Yes      | Yes                   |
-| INPUT_SELECT        | Yes      | Yes                   |
-| EXTRACT_NETWORK     | Yes      | Yes                   |
-| EXTRACT_DATAMODEL   | Yes      | No                    |
-| SCREENSHOT          | Yes      | No                    |
-| FILE_DOWNLOAD       | Yes      | No                    |
-| TFA                 | Yes      | No                    |
-| All other node types | No      | No                    |
-
-"All other node types" includes START, END, NAVIGATE, BOOL_CONDITION, LOOP, DELAY, SCROLL, TRANSFORM, FILE_UPLOAD, TAB_MANAGEMENT, WINDOW_MANAGEMENT, USER_INTERACTION, APP_ACTION and CAPTCHA. To skip one of these conditionally, put a BOOL_CONDITION in front of it that routes around it, with the `true` and `false` edges pointing to different nodes.
-
 ## Node Types
 
 ### START
@@ -273,7 +223,7 @@ Click on page elements.
 | `selector_error_message` | string  | No               | Error code id (UUID) to fail with if the element is not found. See [Error Codes](#error-codes)                                                                                    |
 | `human_mode`             | boolean | No               | Human-like click behavior                                                                                                                                                          |
 | `end_here_on_dry_run`    | boolean | No               | Skip this node and end the workflow during dry runs. Set on the final submit/save click of write workflows so dry runs validate everything without submitting to the target system |
-| `run_if`                 | object  | No               | Run this node only if the condition matches, otherwise skip it and continue on the `to` edge. See [Conditional Nodes](#conditional-nodes-run_if-and-dry-run-stops) |
+| `run_if` | object | No | Run this node only if the condition matches, otherwise skip it and continue on the `to` edge. `match` is `all` (default) or `any`. Shape: `{"match": "all", "conditions": [{"field": "context.inputs.x", "operator": "IS_NOT_NULL", "value": "..."}]}`. Operators: `EQUAL`, `NOT_EQUAL`, `CONTAINS`, `NOT_CONTAINS`, `IS_NULL`, `IS_NOT_NULL`, `STARTS_WITH`, `ENDS_WITH`. `value` is omitted for `IS_NULL`/`IS_NOT_NULL` |
 
 ### INPUT_TEXT
 
@@ -306,6 +256,8 @@ Type text into form fields.
 | `omit_focus`          | boolean | No               | Send the keys to whatever currently has focus. No `selector`, no click, no clearing     |
 | `paste_via_clipboard` | boolean | No               | Paste the resolved text via the OS clipboard (ctrl+v) instead of typing it. Ignored when `text` has keystroke tokens |
 | `typing_delay_ms`     | integer | No               | Delay between keystrokes in ms (1–1000). Use when typed characters get dropped, e.g. over RDP |
+| `end_here_on_dry_run` | boolean | No | Skip this node and end the workflow during dry runs |
+| `run_if` | object | No | Run this node only if the condition matches, otherwise skip it and continue on the `to` edge. Same shape as CLICK `run_if` |
 
 **Keystroke tokens.** `text` presses a key wherever it contains one of the tokens below; any other `{{...}}` goes through normal variable and JSONata interpolation. Tokens and text within one node run in order, so `"john{{tab}}secret{{enter}}"` types, tabs, types, enters. Reach for these only when the user asks for them or the site offers no other way — ordinary `CLICK` and `INPUT_TEXT` nodes remain the default.
 
@@ -347,6 +299,8 @@ Select options from dropdowns. Handles native `<select>`, Select2, and similar l
 | `fuzzy_match` | boolean | No       | Fuzzy matching for option values (e.g., "New Patient" matches "New Patient Visit") |
 | `prompt`      | string  | No       | Natural language description (LLM execution)                                       |
 | `wait_time`   | number  | No       | Max ms to wait. Default: 15000                                                     |
+| `end_here_on_dry_run` | boolean | No | Skip this node and end the workflow during dry runs |
+| `run_if` | object | No | Run this node only if the condition matches, otherwise skip it and continue on the `to` edge. Same shape as CLICK `run_if` |
 
 ### NAVIGATE
 
@@ -405,6 +359,7 @@ Extract structured data from the page using a JSON schema.
 | `prompt`             | string  | Yes (`PROMPT`)  | Additional instructions for the model                                                                                    |
 | `wait_time`          | number  | No              | Max ms to wait for selector. Default: 15000                                                                              |
 | `keep_html_metadata` | boolean | No              | Only used by `LLM_DOM`. Preserve HTML attributes (id, class, data-\*) so the model can extract from them. Default: false |
+| `run_if` | object | No | Run this node only if the condition matches, otherwise skip it and continue on the `to` edge. Same shape as CLICK `run_if` |
 
 #### Data Model Schema Extensions
 
@@ -457,7 +412,7 @@ CloudCruise extends JSON Schema with:
 
 Conditional branching. Uses `true`/`false` edges.
 
-The `true` and `false` edges must point to different nodes. To run or skip a single node, prefer a `run_if` on that node (see [Conditional Nodes](#conditional-nodes-run_if-and-dry-run-stops)).
+The `true` and `false` edges must point to different nodes. To run or skip a single node, prefer a `run_if` on that node.
 
 ```json
 {
@@ -573,6 +528,7 @@ Capture a screenshot.
 | `wait_time`   | number | No       | Max ms to wait. Default: 15000                |
 | `margin`      | number | No       | Pixel padding (useful to crop sticky headers) |
 | `max_scrolls` | number | No       | Scrolls for full-page capture                 |
+| `run_if` | object | No | Run this node only if the condition matches, otherwise skip it and continue on the `to` edge. Same shape as CLICK `run_if` |
 
 ### SCROLL
 
@@ -675,6 +631,7 @@ Handle 2FA challenges. Automatically extracts codes from SMS/email or generates 
 | `selector`           | string | Yes (non-`MAGIC_LINK`) | XPath for code input                             |
 | `execution`          | string | No                     | `STATIC` (default) or `LLM_VISION`               |
 | `link_regex_pattern` | string | No                     | Regex to extract magic link from email           |
+| `run_if` | object | No | Run this node only if the condition matches, otherwise skip it and continue on the `to` edge. Same shape as CLICK `run_if` |
 
 Codes are automatically entered and submitted (Enter pressed). No subsequent Click node needed.
 
@@ -700,6 +657,7 @@ Capture a file download triggered by a previous Click node.
 | `trigger_print`               | boolean | No       | Trigger print dialog for PDF generation              |
 | `continue_on_failed_download` | boolean | No       | Continue if download times out                       |
 | `timeout_seconds`             | number  | No       | Max seconds to wait. Default: 60 (range 5-300)       |
+| `run_if` | object | No | Run this node only if the condition matches, otherwise skip it and continue on the `to` edge. Same shape as CLICK `run_if` |
 
 ### FILE_UPLOAD
 
@@ -780,6 +738,8 @@ Intercept XHR/Fetch requests and extract data from responses.
 | `selector`           | string  | No       | XPath to wait for before extracting                |
 | `wait_time`          | number  | No       | Max ms to wait for selector. Default: 15000        |
 | `full_request`       | boolean | No       | Include full request/response metadata             |
+| `end_here_on_dry_run` | boolean | No | Skip this node and end the workflow during dry runs |
+| `run_if` | object | No | Run this node only if the condition matches, otherwise skip it and continue on the `to` edge. Same shape as CLICK `run_if` |
 
 Path syntax: `$` (root), `$.field` (direct), `$.parent.child` (nested), `$[0]` (array index).
 
