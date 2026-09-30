@@ -5,7 +5,7 @@
 ### Changed
 
 - DSL skill documents the `CAPTCHA` node and the `manual_captcha_solve` workflow field.
-- New shared reference `captchas.md` for the build and test skills: which captchas the platform auto-solves, when to ask the builder for manual solving, and that the builder has a pattern for text captchas.
+- New shared reference `captchas.md` for the build and test skills: which captchas the platform auto-solves, when to switch to manual solving, and the retry-loop pattern for text captchas.
 
 ## 1.12.0
 

@@ -99,4 +99,4 @@ Re-run the full chain to confirm the fix and that nothing upstream regressed. As
 - `references/track-branching.md` / `references/track-linear.md`.
 - `references/input-schema.md` — the standard the build wrote; codify discovered rules back into it.
 - `references/templates/test-audit.md`.
-- `references/captchas.md` — captcha failures and the fix to hand the builder.
+- `references/captchas.md` — captcha failures and their fixes.

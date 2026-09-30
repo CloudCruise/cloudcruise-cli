@@ -20,7 +20,7 @@ skills/
     ├── input-schema.md           the input-schema standard
     ├── task-messages.md          shape of one message to the builder agent
     ├── node-naming.md            node name = dotted schema path (branching track)
-    ├── captchas.md               captcha types and what the builder handles
+    ├── captchas.md               captcha solving and the text-captcha pattern
     ├── track-branching.md        branching-track contracts (plan body, spine, verify)
     ├── track-linear.md           linear-track contracts
     ├── input-text.md, input-screenshots.md, input-recording.md
