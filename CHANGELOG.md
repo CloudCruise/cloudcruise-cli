@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Exit 12 (`USAGE_LIMIT`) for HTTP 402 `USAGE_LIMIT_EXCEEDED`, when a run is refused because the workspace is out of browser hours. The stderr envelope adds the backend's `reason`, `currentUsage` and `limit`. The backend used to return this as 401 `UNAUTHENTICATED`, which exited 3 (`AUTH`) as if the credential were bad.
+
 ## 1.12.1
 
 ### Changed

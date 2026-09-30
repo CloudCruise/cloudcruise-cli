@@ -313,6 +313,8 @@ cloudcruise builder end         # End the conversation and clean up
 
 `builder screenshot`/`html` with no attached browser → `NO_BROWSER_ATTACHED` (exit 10); provision/warm a browser, then retry.
 
+A run refused because the workspace is out of browser hours → HTTP 402 `USAGE_LIMIT_EXCEEDED` (exit 12). Do not retry and do not re-authenticate: relay the message to the user. The stderr envelope's `reason` says what unblocks it: `NO_PAYMENT_METHOD` (add a card), `PAYMENT_FAILED` (update the payment method), `USAGE_CAP_REACHED` (the organization's own cap), `INCLUDED_HOURS_EXCEEDED` (change plan).
+
 **Send + status-poll pattern:**
 
 ```bash
