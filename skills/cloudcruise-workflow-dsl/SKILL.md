@@ -32,7 +32,7 @@ A workflow is a directed graph of nodes (actions) connected by edges. The browse
 
 **Required:** `nodes`, `edges`, `name`, `input_schema`, `output_schema`, `max_retries`
 
-**Optional:** `description`, `version_note`, `use_native_actions`, `video_record_session`, `extract_network_urls`, `popup_xpaths`, `vault_schema`, `enable_popup_handling`, `enable_action_timing_recovery`, `enable_xpath_recovery`, `enable_error_code_generation`, `enable_service_unavailable_recovery`, `proxy_setting`, `proxy_value`, `enable_network_listener`
+**Optional:** `description`, `version_note`, `use_native_actions`, `video_record_session`, `extract_network_urls`, `popup_xpaths`, `vault_schema`, `enable_popup_handling`, `enable_action_timing_recovery`, `enable_xpath_recovery`, `enable_error_code_generation`, `enable_service_unavailable_recovery`, `proxy_setting`, `proxy_value`, `enable_network_listener`, `manual_captcha_solve`
 
 ### `popup_xpaths`
 
@@ -574,6 +574,25 @@ Pause execution.
 | `delay_time` | number | Yes      | Seconds to wait |
 
 To wait after an action, raise the **next** node's `wait_time` (ms; it waits until that node's element appears). Use DELAY or a readiness check only if that element may already exist, isn't usable yet, or the next node has no selector.
+
+### CAPTCHA
+
+Solve one captcha at this point in the run. Runs the platform's solver for the named captcha whether or not the workflow's automatic captcha solving is on.
+
+```json
+{
+  "id": "f2a3b4c5-6789-4d01-a234-ef0123456789",
+  "name": "Solve Turnstile before submit",
+  "action": "CAPTCHA",
+  "parameters": { "captcha_type": "turnstile" }
+}
+```
+
+| Parameter      | Type   | Required | Description                                          |
+| -------------- | ------ | -------- | ---------------------------------------------------- |
+| `captcha_type` | string | Yes      | `turnstile` (Cloudflare Turnstile) or `recaptcha_v2` |
+
+Outcome: no captcha of that type on the page → the node passes and the run continues. Captcha present and solved → passes. Captcha present and not solved → the node fails with error code `CAPTCHA-E0001`, so the workflow's error-code actions (retry, alert, pause) apply. Detection finds the widget's iframe or container in the top page only. A captcha on a page embedded in another iframe is not detected, and the node passes as if no captcha were present.
 
 ### SCREENSHOT
 

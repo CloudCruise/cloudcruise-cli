@@ -9,6 +9,8 @@
 - `cloudcruise-workflow-dsl`: to wait after an action, raise the next node's `wait_time`. Use DELAY only when that element may already exist, isn't usable yet, or the next node has no selector.
 - `cloudcruise-workflow-dsl` lists `end_here_on_dry_run` on INPUT_TEXT, INPUT_SELECT and EXTRACT_NETWORK, not only CLICK.
 - `cc-workflow` references gate reveal-dependent nodes with `run_if` only on supported node types.
+- DSL skill documents the `CAPTCHA` node and the `manual_captcha_solve` workflow field.
+- New shared reference `captchas.md` for the build and test skills: which captchas the platform auto-solves, when to switch to manual solving, and the retry-loop pattern for text captchas.
 
 ## 1.12.0
 
