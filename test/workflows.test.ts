@@ -1,5 +1,11 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
+import { spawn } from "node:child_process"
+import { createServer } from "node:http"
+import type { AddressInfo } from "node:net"
+import { mkdtempSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { buildWorkflowUpdateBody } from "../dist/src/commands/workflows.js"
 
 const fetchedWorkflow = {
@@ -59,4 +65,89 @@ test("buildWorkflowUpdateBody without a version_id sends no base_version_id, so 
   const { version_id: _versionId, ...handWritten } = fetchedWorkflow
   const body = buildWorkflowUpdateBody(handWritten, {})
   assert.equal("base_version_id" in body, false)
+})
+
+const latestVersionId = "7b0f1e2a-0000-4000-8000-000000000018"
+
+async function startWorkflowBackend() {
+  const received: Record<string, unknown>[] = []
+  const server = createServer((req, res) => {
+    let raw = ""
+    req.on("data", (chunk) => (raw += chunk))
+    req.on("end", () => {
+      const body = JSON.parse(raw || "{}") as Record<string, unknown>
+      received.push(body)
+      if (
+        body.base_version_id !== undefined &&
+        body.base_version_id !== latestVersionId
+      ) {
+        res.writeHead(409, { "content-type": "application/json" })
+        res.end(
+          JSON.stringify({
+            code: "WORKFLOW_VERSION_CONFLICT",
+            message: "This workflow was updated by another session.",
+            latestVersionId,
+            latestVersionNumber: 18,
+            latestCreatedBy: "user_2",
+            latestCreatedAt: "2026-09-30T08:15:00Z",
+            latestVersionNote: "Healed submit XPath",
+            statusCode: 409
+          })
+        )
+        return
+      }
+      res.writeHead(200, { "content-type": "application/json" })
+      res.end(JSON.stringify({ id: fetchedWorkflow.id, version_number: 19 }))
+    })
+  })
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
+  const { port } = server.address() as AddressInfo
+  return { baseUrl: `http://127.0.0.1:${port}`, received, server }
+}
+
+function runCli(args: string[]) {
+  const home = mkdtempSync(join(tmpdir(), "cloudcruise-test-"))
+  const child = spawn(process.execPath, ["dist/bin/cloudcruise.js", ...args], {
+    env: { ...process.env, HOME: home, CLOUDCRUISE_API_KEY: "test_key" }
+  })
+  let stderr = ""
+  child.stderr.on("data", (chunk) => (stderr += chunk))
+  child.stdout.resume()
+  return new Promise<{ code: number | null; stderr: string }>((resolve) =>
+    child.on("close", (code) => resolve({ code, stderr }))
+  )
+}
+
+// A workflow fetched at v17 is pushed after v18 was saved elsewhere. The
+// command must refuse with exit 12 and name v18, and the --force retry must
+// omit base_version_id so the backend accepts the overwrite.
+test("workflows update exits 12 with the latest version on a stale body, and --force overwrites it", async () => {
+  const backend = await startWorkflowBackend()
+  try {
+    const dir = mkdtempSync(join(tmpdir(), "cloudcruise-workflow-"))
+    const file = join(dir, "workflow.json")
+    writeFileSync(file, JSON.stringify(fetchedWorkflow))
+    const baseArgs = [
+      "workflows",
+      "update",
+      fetchedWorkflow.id,
+      "--file",
+      file,
+      "--base-url",
+      backend.baseUrl
+    ]
+
+    const stale = await runCli(baseArgs)
+    assert.equal(stale.code, 12)
+    const envelope = JSON.parse(stale.stderr.trim().split("\n").at(-1)!)
+    assert.equal(envelope.code, "WORKFLOW_VERSION_CONFLICT")
+    assert.equal(envelope.latestVersion.number, 18)
+    assert.equal(backend.received[0].base_version_id, fetchedWorkflow.version_id)
+
+    const forced = await runCli([...baseArgs, "--force"])
+    assert.equal(forced.code, 0)
+    assert.equal("base_version_id" in backend.received[1], false)
+  } finally {
+    backend.server.close()
+  }
 })
