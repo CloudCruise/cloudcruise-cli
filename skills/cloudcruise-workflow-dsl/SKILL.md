@@ -32,7 +32,7 @@ A workflow is a directed graph of nodes (actions) connected by edges. The browse
 
 **Required:** `nodes`, `edges`, `name`, `input_schema`, `output_schema`, `max_retries`
 
-**Optional:** `description`, `version_note`, `use_native_actions`, `video_record_session`, `extract_network_urls`, `popup_xpaths`, `vault_schema`, `enable_popup_handling`, `enable_action_timing_recovery`, `enable_xpath_recovery`, `enable_error_code_generation`, `enable_service_unavailable_recovery`, `proxy_setting`, `proxy_value`, `enable_network_listener`
+**Optional:** `description`, `version_note`, `use_native_actions`, `video_record_session`, `extract_network_urls`, `popup_xpaths`, `vault_schema`, `enable_popup_handling`, `enable_action_timing_recovery`, `enable_xpath_recovery`, `enable_error_code_generation`, `enable_service_unavailable_recovery`, `proxy_setting`, `proxy_value`, `enable_network_listener`, `manual_captcha_solve`
 
 ### `popup_xpaths`
 
@@ -148,6 +148,36 @@ Edges are a map of `source_node_id → target`. The target type depends on the s
 | `true` / `false`              | BOOL_CONDITION | Branch based on condition result |
 | `loop_not_done` / `loop_done` | LOOP           | Continue iterating / exit loop   |
 
+## Conditional skip (`run_if`)
+
+A node runs only if its `parameters.run_if` holds; otherwise the run skips to the node's `to` edge.
+
+```json
+"run_if": {
+  "match": "all",
+  "conditions": [
+    { "field": "context.inputs.provider.middle_name", "operator": "IS_NOT_NULL" }
+  ]
+}
+```
+
+| Field                   | Values                                                                                                   |
+| ----------------------- | -------------------------------------------------------------------------------------------------------- |
+| `match`                 | `all` (default) or `any`                                                                                 |
+| `conditions[].field`    | Path under `context.`                                                                                    |
+| `conditions[].operator` | `EQUAL`, `NOT_EQUAL`, `CONTAINS`, `NOT_CONTAINS`, `IS_NULL`, `IS_NOT_NULL`, `STARTS_WITH`, `ENDS_WITH` |
+| `conditions[].value`    | String; omit for `IS_NULL` and `IS_NOT_NULL`                                                             |
+
+`IS_NULL` treats `null`, missing, `""`, `"null"` and `[]` as absent.
+
+**Supported on:** CLICK, INPUT_TEXT, INPUT_SELECT, EXTRACT_DATAMODEL, EXTRACT_NETWORK, SCREENSHOT, TFA, FILE_DOWNLOAD and API_FLOW. Other node types reject it (`property run_if should not exist`).
+
+**Gating structural nodes:**
+
+- **DELAY:** if the next gated node's element only appears after this step, drop the DELAY and raise that node's `wait_time`; otherwise route around the DELAY as for SCROLL.
+- **SCROLL (or any other unsupported node):** route around it with a BOOL_CONDITION on the same condition.
+- **BOOL_CONDITION:** it can't be skipped. Route around it as for SCROLL, or gate the nodes on its branches. Fold the gate into its comparison only when a false gate should take its false path.
+
 ## Node Structure
 
 Every node has:
@@ -252,6 +282,7 @@ Type text into form fields.
 | `aggressive_clear`    | boolean | No               | Adds a second clear pass. Enable only after observing typing leaves old text behind or appends to it — not preemptively |
 | `wait_time`           | number  | No               | Max ms to wait. Default: 15000                                                                                          |
 | `human_mode`          | boolean | No               | Human-like typing behavior                                                                                              |
+| `end_here_on_dry_run` | boolean | No               | In dry runs, end the workflow before this node runs                                                                    |
 | `omit_focus`          | boolean | No               | Send the keys to whatever currently has focus. No `selector`, no click, no clearing     |
 | `paste_via_clipboard` | boolean | No               | Paste the resolved text via the OS clipboard (ctrl+v) instead of typing it. Ignored when `text` has keystroke tokens |
 | `typing_delay_ms`     | integer | No               | Delay between keystrokes in ms (1–1000). Use when typed characters get dropped, e.g. over RDP |
@@ -296,6 +327,7 @@ Select options from dropdowns. Handles native `<select>`, Select2, and similar l
 | `fuzzy_match` | boolean | No       | Fuzzy matching for option values (e.g., "New Patient" matches "New Patient Visit") |
 | `prompt`      | string  | No       | Natural language description (LLM execution)                                       |
 | `wait_time`   | number  | No       | Max ms to wait. Default: 15000                                                     |
+| `end_here_on_dry_run` | boolean | No | In dry runs, end the workflow before this node runs                            |
 
 ### NAVIGATE
 
@@ -482,6 +514,48 @@ Iterate over arrays or repeat N times. Uses `loop_done`/`loop_not_done` edges.
 
 The last node in the loop body must edge back to the loop node. Access items via `{{context.runtime.current_order}}`.
 
+### TRANSFORM
+
+Reshape data in `context.*` without touching the browser.
+
+```json
+{
+  "id": "b4c5d6e7-8901-4234-b567-890123456789",
+  "name": "Normalize contact fields",
+  "action": "TRANSFORM",
+  "parameters": {
+    "operations": [
+      {
+        "type": "SET",
+        "target": "context.email_clean",
+        "value": "context.inputs.email ~> $trim ~> $lowercase"
+      },
+      {
+        "type": "SET",
+        "target": "context.middle_name",
+        "value": "context.inputs.provider.middle_name",
+        "optional": true
+      }
+    ]
+  }
+}
+```
+
+| Parameter    | Type  | Required | Description                                                      |
+| ------------ | ----- | -------- | ---------------------------------------------------------------- |
+| `operations` | array | Yes      | Ordered list of `{ type, target, value?, optional? }` operations |
+
+| Operation field | Type    | Required     | Description                                      |
+| --------------- | ------- | ------------ | ------------------------------------------------ |
+| `type`          | string  | Yes          | `SET` or `DELETE`                                |
+| `target`        | string  | Yes          | Path under `context.` (e.g. `context.email_clean`) |
+| `value`         | string  | For `SET`    | Raw JSONata, no `{{...}}`                        |
+| `optional`      | boolean | No (`false`) | Allow an empty result                            |
+
+**Every `SET` is required by default:** an empty result (`null`, `""`, `[]`) fails the node with `unmet required output(s)`. Set `optional: true` to allow it; there is no `required` field. Don't use placeholders like `" "`.
+
+Operations run in order and see each other's writes.
+
 ### DELAY
 
 Pause execution.
@@ -499,7 +573,26 @@ Pause execution.
 | ------------ | ------ | -------- | --------------- |
 | `delay_time` | number | Yes      | Seconds to wait |
 
-Prefer using `wait_time` on action nodes over separate Delay nodes.
+To wait after an action, raise the **next** node's `wait_time` (ms; it waits until that node's element appears). Use DELAY or a readiness check only if that element may already exist, isn't usable yet, or the next node has no selector.
+
+### CAPTCHA
+
+Solve one captcha at this point in the run. Runs the platform's solver for the named captcha whether or not the workflow's automatic captcha solving is on.
+
+```json
+{
+  "id": "f2a3b4c5-6789-4d01-a234-ef0123456789",
+  "name": "Solve Turnstile before submit",
+  "action": "CAPTCHA",
+  "parameters": { "captcha_type": "turnstile" }
+}
+```
+
+| Parameter      | Type   | Required | Description                                          |
+| -------------- | ------ | -------- | ---------------------------------------------------- |
+| `captcha_type` | string | Yes      | `turnstile` (Cloudflare Turnstile) or `recaptcha_v2` |
+
+Outcome: no captcha of that type on the page → the node passes and the run continues. Captcha present and solved → passes. Captcha present and not solved → the node fails with error code `CAPTCHA-E0001`, so the workflow's error-code actions (retry, alert, pause) apply. Detection finds the widget's iframe or container in the top page only. A captcha on a page embedded in another iframe is not detected, and the node passes as if no captcha were present.
 
 ### SCREENSHOT
 
@@ -727,6 +820,7 @@ Intercept XHR/Fetch requests and extract data from responses.
 | `selector`           | string  | No       | XPath to wait for before extracting                |
 | `wait_time`          | number  | No       | Max ms to wait for selector. Default: 15000        |
 | `full_request`       | boolean | No       | Include full request/response metadata             |
+| `end_here_on_dry_run` | boolean | No      | In dry runs, end the workflow before this node runs |
 
 Path syntax: `$` (root), `$.field` (direct), `$.parent.child` (nested), `$[0]` (array index).
 
@@ -768,7 +862,7 @@ When a run fails, the maintenance agent classifies errors:
 
 1. **Use descriptive node names.** The maintenance agent uses them during recovery.
 2. **Prefer STATIC execution** for speed and reliability. For Click and InputText, use `LLM_VISION` when a selector-driven interaction is not viable.
-3. **Use `wait_time` on action nodes** instead of separate Delay nodes.
+3. **Wait with the next node's `wait_time`**, not a Delay node (see DELAY for exceptions).
 4. **Use variables** (`{{context.inputs.*}}`) instead of hardcoded values.
 5. **XPath selectors should be semantic** — use @id, @name, @aria-label, @placeholder, not generated class names.
 6. **For STATIC Click/InputText/InputSelect**, the selector must match exactly one element.

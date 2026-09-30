@@ -66,7 +66,7 @@ On each error during a dry-run:
 2. **Fix in place only if the fix is mechanical and certain — no guess about intended behavior.**
    Then verify (below) and continue to the end.
    - **Fix**: selector correction (DOM-validated), timing/wait, stale-reference repoint, nbsp-safe
-     or scope-narrowed match.
+     or scope-narrowed match, a captcha remedy from `references/captchas.md`.
    - **Block**: which value is correct, whether a node belongs here, business logic, anything
      ambiguous. Stop, hand the human the diagnosis, ask them for the fix.
 3. **A fix that doesn't make the run proceed gets one retry, then block.** No spiral.
@@ -99,3 +99,4 @@ Re-run the full chain to confirm the fix and that nothing upstream regressed. As
 - `references/track-branching.md` / `references/track-linear.md`.
 - `references/input-schema.md` — the standard the build wrote; codify discovered rules back into it.
 - `references/templates/test-audit.md`.
+- `references/captchas.md` — captcha failures and their fixes.

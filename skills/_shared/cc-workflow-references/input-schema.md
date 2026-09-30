@@ -95,6 +95,7 @@ A node revealed by a checkbox-group member carries `CONTAINS` on the group's pat
 {"field": "context.inputs.supportive_assistance.safety_measures.measures",
  "value": "Presence of animals:", "operator": "CONTAINS"}
 ```
+Only supported node types carry the guard (see the DSL's Conditional skip).
 
 **6. Per-leaf `description`/`example`.** A `null` example on a commonly-hidden
 field documents *why* it's usually null, not just that it can be:

@@ -153,6 +153,7 @@ it when it ends the session. Do not fire real runs here; the test stage owns the
 - `references/input-schema.md` — the schema standard (workflows that write).
 - `references/task-messages.md` — every builder message.
 - `references/node-naming.md` — node naming (branching workflows).
+- `references/captchas.md` — captcha handling and the text-captcha pattern.
 - `references/track-branching.md` / `references/track-linear.md` — spine definitions
   for the drafted `complexity`.
 - The `cloudcruise` CLI skill for command mechanics; the `cloudcruise-workflow-dsl`
