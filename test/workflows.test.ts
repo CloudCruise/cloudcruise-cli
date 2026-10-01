@@ -27,34 +27,14 @@ test("buildWorkflowUpdateBody bases the update on the fetched version_id so a ne
   assert.equal(body.base_version_id, fetchedWorkflow.version_id)
 })
 
-// The backend runs the stale check on any echoed version_id or version_number,
-// and rejects echoed created_at/created_by/updated_at/conversation_id that do
-// not match the latest version. An overwrite must drop all of them, while the
-// workflow's own id and workspace_id stay so a wrong target is still refused.
-test("buildWorkflowUpdateBody with force drops every field that ties the body to its old version", () => {
+// The backend runs the stale check only on base_version_id and ignores the
+// echoed version fields, so dropping base_version_id is enough to overwrite.
+test("buildWorkflowUpdateBody with force sends no base_version_id and leaves the rest of the body unchanged", () => {
   const body = buildWorkflowUpdateBody(
-    {
-      ...fetchedWorkflow,
-      base_version_id: fetchedWorkflow.version_id,
-      updated_at: "2026-09-29T10:00:00Z",
-      conversation_id: "conv_1"
-    },
+    { ...fetchedWorkflow, base_version_id: fetchedWorkflow.version_id },
     { force: true }
   )
-  for (const field of [
-    "base_version_id",
-    "version_id",
-    "version_number",
-    "created_at",
-    "created_by",
-    "updated_at",
-    "conversation_id"
-  ]) {
-    assert.equal(field in body, false, field)
-  }
-  assert.equal(body.id, fetchedWorkflow.id)
-  assert.equal(body.workspace_id, fetchedWorkflow.workspace_id)
-  assert.deepEqual(body.encrypted_keys, fetchedWorkflow.encrypted_keys)
+  assert.deepEqual(body, fetchedWorkflow)
 })
 
 test("buildWorkflowUpdateBody keeps a base_version_id the caller set explicitly instead of deriving it from version_id", () => {
@@ -117,13 +97,10 @@ async function startWorkflowBackend() {
     req.on("end", () => {
       const body = JSON.parse(raw || "{}") as Record<string, unknown>
       received.push(body)
-      const echoesOldVersion = [
+      if (
         body.base_version_id !== undefined &&
-          body.base_version_id !== latestVersionId,
-        body.version_id !== undefined && body.version_id !== latestVersionId,
-        body.version_number !== undefined && body.version_number !== 18
-      ].some(Boolean)
-      if (echoesOldVersion) {
+        body.base_version_id !== latestVersionId
+      ) {
         res.writeHead(409, { "content-type": "application/json" })
         res.end(
           JSON.stringify({
@@ -135,17 +112,6 @@ async function startWorkflowBackend() {
             latestCreatedAt: "2026-09-30T08:15:00Z",
             latestVersionNote: "Healed submit XPath",
             statusCode: 409
-          })
-        )
-        return
-      }
-      if (body.created_at !== undefined || body.created_by !== undefined) {
-        res.writeHead(400, { "content-type": "application/json" })
-        res.end(
-          JSON.stringify({
-            code: "READ_ONLY_FIELD_MODIFIED",
-            message: "Read-only field(s) cannot be changed: created_at, created_by.",
-            statusCode: 400
           })
         )
         return
@@ -172,11 +138,10 @@ function runCli(args: string[]) {
   )
 }
 
-// A workflow fetched at v17 is pushed after v18 was saved elsewhere. The stub
-// backend checks the stale version like the real one: on base_version_id,
-// version_id and version_number, and rejects v17's created_at/created_by. The
-// command must refuse with exit 12 and name v18, and the --force retry must
-// strip all of them so the backend accepts the overwrite.
+// A workflow fetched at v17 is pushed after v18 was saved elsewhere. Like the
+// real backend, the stub checks staleness only on base_version_id. The command
+// must refuse with exit 12 and name v18, and the --force retry must omit
+// base_version_id so the backend accepts the overwrite.
 test("workflows update exits 12 with the latest version on a stale body, and --force overwrites it", async () => {
   const backend = await startWorkflowBackend()
   try {
@@ -203,7 +168,6 @@ test("workflows update exits 12 with the latest version on a stale body, and --f
     const forced = await runCli([...baseArgs, "--force"])
     assert.equal(forced.code, 0)
     assert.equal("base_version_id" in backend.received[1], false)
-    assert.equal("version_id" in backend.received[1], false)
   } finally {
     backend.server.close()
   }

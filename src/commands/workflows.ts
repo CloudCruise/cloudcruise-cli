@@ -6,23 +6,13 @@ import { ExitCode, fail } from "../core/exit.js"
 import { addAuthOptions, type AuthOptions } from "../core/auth-options.js"
 import { requireJsonObject } from "../core/input.js"
 
-const VERSION_BOUND_FIELDS = [
-  "base_version_id",
-  "version_id",
-  "version_number",
-  "created_at",
-  "created_by",
-  "updated_at",
-  "conversation_id"
-]
-
 export function buildWorkflowUpdateBody(
   workflow: Record<string, unknown>,
   opts: { versionNote?: string; force?: boolean }
 ): Record<string, unknown> {
   const body = { ...workflow }
   if (opts.force) {
-    for (const field of VERSION_BOUND_FIELDS) delete body[field]
+    delete body.base_version_id
   } else if (
     body.base_version_id == null &&
     typeof body.version_id === "string"
@@ -400,9 +390,7 @@ that version is still the latest. Otherwise it creates no version and exits
 12 (WORKFLOW_VERSION_CONFLICT). The stderr envelope names the latest version
 (number, author, time, note). Re-fetch with \`workflows get\`, re-apply your
 edit and update again, or pass --force to overwrite the latest version anyway.
---force drops the body's version fields (version_id, version_number,
-created_at, created_by, updated_at, conversation_id). A body without
-\`version_id\` is not checked.
+A body without \`version_id\` is not checked.
 
 The version note comes only from --version-note; the body's \`version_note\`
 is not sent.
