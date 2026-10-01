@@ -588,9 +588,9 @@ Solve one captcha at this point in the run. Runs the platform's solver for the n
 }
 ```
 
-| Parameter      | Type   | Required | Description                                          |
-| -------------- | ------ | -------- | ---------------------------------------------------- |
-| `captcha_type` | string | Yes      | `turnstile` (Cloudflare Turnstile) or `recaptcha_v2` |
+| Parameter      | Type   | Required | Description                                                       |
+| -------------- | ------ | -------- | ----------------------------------------------------------------- |
+| `captcha_type` | string | Yes      | `turnstile` (Cloudflare Turnstile), `recaptcha_v2`, or `hcaptcha` |
 
 Outcome: no captcha of that type on the page → the node passes and the run continues. Captcha present and solved → passes. Captcha present and not solved → the node fails with error code `CAPTCHA-E0001`, so the workflow's error-code actions (retry, alert, pause) apply. Detection finds the widget's iframe or container in the top page only. A captcha on a page embedded in another iframe is not detected, and the node passes as if no captcha were present.
 
