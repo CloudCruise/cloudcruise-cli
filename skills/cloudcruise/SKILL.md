@@ -98,6 +98,8 @@ cloudcruise workflows update <workflow_id> --file workflow.json --version-note "
 
 **Stale check:** `update` only succeeds if the body's `version_id` is still the latest version. Otherwise it creates no version and exits 12 (`WORKFLOW_VERSION_CONFLICT`). The stderr envelope names the latest version (`latestVersion`: number, author, time, note). Re-fetch with `workflows get`, re-apply your edit and update again. Pass `--force` only to overwrite the other save on purpose. A body without `version_id` is not checked.
 
+The version note comes only from `--version-note`; the body's `version_note` is not sent.
+
 Your own update also creates a new latest version. `update` prints it (same shape as `get`, new `version_id`); keep it as the working copy, as above, or the next push from the old copy exits 12.
 
 **Rolling back versions:** `workflows versions` lists history newest first. Fetch a prior version's full JSON via `--version-number <N>` (same shape as latest), then push it back with `--force` to roll back (its `version_id` is not the latest, so the stale check would reject it) — history is preserved as a new version on top:

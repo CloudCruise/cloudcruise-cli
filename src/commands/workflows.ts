@@ -6,19 +6,30 @@ import { ExitCode, fail } from "../core/exit.js"
 import { addAuthOptions, type AuthOptions } from "../core/auth-options.js"
 import { requireJsonObject } from "../core/input.js"
 
+const VERSION_BOUND_FIELDS = [
+  "base_version_id",
+  "version_id",
+  "version_number",
+  "created_at",
+  "created_by",
+  "updated_at",
+  "conversation_id"
+]
+
 export function buildWorkflowUpdateBody(
   workflow: Record<string, unknown>,
   opts: { versionNote?: string; force?: boolean }
 ): Record<string, unknown> {
   const body = { ...workflow }
   if (opts.force) {
-    delete body.base_version_id
+    for (const field of VERSION_BOUND_FIELDS) delete body[field]
   } else if (
-    body.base_version_id === undefined &&
+    body.base_version_id == null &&
     typeof body.version_id === "string"
   ) {
     body.base_version_id = body.version_id
   }
+  delete body.version_note
   if (opts.versionNote) {
     body.version_note = opts.versionNote
   }
@@ -389,7 +400,12 @@ that version is still the latest. Otherwise it creates no version and exits
 12 (WORKFLOW_VERSION_CONFLICT). The stderr envelope names the latest version
 (number, author, time, note). Re-fetch with \`workflows get\`, re-apply your
 edit and update again, or pass --force to overwrite the latest version anyway.
-A body without \`version_id\` is not checked.
+--force drops the body's version fields (version_id, version_number,
+created_at, created_by, updated_at, conversation_id). A body without
+\`version_id\` is not checked.
+
+The version note comes only from --version-note; the body's \`version_note\`
+is not sent.
 
 stdout is the new version, with its new \`version_id\`. Use it as the working
 copy for the next update; the old copy now fails the stale check.
