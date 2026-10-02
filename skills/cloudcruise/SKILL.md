@@ -77,6 +77,7 @@ cloudcruise workflows versions <workflow_id>                                    
 cloudcruise workflows versions <workflow_id> --limit 10                          # Cap the list
 cloudcruise workflows update <workflow_id> --file w.json --version-note "..."   # Update workflow (creates new version)
 cloudcruise workflows update <workflow_id> --stdin --version-note "..."          # Update from piped JSON
+cloudcruise workflows update <workflow_id> --file w.json --force                 # Overwrite even if a newer version exists
 cloudcruise workflows validate-input <workflow_id> --file payload.json           # Validate a run input payload against the saved input schema
 ```
 
@@ -91,16 +92,21 @@ cloudcruise workflows validate-input <workflow_id> --file payload.json          
 ```bash
 cloudcruise workflows get <workflow_id> > workflow.json
 # Edit workflow.json with your file editing tools (targeted replacements, not full rewrites)
-# Read-only fields (id, version_id, version_number, created_at, created_by,
-# workspace_id, loginStructure, updated_at, workflow_id, encrypted_keys, conversation_id) are stripped automatically.
-cloudcruise workflows update <workflow_id> --file workflow.json --version-note "Description of changes"
+# Leave read-only fields (id, version_id, created_at, …) in place; the body is sent as-is.
+cloudcruise workflows update <workflow_id> --file workflow.json --version-note "Description of changes" > next.json && mv next.json workflow.json
 ```
 
-**Rolling back versions:** `workflows versions` lists history newest first. Fetch a prior version's full JSON via `--version-number <N>` (same shape as latest), then push it back to roll back — history is preserved as a new version on top:
+**Stale check:** `update` only succeeds if the body's `version_id` is still the latest version. Otherwise it creates no version and exits 13 (`WORKFLOW_VERSION_CONFLICT`). The stderr envelope names the latest version (`latestVersion`: number, author, time, note). Re-fetch with `workflows get`, re-apply your edit and update again. Pass `--force` only to overwrite the other save on purpose. A body without `version_id` is not checked.
+
+The version note comes only from `--version-note`; the body's `version_note` is not sent.
+
+Your own update also creates a new latest version. `update` prints it (same shape as `get`, new `version_id`); keep it as the working copy, as above, or the next push from the old copy exits 13.
+
+**Rolling back versions:** `workflows versions` lists history newest first. Fetch a prior version's full JSON via `--version-number <N>` (same shape as latest), then push it back with `--force` to roll back (its `version_id` is not the latest, so the stale check would reject it) — history is preserved as a new version on top:
 
 ```bash
 cloudcruise workflows get <workflow_id> --version-number 17 > rollback.json
-cloudcruise workflows update <workflow_id> --file rollback.json --version-note "Rollback to v17"
+cloudcruise workflows update <workflow_id> --file rollback.json --force --version-note "Rollback to v17"
 ```
 
 **Login workflow edit pattern:** For existing login workflows, make the first three nodes `START (logged-in destination URL)` → `IF (already logged in?)` → false branch login recovery. On the false branch, set `clear_cookies_on_false: true`, then add a `NAVIGATE` node to the login page before the credential-entry steps.
@@ -119,7 +125,8 @@ cloudcruise run get <session_id>
 # 2. Discover elements → validate → add nodes → run again → repeat
 cloudcruise snapshot suggest <session_id> <end_node_id>
 cloudcruise snapshot test "//input[@name='email']" <session_id> <end_node_id>
-# Edit workflow.json, push with: cloudcruise workflows update ... --version-note "..."
+# Edit workflow.json, push and keep the new version as the working copy:
+#   cloudcruise workflows update <workflow_id> --file workflow.json --version-note "..." > next.json && mv next.json workflow.json
 cloudcruise run start <workflow_id> --input '{}' --debug
 cloudcruise run get <session_id>   # poll until terminal
 # On success: inspect END node's snapshot for the next page state.
@@ -309,7 +316,7 @@ cloudcruise builder end         # End the conversation and clean up
 
 **Status codes** (`builder status` — exit code in parens): `completed` (0) → proceed to next step. `awaiting-human-input` (7) → respond then re-check. `agent-errored` (8) → inspect messages, send corrective instruction. `processing` (9) → wait and re-check. `idle` (0) → no pending work. `ended` (0) → session is over. `terminal: true` means the current turn has settled and needs no more polling (`completed`, `awaiting-human-input`, `agent-errored`, or `ended`); it does not mean the conversation has ended. A driver can branch on the exit code alone without parsing stdout — note that a non-zero `status` exit (7/8/9) is the *state*, not a command failure.
 
-**409 exit codes:** `builder send` on a busy session → `SESSION_BUSY` (exit 6). `builder respond` after the input was already answered → `ALREADY_ANSWERED` (exit 7). The code is printed to stderr.
+**409 exit codes:** `builder send` on a busy session → `SESSION_BUSY` (exit 6). `builder respond` after the input was already answered → `ALREADY_ANSWERED` (exit 7). `workflows update` on a stale body → `WORKFLOW_VERSION_CONFLICT` (exit 13). The code is printed to stderr.
 
 `builder screenshot`/`html` with no attached browser → `NO_BROWSER_ATTACHED` (exit 10); provision/warm a browser, then retry.
 
@@ -469,7 +476,8 @@ If `snapshot fetch` reports no HTML, the run was not `--debug`. Re-run with `--d
 - `run start` returns `{ session_id }` immediately and does not block or stream. Poll `run get <session_id>` until the status is terminal to determine success or failure.
 - `run list --since` accepts duration strings: `24h`, `7d`, `30m`; without `--since`, the API defaults to the last 24 hours
 - `run errors --since` accepts duration strings: `24h`, `7d`, `30m`
-- `workflows update` requires: nodes, edges, name, input_schema, output_schema, max_retries. Keep all other mutable fields from the GET response (e.g., description, enable_xpath_recovery, proxy_setting).
+- `workflows update` requires: nodes, edges, name, input_schema, output_schema, max_retries. Keep all other fields from the GET response (e.g., description, enable_xpath_recovery, proxy_setting, version_id).
+- `workflows update` exits 13 (`WORKFLOW_VERSION_CONFLICT`) when the body's `version_id` is not the latest, including after your own previous update: keep `update`'s output as the working copy, re-fetch and re-apply, or pass `--force`.
 - All commands accept `--api-key`, `--base-url`, and `--encryption-key` overrides
 - Auth resolution: `--api-key` flag > `CLOUDCRUISE_API_KEY` env > `~/.cloudcruise/config.json`
 - Encryption key resolution: `--encryption-key` flag > `CLOUDCRUISE_ENCRYPTION_KEY` env > profile config

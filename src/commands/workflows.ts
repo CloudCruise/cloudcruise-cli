@@ -6,6 +6,26 @@ import { ExitCode, fail } from "../core/exit.js"
 import { addAuthOptions, type AuthOptions } from "../core/auth-options.js"
 import { requireJsonObject } from "../core/input.js"
 
+export function buildWorkflowUpdateBody(
+  workflow: Record<string, unknown>,
+  opts: { versionNote?: string; force?: boolean }
+): Record<string, unknown> {
+  const body = { ...workflow }
+  if (opts.force) {
+    delete body.base_version_id
+  } else if (
+    body.base_version_id == null &&
+    typeof body.version_id === "string"
+  ) {
+    body.base_version_id = body.version_id
+  }
+  delete body.version_note
+  if (opts.versionNote) {
+    body.version_note = opts.versionNote
+  }
+  return body
+}
+
 export function registerWorkflowCommands(program: Command): void {
   const workflows = program.command("workflows").description("Manage workflows")
 
@@ -351,20 +371,6 @@ Examples:
     }
   )
 
-  const READONLY_FIELDS = [
-    "id",
-    "version_id",
-    "version_number",
-    "created_at",
-    "created_by",
-    "updated_at",
-    "workspace_id",
-    "workflow_id",
-    "loginStructure",
-    "encrypted_keys",
-    "conversation_id",
-  ]
-
   addAuthOptions(
     workflows
       .command("update <id>")
@@ -372,10 +378,32 @@ Examples:
       .option("--file <path>", "Path to workflow JSON file")
       .option("--stdin", "Read workflow JSON from stdin")
       .option("--version-note <note>", "Description of changes for this version")
+      .option(
+        "--force",
+        "Overwrite even if the workflow changed since the version in the body"
+      )
   ).addHelpText("after", `
+Send the JSON from \`workflows get\` as-is; read-only fields may stay in.
+
+Stale check: when the body has a \`version_id\`, the update only succeeds if
+that version is still the latest. Otherwise it creates no version and exits
+13 (WORKFLOW_VERSION_CONFLICT). The stderr envelope names the latest version
+(number, author, time, note). Re-fetch with \`workflows get\`, re-apply your
+edit and update again, or pass --force to overwrite the latest version anyway.
+A body without \`version_id\` is not checked.
+
+The version note comes only from --version-note; the body's \`version_note\`
+is not sent.
+
+stdout is the new version, with its new \`version_id\`. Use it as the working
+copy for the next update; the old copy now fails the stale check.
+
 Examples:
   $ cloudcruise workflows update <workflow_id> --file workflow.json --version-note "Fixed login XPath"
   $ cat workflow.json | cloudcruise workflows update <workflow_id> --stdin --version-note "Updated selectors"
+  $ cloudcruise workflows update <workflow_id> --file workflow.json > next.json && mv next.json workflow.json
+  $ cloudcruise workflows get <workflow_id> --version-number 17 > rollback.json
+  $ cloudcruise workflows update <workflow_id> --file rollback.json --force --version-note "Rollback to v17"
 `).action(
     async (
       id: string,
@@ -383,18 +411,14 @@ Examples:
         file?: string
         stdin?: boolean
         versionNote?: string
+        force?: boolean
       } & AuthOptions
     ) => {
       try {
-        const body = await requireJsonObject(opts)
-
-        for (const field of READONLY_FIELDS) {
-          delete body[field]
-        }
-
-        if (opts.versionNote) {
-          body.version_note = opts.versionNote
-        }
+        const body = buildWorkflowUpdateBody(
+          await requireJsonObject(opts),
+          opts
+        )
 
         const auth = await resolveAuth(opts)
         const client = new ApiClient(auth)

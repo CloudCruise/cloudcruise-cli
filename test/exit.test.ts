@@ -81,3 +81,59 @@ test("an error body of JSON null is tolerated, because the envelope must still b
   assert.equal(envelope.exitCode, 12)
   assert.equal(envelope.reason, undefined)
 })
+
+const conflictBody = {
+  code: "WORKFLOW_VERSION_CONFLICT",
+  message:
+    "This workflow was updated by another session. Your changes are based on an older version.",
+  latestVersionId: "7b0f1e2a-0000-4000-8000-000000000018",
+  latestVersionNumber: 18,
+  latestCreatedBy: "user_2",
+  latestCreatedAt: "2026-09-30T08:15:00Z",
+  latestVersionNote: "Healed submit XPath",
+  statusCode: 409
+}
+
+function apiError(status: number, body: Record<string, unknown>): ApiError {
+  const text = JSON.stringify(body)
+  return new ApiError(
+    `PUT /workflows/wf failed (${status}): ${text}`,
+    status,
+    text,
+    typeof body.code === "string" ? body.code : undefined
+  )
+}
+
+test("a stale workflow update exits with VERSION_CONFLICT (13) so scripts can branch on it", () => {
+  assert.equal(exitCodeForApiError(apiError(409, conflictBody)), 13)
+  assert.equal(ExitCode.VERSION_CONFLICT, 13)
+})
+
+// A caller that hit a conflict must decide between re-fetching and forcing
+// without another request, so the envelope names who saved what, and when.
+test("the error envelope of a stale workflow update shows the latest version and how to resolve the conflict", () => {
+  const { exitCode, envelope } = buildErrorEnvelope(
+    apiError(409, conflictBody)
+  )
+  assert.equal(exitCode, 13)
+  assert.equal(envelope.code, "WORKFLOW_VERSION_CONFLICT")
+  assert.equal(envelope.exitCode, 13)
+  assert.deepEqual(envelope.latestVersion, {
+    id: conflictBody.latestVersionId,
+    number: 18,
+    createdBy: "user_2",
+    createdAt: "2026-09-30T08:15:00Z",
+    note: "Healed submit XPath"
+  })
+  assert.match(String(envelope.hint), /workflows get/)
+  assert.match(String(envelope.hint), /--force/)
+})
+
+test("other 409 errors keep the generic envelope and exit code", () => {
+  const { envelope } = buildErrorEnvelope(
+    apiError(409, { code: "CONFLICT", message: "Conflict", statusCode: 409 })
+  )
+  assert.equal(envelope.exitCode, ExitCode.FAILURE)
+  assert.equal("latestVersion" in envelope, false)
+  assert.equal("hint" in envelope, false)
+})

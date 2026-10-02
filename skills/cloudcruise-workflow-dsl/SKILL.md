@@ -24,15 +24,17 @@ A workflow is a directed graph of nodes (actions) connected by edges. The browse
 }
 ```
 
-### Read-Only Fields (auto-stripped by `workflows update`)
+### Read-Only Fields
 
-`id`, `version_id`, `version_number`, `created_at`, `created_by`, `updated_at`, `workspace_id`, `workflow_id`, `loginStructure`, `encrypted_keys`, `conversation_id`
+`id`, `version_id`, `version_number`, `created_at`, `created_by`, `updated_at`, `workspace_id`, `workflow_id`, `conversation_id`
+
+Leave them in the body from `workflows get`; `workflows update` sends it as-is. `version_id` drives the stale check: the update fails with exit 13 if a newer version exists (`--force` overrides). `id`, `workflow_id` and `workspace_id` must match the target workflow.
 
 ### Mutable Fields (accepted by PUT)
 
 **Required:** `nodes`, `edges`, `name`, `input_schema`, `output_schema`, `max_retries`
 
-**Optional:** `description`, `version_note`, `use_native_actions`, `video_record_session`, `extract_network_urls`, `popup_xpaths`, `vault_schema`, `enable_popup_handling`, `enable_action_timing_recovery`, `enable_xpath_recovery`, `enable_error_code_generation`, `enable_service_unavailable_recovery`, `proxy_setting`, `proxy_value`, `enable_network_listener`, `manual_captcha_solve`
+**Optional:** `description`, `version_note` (on `workflows update`, set via `--version-note` only), `use_native_actions`, `video_record_session`, `extract_network_urls`, `popup_xpaths`, `vault_schema`, `enable_popup_handling`, `enable_action_timing_recovery`, `enable_xpath_recovery`, `enable_error_code_generation`, `enable_service_unavailable_recovery`, `proxy_setting`, `proxy_value`, `enable_network_listener`, `manual_captcha_solve`
 
 ### `popup_xpaths`
 

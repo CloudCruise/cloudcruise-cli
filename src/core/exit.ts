@@ -19,7 +19,8 @@ export const ExitCode = {
   TIMEOUT: 9,
   NO_BROWSER_ATTACHED: 10,
   SKILLS_INCOMPATIBLE: 11,
-  USAGE_LIMIT: 12
+  USAGE_LIMIT: 12,
+  VERSION_CONFLICT: 13
 } as const
 
 export type ExitCodeValue = (typeof ExitCode)[keyof typeof ExitCode]
@@ -87,6 +88,8 @@ export function exitCodeForApiError(err: ApiError): ExitCodeValue {
       return ExitCode.NO_BROWSER_ATTACHED
     case "USAGE_LIMIT_EXCEEDED":
       return ExitCode.USAGE_LIMIT
+    case "WORKFLOW_VERSION_CONFLICT":
+      return ExitCode.VERSION_CONFLICT
   }
   switch (err.status) {
     case 400:
@@ -133,6 +136,9 @@ export function exitCodeForStatus(status: string): ExitCodeValue {
   }
 }
 
+const VERSION_CONFLICT_HINT =
+  "The body's version_id is not the latest version. Re-fetch with `workflows get` (or reuse the JSON your last `workflows update` printed), re-apply your edit and update again, or pass --force to overwrite the latest version."
+
 /**
  * The stderr envelope and exit code for an error, kept separate from `fail` so
  * the mapping can be checked without exiting the process.
@@ -154,6 +160,11 @@ export function buildErrorEnvelope(err: unknown): {
       reason?: string
       currentUsage?: number
       limit?: number
+      latestVersionId?: string
+      latestVersionNumber?: number
+      latestCreatedBy?: string | null
+      latestCreatedAt?: string
+      latestVersionNote?: string | null
     } = {}
     try {
       const parsed: unknown = JSON.parse(err.body)
@@ -167,6 +178,16 @@ export function buildErrorEnvelope(err: unknown): {
       if (typeof body.currentUsage === "number")
         envelope.currentUsage = body.currentUsage
       if (typeof body.limit === "number") envelope.limit = body.limit
+    }
+    if (exitCode === ExitCode.VERSION_CONFLICT) {
+      envelope.latestVersion = {
+        id: body.latestVersionId,
+        number: body.latestVersionNumber,
+        createdBy: body.latestCreatedBy,
+        createdAt: body.latestCreatedAt,
+        note: body.latestVersionNote
+      }
+      envelope.hint = VERSION_CONFLICT_HINT
     }
   } else if (err instanceof AmbiguousSessionError) {
     exitCode = ExitCode.AMBIGUOUS_SESSION
