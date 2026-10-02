@@ -100,7 +100,7 @@ JSONata is especially useful in BoolCondition `comparison_value_1` for complex c
 - `absolute: false` (default): viewport coordinates. `absolute: true`: page/document coordinates.
 - The click lands exactly there, with no snap-to-element, so it breaks on responsive layouts.
 - Prefer `STATIC` or `LLM_VISION`. Use `COORDINATES` only for surfaces with no DOM: canvas, remote desktop, desktop apps.
-- Only CLICK and INPUT_TEXT act on coordinates.
+- Only CLICK and INPUT_TEXT take `execution: "COORDINATES"`. SCROLL scrolls at a point with `absolute: true` instead (see SCROLL).
 
 ## Writing Good XPath Selectors
 
@@ -344,10 +344,9 @@ Select options from dropdowns. Handles native `<select>`, Select2, and similar l
 | Parameter     | Type    | Required | Description                                                                        |
 | ------------- | ------- | -------- | ---------------------------------------------------------------------------------- |
 | `value`       | string  | No       | Option value or text to select                                                     |
-| `selector`    | string  | No       | XPath to the select element                                                        |
+| `selector`    | string  | Yes      | XPath to the select element                                                        |
 | `fuzzy_match` | boolean | No       | Fuzzy matching for option values (e.g., "New Patient" matches "New Patient Visit") |
-| `prompt`      | string  | No       | Natural language description (LLM execution)                                       |
-| `execution`   | string  | No       | `STATIC` (default). The node always uses the XPath `selector`                     |
+| `execution`   | string  | No       | `STATIC` (default). Other values are accepted but ignored: the node always uses `selector` |
 | `wait_time`   | number  | No       | Max ms to wait. Default: 15000                                                     |
 | `end_here_on_dry_run` | boolean | No | In dry runs, end the workflow before this node runs                            |
 
@@ -688,14 +687,35 @@ Scroll the page or containers.
 | Parameter                              | Type   | Required           | Description                                                                       |
 | -------------------------------------- | ------ | ------------------ | --------------------------------------------------------------------------------- |
 | `scroll_mode`                          | string | No                 | `simple` (default), `to-element`, or `region`                                     |
-| `direction`                            | string | No                 | `up`, `down`, `left`, or `right` (default `down`). Used by `simple` and `region` modes. In `simple` mode, vertical scrolling follows `scroll_down` (default `true`): set `scroll_down: false` to scroll up |
+| `direction`                            | string | No                 | `up`, `down`, `left`, or `right` (default `down`). Used by `simple` and `region` modes. In `simple` mode, vertical scrolling follows `scroll_down` (default `true`): set `scroll_down: false` to scroll up. With `goal: full-container`, `left` scrolls to the container's start and any other direction to its end |
 | `load_events_triggered_through_scroll` | number | Yes                | Number of scroll wheel ticks. Only used by `simple` mode — set to `0` otherwise   |
 | `xpath`                                | string | Yes (`to-element`) | XPath of the element to scroll into view                                          |
 | `position`                             | string | No                 | `start`, `center`, or `end`. Where the target ends up in the viewport (`to-element` mode) |
 | `container_xpath`                      | string | Yes (`region`)     | XPath of the scrollable container                                                 |
 | `goal`                                 | string | Yes (`region`)     | `find-element` or `full-container`. `scroll_behavior` takes the same values      |
-| `execution`                            | string | No                 | `STATIC` (default) or `LLM_VISION` (screenshot-driven; describe targets in `target_description` / `container_description`) |
+| `execution`                            | string | No                 | `STATIC` (default) or `LLM_VISION` (screenshot-driven; describe targets in `target_description` / `container_description`). `LLM_VISION` applies only to `to-element` and `region` modes; `simple` ignores it |
 | `wait_time`                            | number | No                 | Max ms to wait for elements. Default: 15000                                       |
+
+**Scroll at screen coordinates** (canvas, remote desktop, surfaces with no DOM): set `absolute: true`. The mode, direction and execution parameters are then ignored.
+
+```json
+{
+  "parameters": {
+    "absolute": true,
+    "x": 640,
+    "y": 400,
+    "scroll_x": 0,
+    "scroll_y": 500,
+    "load_events_triggered_through_scroll": 0
+  }
+}
+```
+
+| Parameter              | Type    | Required | Description                                                                                       |
+| ---------------------- | ------- | -------- | ------------------------------------------------------------------------------------------------- |
+| `absolute`             | boolean | Yes      | `true` enables coordinate scrolling                                                               |
+| `x`, `y`               | number  | Yes      | Point to scroll at                                                                                |
+| `scroll_x`, `scroll_y` | number  | Yes      | Scroll amount. Every 100 is one mouse-wheel click, so use multiples of 100. Positive `scroll_y` scrolls down |
 
 ### TAB_MANAGEMENT
 
@@ -762,7 +782,7 @@ Handle 2FA challenges. Automatically extracts codes from SMS/email or generates 
 | -------------------- | ------ | ---------------------- | ------------------------------------------------ |
 | `tfa_type`           | string | Yes                    | `SMS`, `EMAIL`, `AUTHENTICATOR`, or `MAGIC_LINK` |
 | `credential`         | string | Yes                    | Vault credential key for the 2FA receiver        |
-| `selector`           | string | Yes (non-`MAGIC_LINK`) | XPath for code input                             |
+| `selector`           | string | Yes (non-`MAGIC_LINK`) | XPath for code input. `LLM_VISION` finds the field on a screenshot and ignores it |
 | `execution`          | string | No                     | `STATIC` (default) or `LLM_VISION`               |
 | `link_regex_pattern` | string | No                     | Regex to extract magic link from email           |
 
@@ -949,7 +969,7 @@ Replay a chain of HTTP (XHR/fetch) requests as one atomic node — not a UI inte
 | `graphql_error_policy` | string | No       | GraphQL only: `fail_on_any` (default)                                                                                  |
 | `protocol_hint`        | string | No       | `rest`, `graphql`, or `other`. UI hint only                                                                            |
 
-Other per-step fields (`mutation_severity`, `is_auth_refresh`, `response_type`, `retry`, `redirect_policy`, `timeout_ms`, `max_response_bytes`) have method-derived defaults. Leave them out unless needed. `retry` is not allowed on `POST`/`PATCH`; `retry.max_attempts` ≤ 5.
+Other per-step fields (`mutation_severity`, `is_auth_refresh`, `response_type`, `retry`, `timeout_ms`, `max_response_bytes`) have method-derived defaults. Leave them out unless needed. A per-step `redirect_policy` overrides the node's. `retry` is not allowed on `POST`/`PATCH`; `retry.max_attempts` ≤ 5.
 
 **`extract` entries** (unique `name` per step):
 

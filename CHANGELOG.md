@@ -14,9 +14,11 @@
 
 - `cloudcruise-workflow-dsl` covers all 23 node types. New sections for API_FLOW and WINDOW_MANAGEMENT; APP_ACTION is listed as deprecated.
 - `cloudcruise-workflow-dsl` documents `execution: "COORDINATES"` on CLICK and INPUT_TEXT (selector JSON, `absolute`) and lists `COMPUTER_USE` as a deprecated alias of `LLM_VISION`.
-- `cloudcruise-workflow-dsl` has a "Deprecated and removed" list: TRANSFORM `MERGE` is deprecated, TRANSFORM `APPEND` is rejected on save, node-level `popup_xpaths` is ignored.
+- `cloudcruise-workflow-dsl` has a "Deprecated and unsupported" list: TRANSFORM `MERGE` is deprecated, TRANSFORM `APPEND` is rejected on save, node-level `popup_xpaths` is ignored.
 - `cloudcruise-workflow-dsl` fixes enum values and defaults to match the API: SCROLL `position: "end"` and `left`/`right`, BOOL_CONDITION `STARTS_WITH`/`ENDS_WITH`, required FILE_DOWNLOAD `selector`, USER_INTERACTION `timeout` default and maximum.
+- `cloudcruise-workflow-dsl` corrects runtime behavior: INPUT_SELECT always uses `selector`, SCROLL `LLM_VISION` applies only outside `simple` mode, SCROLL `full-container` direction, and coordinate scrolling with `absolute: true`.
 - `cloudcruise` lists the current `install --skills` target directories.
+- `cc-workflow` references point the hidden-input sentinel at `#/definitions/hidden`, matching the input-schema guide; it was `#/$defs/hidden`.
 
 ## 1.13.0
 
