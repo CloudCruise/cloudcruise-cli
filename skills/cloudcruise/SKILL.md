@@ -422,7 +422,7 @@ cloudcruise builder end
 
 ## Workflow DSL Reference
 
-See the **cloudcruise-workflow-dsl** skill for the complete workflow DSL reference: all node types, parameters, edge structure, variable system, execution types, XPath best practices, data model schema extensions, and error classification. Read it before writing, editing, or debugging any workflow node.
+See the **cloudcruise-workflow-dsl** skill for the complete workflow DSL reference: all node types, parameters, edge structure, variable system, execution types, XPath best practices, data model schema extensions, and error codes. Read it before writing, editing, or debugging any workflow node.
 
 ## Error-Fix-Verify Loop
 
