@@ -579,7 +579,7 @@ Reshape data in `context.*` without touching the browser.
 Operations run in order and see each other's writes.
 
 - `MERGE`: deprecated — use `SET` with `$merge([<target>, <value>])`.
-- `APPEND`: removed, saving fails — use `SET` with `$append(<target>, [<value>])`.
+- `APPEND`: not supported, saving fails — use `SET` with `$append(<target>, [<value>])`.
 
 ### DELAY
 
@@ -988,16 +988,16 @@ Set `required: true` on every entry unless the value is genuinely optional. With
 
 Legacy and internal: runs a function from a catalog bundled in the CloudCruise extension. Do not author it; use TRANSFORM, EXTRACT_DATAMODEL, or API_FLOW.
 
-## Deprecated and removed
+## Deprecated and unsupported
 
-Deprecated items are still accepted by the API; don't author them. Removed items are rejected on save.
+Deprecated items are still accepted by the API; don't author them. Unsupported items are rejected on save.
 
 | Item                             | Status     | Use instead                                         |
 | -------------------------------- | ---------- | --------------------------------------------------- |
 | `APP_ACTION` node                | Deprecated | TRANSFORM, EXTRACT_DATAMODEL, or API_FLOW           |
 | `execution: "COMPUTER_USE"`      | Deprecated | `LLM_VISION` (the API stores it as such)            |
 | TRANSFORM `MERGE`                | Deprecated | `SET` with `$merge([<target>, <value>])`            |
-| TRANSFORM `APPEND`               | Removed    | `SET` with `$append(<target>, [<value>])`           |
+| TRANSFORM `APPEND`               | Unsupported | `SET` with `$append(<target>, [<value>])`           |
 | Node-level `popup_xpaths`        | Ignored    | Workflow-level `popup_xpaths`                       |
 
 # Error Codes
