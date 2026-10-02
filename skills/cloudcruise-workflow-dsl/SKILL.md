@@ -82,25 +82,6 @@ JSONata is especially useful in BoolCondition `comparison_value_1` for complex c
 | `LLM_VISION`  | AI decision or extraction from screenshot                                   | Click, InputText, Scroll, BoolCondition, ExtractDatamodel, TFA             |
 | `LLM_DOM`     | AI extraction from HTML DOM structure                                       | ExtractDatamodel                                                           |
 | `PROMPT`      | AI reasoning on context data (no screenshot)                                | BoolCondition, ExtractDatamodel                                            |
-| `COORDINATES` | Fixed screen coordinates instead of an XPath (see below)                    | Click, InputText                                                           |
-
-`COMPUTER_USE` is a deprecated alias of `LLM_VISION` on every node with an `execution` field; the API stores `LLM_VISION`. Don't author it.
-
-### `COORDINATES` execution
-
-`selector` holds a JSON string instead of an XPath:
-
-```json
-{
-  "execution": "COORDINATES",
-  "selector": "{\"x\": 640, \"y\": 360, \"absolute\": false}"
-}
-```
-
-- `absolute: false` (default): viewport coordinates. `absolute: true`: page/document coordinates.
-- The click lands exactly there, with no snap-to-element, so it breaks on responsive layouts.
-- Prefer `STATIC` or `LLM_VISION`. Use `COORDINATES` only for surfaces with no DOM: canvas, remote desktop, desktop apps.
-- Only CLICK and INPUT_TEXT take `execution: "COORDINATES"`. SCROLL scrolls at a point with `absolute: true` instead (see SCROLL).
 
 ## Writing Good XPath Selectors
 
@@ -266,8 +247,8 @@ Click on page elements.
 ```
 | Parameter                | Type    | Required         | Description                                                                                                                                                                        |
 | ------------------------ | ------- | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `execution`              | string  | Yes              | `STATIC`, `LLM_VISION` or `COORDINATES`                                                                                                                                            |
-| `selector`               | string  | Yes (STATIC, COORDINATES) | XPath selector; for `COORDINATES`, a coordinate JSON string (see [`COORDINATES` execution](#coordinates-execution))                                                       |
+| `execution`              | string  | Yes              | `STATIC` or `LLM_VISION`                                                                                                                                                           |
+| `selector`               | string  | Yes (STATIC)     | XPath selector                                                                                                                                                                     |
 | `prompt`                 | string  | Yes (LLM_VISION) | Natural language target description                                                                                                                                                |
 | `click_type`             | string  | No               | `click` (default), `double_click`, `right_click`, `hover`                                                                                                                          |
 | `wait_time`              | number  | No               | Max ms to wait for element. Default: 15000                                                                                                                                         |
@@ -295,8 +276,8 @@ Type text into form fields.
 | Parameter             | Type    | Required         | Description                                                                                                             |
 | --------------------- | ------- | ---------------- | ----------------------------------------------------------------------------------------------------------------------- |
 | `text`                | string  | Yes              | Text to type (supports variables and JSONata). `{{...}}` keystroke tokens press keys — see below                        |
-| `execution`           | string  | Yes              | `STATIC`, `LLM_VISION` or `COORDINATES`                                                                                 |
-| `selector`            | string  | Yes (STATIC, COORDINATES) | XPath selector; for `COORDINATES`, a coordinate JSON string (see [`COORDINATES` execution](#coordinates-execution)) |
+| `execution`           | string  | Yes              | `STATIC` or `LLM_VISION`                                                                                                |
+| `selector`            | string  | Yes (STATIC)     | XPath selector                                                                                                          |
 | `prompt`              | string  | Yes (LLM_VISION) | Natural language field description                                                                                      |
 | `do_not_clear`        | boolean | No               | Append without clearing existing content                                                                                |
 | `submit_after_input`  | boolean | No               | Press Enter after typing                                                                                                |
@@ -577,8 +558,8 @@ Reshape data in `context.*` without touching the browser.
 
 Operations run in order and see each other's writes.
 
-- `MERGE`: deprecated — use `SET` with `$merge([<target>, <value>])`.
-- `APPEND`: not supported, saving fails — use `SET` with `$append(<target>, [<value>])`.
+- Merge objects: `SET` with `$merge([<target>, <value>])`.
+- Append to an array: `SET` with `$append(<target>, [<value>])`.
 
 ### DELAY
 
@@ -696,27 +677,6 @@ Scroll the page or containers.
 | `execution`                            | string | No                 | `STATIC` (default) or `LLM_VISION` (screenshot-driven; describe targets in `target_description` / `container_description`). `LLM_VISION` applies only to `to-element` and `region` modes; `simple` ignores it |
 | `wait_time`                            | number | No                 | Max ms to wait for elements. Default: 15000                                       |
 
-**Scroll at screen coordinates** (canvas, remote desktop, surfaces with no DOM): set `absolute: true`. The mode, direction and execution parameters are then ignored.
-
-```json
-{
-  "parameters": {
-    "absolute": true,
-    "x": 640,
-    "y": 400,
-    "scroll_x": 0,
-    "scroll_y": 500,
-    "load_events_triggered_through_scroll": 0
-  }
-}
-```
-
-| Parameter              | Type    | Required | Description                                                                                       |
-| ---------------------- | ------- | -------- | ------------------------------------------------------------------------------------------------- |
-| `absolute`             | boolean | Yes      | `true` enables coordinate scrolling                                                               |
-| `x`, `y`               | number  | Yes      | Point to scroll at                                                                                |
-| `scroll_x`, `scroll_y` | number  | Yes      | Scroll amount. Every 100 is one mouse-wheel click, so use multiples of 100. Positive `scroll_y` scrolls down |
-
 ### TAB_MANAGEMENT
 
 Open, close, or switch browser tabs.
@@ -739,27 +699,6 @@ Open, close, or switch browser tabs.
 | `url`       | string | No       | URL for OPEN action                |
 | `tab_index` | number | No       | 0-based tab index for SWITCH/CLOSE |
 | `wait_time` | number | No       | Max ms to wait for the tab to load (OPEN) or appear (SWITCH). Default: 15000 |
-
-### WINDOW_MANAGEMENT
-
-Focus, minimize, open, or quit an OS application window. Runs only on a Windows desktop worker, through the CloudCruise desktop support app — not in a plain browser worker.
-
-```json
-{
-  "id": "c4d5e6f7-8901-4a23-b456-789012345678",
-  "name": "Focus Chrome",
-  "action": "WINDOW_MANAGEMENT",
-  "parameters": { "windowAction": "FOCUS", "target": "chrome" }
-}
-```
-
-| Parameter      | Type    | Required | Description                                                             |
-| -------------- | ------- | -------- | ----------------------------------------------------------------------- |
-| `windowAction` | string  | Yes      | `FOCUS`, `MINIMIZE`, `OPEN` (launch the app), or `QUIT` (close it)      |
-| `target`       | string  | Yes      | App key from the workspace's allowed apps, or `chrome`                  |
-| `graceful`     | boolean | No       | `QUIT` only: `true` asks the app to close; otherwise it is force-closed |
-
-The workspace must have window management enabled, with an allowlist of apps; CloudCruise configures this per workspace. Saving fails if window management is not enabled or `target` is not in the allowlist. `FOCUS`/`MINIMIZE` on `target: "chrome"` needs no allowlist entry, but window management must still be enabled. Edges: `to`.
 
 ### TFA (Two-Factor Authentication)
 
@@ -1003,22 +942,6 @@ Set `required: true` on every entry unless the value is genuinely optional. With
 **Value flow:** pass values between steps with an inline `{{ steps.<id>.<name> }}` ref in `url`, `query`, `headers`, or a `body` leaf. There is no bindings list. Refs must name a step in the same node. Keep refs to `steps.*` and `context.*` plain paths: operators like `&` or `$count(...)` over them are rejected at save.
 
 **Same origin:** with `credentials: "include"`, the request fires from the page the run is on. If that page's origin (subdomain included) differs from the request's, the fetch fails. Make sure an earlier node (often `START`) lands on the target origin.
-
-### APP_ACTION (deprecated)
-
-Legacy and internal: runs a function from a catalog bundled in the CloudCruise extension. Do not author it; use TRANSFORM, EXTRACT_DATAMODEL, or API_FLOW.
-
-## Deprecated and unsupported
-
-Deprecated items are still accepted by the API; don't author them. Unsupported items are rejected on save.
-
-| Item                             | Status     | Use instead                                         |
-| -------------------------------- | ---------- | --------------------------------------------------- |
-| `APP_ACTION` node                | Deprecated | TRANSFORM, EXTRACT_DATAMODEL, or API_FLOW           |
-| `execution: "COMPUTER_USE"`      | Deprecated | `LLM_VISION` (the API stores it as such)            |
-| TRANSFORM `MERGE`                | Deprecated | `SET` with `$merge([<target>, <value>])`            |
-| TRANSFORM `APPEND`               | Unsupported | `SET` with `$append(<target>, [<value>])`           |
-| Node-level `popup_xpaths`        | Ignored    | Workflow-level `popup_xpaths`                       |
 
 # Error Codes
 
