@@ -28,7 +28,7 @@ A workflow is a directed graph of nodes (actions) connected by edges. The browse
 
 `id`, `version_id`, `version_number`, `created_at`, `created_by`, `updated_at`, `workspace_id`, `workflow_id`, `conversation_id`
 
-Leave them in the body from `workflows get`; `workflows update` sends it as-is. `version_id` drives the stale check: the update fails with exit 12 if a newer version exists (`--force` overrides). `id`, `workflow_id` and `workspace_id` must match the target workflow.
+Leave them in the body from `workflows get`; `workflows update` sends it as-is. `version_id` drives the stale check: the update fails with exit 13 if a newer version exists (`--force` overrides). `id`, `workflow_id` and `workspace_id` must match the target workflow.
 
 ### Mutable Fields (accepted by PUT)
 

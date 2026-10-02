@@ -387,7 +387,7 @@ Send the JSON from \`workflows get\` as-is; read-only fields may stay in.
 
 Stale check: when the body has a \`version_id\`, the update only succeeds if
 that version is still the latest. Otherwise it creates no version and exits
-12 (WORKFLOW_VERSION_CONFLICT). The stderr envelope names the latest version
+13 (WORKFLOW_VERSION_CONFLICT). The stderr envelope names the latest version
 (number, author, time, note). Re-fetch with \`workflows get\`, re-apply your
 edit and update again, or pass --force to overwrite the latest version anyway.
 A body without \`version_id\` is not checked.

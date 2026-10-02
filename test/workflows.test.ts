@@ -140,9 +140,9 @@ function runCli(args: string[]) {
 
 // A workflow fetched at v17 is pushed after v18 was saved elsewhere. Like the
 // real backend, the stub checks staleness only on base_version_id. The command
-// must refuse with exit 12 and name v18, and the --force retry must omit
+// must refuse with exit 13 and name v18, and the --force retry must omit
 // base_version_id so the backend accepts the overwrite.
-test("workflows update exits 12 with the latest version on a stale body, and --force overwrites it", async () => {
+test("workflows update exits 13 with the latest version on a stale body, and --force overwrites it", async () => {
   const backend = await startWorkflowBackend()
   try {
     const dir = mkdtempSync(join(tmpdir(), "cloudcruise-workflow-"))
@@ -159,7 +159,7 @@ test("workflows update exits 12 with the latest version on a stale body, and --f
     ]
 
     const stale = await runCli(baseArgs)
-    assert.equal(stale.code, 12)
+    assert.equal(stale.code, 13)
     const envelope = JSON.parse(stale.stderr.trim().split("\n").at(-1)!)
     assert.equal(envelope.code, "WORKFLOW_VERSION_CONFLICT")
     assert.equal(envelope.latestVersion.number, 18)

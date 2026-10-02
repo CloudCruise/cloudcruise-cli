@@ -4,7 +4,7 @@
 
 ### Changed
 
-- `workflows update` detects stale edits. It sends the body's `version_id` as `base_version_id`; if someone saved in between, it creates no version and exits 12 (`WORKFLOW_VERSION_CONFLICT`). The stderr envelope adds `latestVersion` (id, number, author, time, note) and a `hint`. `--force` overwrites anyway. A body without `version_id` is not checked.
+- `workflows update` detects stale edits. It sends the body's `version_id` as `base_version_id`; if someone saved in between, it creates no version and exits 13 (`WORKFLOW_VERSION_CONFLICT`). The stderr envelope adds `latestVersion` (id, number, author, time, note) and a `hint`. `--force` overwrites anyway. A body without `version_id` is not checked.
 - `workflows update` sends the body as-is instead of stripping 11 fields. Edits to `encrypted_keys` now reach the backend. Requires a backend that accepts echoed read-only fields.
 - `workflows update` no longer sends the body's `version_note`; the note comes only from `--version-note`. A fetched body's note describes the version it was fetched at.
 
