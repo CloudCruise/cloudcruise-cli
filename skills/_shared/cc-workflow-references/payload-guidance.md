@@ -19,7 +19,7 @@ off is invalid.
 - A valid payload has exactly the schema's keys: `additionalProperties: false` at every
   level, every field `required`. Nothing omitted, nothing extra.
 - "Doesn't apply" is an off value, never an absent key: `null` for hidden scalars/objects
-  (recursively null for nested objects, per the `$defs/hidden` sentinel), `[]` for hidden
+  (recursively null for nested objects, per the `definitions/hidden` sentinel), `[]` for hidden
   multi-selects, or the forced constant the rule states.
 - Vault aliases are required fields. In a payload file, the value is the literal placeholder
   string `<alias>` (e.g. `"login": "<login>"`). Never null an alias; never invent a
@@ -45,7 +45,7 @@ Conditionals live in `allOf` as `if/then/else`:
   equals) or `{contains: {const: X}}` (multi-select includes X). Multiple properties in one
   `if` AND together.
 - `else.properties.<target>` states the off value when the trigger doesn't hold:
-  `$ref: #/$defs/hidden` → null, `maxItems: 0` → `[]`, `const` → that constant.
+  `$ref: #/definitions/hidden` → null, `maxItems: 0` → `[]`, `const` → that constant.
 - `then.properties.<target>` gives the revealed shape. `then.allOf` nests further rules
   whose predicates conjoin with the parent's.
 

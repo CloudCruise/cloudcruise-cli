@@ -1,6 +1,6 @@
 ---
 name: cloudcruise-workflow-dsl
-description: CloudCruise workflow DSL reference — node types and parameters, STATIC vs LLM_VISION execution, edge structure, variables and JSONata, run_if guards, XPath rules, data-model schema extensions, and error classification. Read before writing, editing, or debugging any CloudCruise workflow node.
+description: CloudCruise workflow DSL reference — node types and parameters, STATIC vs LLM_VISION execution, edge structure, variables and JSONata, run_if guards, XPath rules, data-model schema extensions, and error codes. Read before writing, editing, or debugging any CloudCruise workflow node.
 ---
 
 # CloudCruise Workflow DSL Reference
@@ -20,7 +20,7 @@ A workflow is a directed graph of nodes (actions) connected by edges. The browse
   "input_schema": { "type": "object", "properties": { ... } },
   "output_schema": { "type": "object", "properties": { ... } },
   "max_retries": 3,
-  "vault_schema": { "alias": { "type": "credential", "domain": "example.com" } }
+  "vault_schema": { "alias": { "type": "credential", "domain": "example.com", "hasPasskey": false } }
 }
 ```
 
@@ -34,11 +34,19 @@ Leave them in the body from `workflows get`; `workflows update` sends it as-is. 
 
 **Required:** `nodes`, `edges`, `name`, `input_schema`, `output_schema`, `max_retries`
 
-**Optional:** `description`, `version_note` (on `workflows update`, set via `--version-note` only), `use_native_actions`, `video_record_session`, `extract_network_urls`, `popup_xpaths`, `vault_schema`, `enable_popup_handling`, `enable_action_timing_recovery`, `enable_xpath_recovery`, `enable_error_code_generation`, `enable_service_unavailable_recovery`, `proxy_setting`, `proxy_value`, `enable_network_listener`, `manual_captcha_solve`
+**Optional:** `description`, `version_note` (on `workflows update`, set via `--version-note` only), `use_native_actions`, `video_record_session`, `extract_network_urls`, `popup_xpaths`, `vault_schema`, `enable_popup_handling`, `enable_action_timing_recovery`, `enable_xpath_recovery`, `enable_error_code_generation`, `enable_service_unavailable_recovery`, `enable_incorrect_form_input_recovery`, `enable_password_update_recovery`, `enable_tfa_setup_recovery`, `enable_node_description_enrichment`, `allow_requeue`, `deny_requeue_past_dry_run_marker`, `proxy_setting`, `proxy_value`, `enable_network_listener`, `manual_captcha_solve`
+
+### `output_schema` — what the run returns
+
+`output_schema` selects which fields land in the run result and the customer's webhook payload. It is a filter, not a declaration: only the fields named under `properties` are returned.
+
+- **To return specific fields:** `{"type": "object", "properties": { "invoice_total": { "type": "string" } }}` — returns only `invoice_total`.
+- **To return everything:** `{}`. This is also the default, and the right choice when the user has not asked for a specific payload shape. It returns the whole run context except `inputs` and `runtime`.
+- **Every other shape returns everything too.** Empty `properties`, or field definitions written at the top level instead of under `properties`, select no fields. A run cannot be made to return nothing — for a smaller payload, name fewer fields under `properties`.
 
 ### `popup_xpaths`
 
-An array of XPath selectors that identify dismissible popups (cookie banners, survey modals, chat widgets, etc.). When `enable_popup_handling` is `true`, the runtime checks for elements matching these XPaths before each node executes and clicks them to dismiss. Set at the workflow level to apply globally.
+An array of XPath selectors that identify dismissible popups (cookie banners, survey modals, chat widgets, etc.). When `enable_popup_handling` is `true`, interaction nodes check for elements matching these XPaths before they act and click them to dismiss.
 
 ## Variables
 
@@ -51,7 +59,15 @@ Variables use double curly braces: `{{expression}}`.
 | Loop runtime    | `context.runtime.*` | `{{context.runtime.current_item}}` |
 | Browser URL     | `window.location.*` | `{{window.location.href}}`         |
 
-Variables can be used in: text inputs, XPath selectors, URLs, prompts, data model field names.
+Variables can be used in: text inputs, XPath selectors, URLs, prompts, data model field names. Prefer variables (`{{context.inputs.*}}`) over hardcoded values.
+
+When creating an `input_schema` property, every leaf input must include:
+
+- `type`
+- `description`: concise text explaining the meaning of the input variable
+- `example` when a value is available
+
+Also include `enum` when the valid values are a fixed set, such as dropdown options, and `pattern` with an anchored regular expression when a string has a required format, such as a date.
 
 **Data transformation and logic** uses [JSONata](https://jsonata.org/) expressions inside `{{}}`. Use JSONata for complex string operations, conditional logic, array filtering, and data formatting instead of adding extra nodes.
 
@@ -76,16 +92,20 @@ JSONata is especially useful in BoolCondition `comparison_value_1` for complex c
 
 ## Execution Types
 
-| Type           | Description                                                                 | Used By                                                        |
-| -------------- | --------------------------------------------------------------------------- | -------------------------------------------------------------- |
-| `STATIC`       | Explicit XPath selectors. Fast and reliable. **Prefer this when possible.** | Click, InputText, InputSelect, BoolCondition, ExtractDatamodel |
-| `LLM_VISION`   | AI decision or extraction from screenshot                                   | ExtractDatamodel, BoolCondition, Click, InputText, TFA         |
-| `LLM_DOM`      | AI extraction from HTML DOM structure.                                      | ExtractDatamodel                                               |
-| `PROMPT`       | AI reasoning on context data (no screenshot).                               | ExtractDatamodel, BoolCondition                                |
+| Type         | Description                                                                 | Used By                                                                     |
+| ------------ | --------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| `STATIC`     | Explicit XPath selectors. Fast and reliable. **Prefer this when possible.** | Click, InputText, InputSelect, Scroll, BoolCondition, ExtractDatamodel, TFA |
+| `LLM_VISION` | AI action, decision or extraction from a screenshot                         | Click, InputText, Scroll, BoolCondition, ExtractDatamodel, TFA              |
+| `LLM_DOM`    | AI extraction from HTML DOM structure                                       | ExtractDatamodel                                                            |
+| `PROMPT`     | AI reasoning on context data (no screenshot)                                | BoolCondition, ExtractDatamodel                                             |
 
 ## Writing Good XPath Selectors
 
+CloudCruise evaluates XPath using FontoXPath in XPath 3.1 mode. You may use XPath 2.0/3.1 functions and syntax; do not assume browser-native XPath 1.0 limitations.
+
 For STATIC execution on Click, Input Text, and Input Select: **the XPath must match exactly one element**. Matching zero (not found) or multiple (ambiguous) elements fails the run.
+
+XPath traversal pierces both **iframes** and **open shadow DOMs** at runtime — write a normal XPath that targets the element by its own attributes/text and it will match regardless of which iframe or open shadow tree it lives in.
 
 ### Objectives
 
@@ -152,7 +172,7 @@ Edges are a map of `source_node_id → target`. The target type depends on the s
 
 ## Conditional skip (`run_if`)
 
-A node runs only if its `parameters.run_if` holds; otherwise the run skips to the node's `to` edge.
+A node runs only if its `parameters.run_if` holds; otherwise the run skips to the node's `to` edge. It is a data-only check (no DOM).
 
 ```json
 "run_if": {
@@ -163,12 +183,12 @@ A node runs only if its `parameters.run_if` holds; otherwise the run skips to th
 }
 ```
 
-| Field                   | Values                                                                                                   |
-| ----------------------- | -------------------------------------------------------------------------------------------------------- |
-| `match`                 | `all` (default) or `any`                                                                                 |
-| `conditions[].field`    | Path under `context.`                                                                                    |
-| `conditions[].operator` | `EQUAL`, `NOT_EQUAL`, `CONTAINS`, `NOT_CONTAINS`, `IS_NULL`, `IS_NOT_NULL`, `STARTS_WITH`, `ENDS_WITH` |
-| `conditions[].value`    | String; omit for `IS_NULL` and `IS_NOT_NULL`                                                             |
+| Field                   | Values                                                                                                     |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `match`                 | `all` (default) or `any`                                                                                   |
+| `conditions[].field`    | Path under `context.`                                                                                      |
+| `conditions[].operator` | `EQUAL`, `NOT_EQUAL`, `CONTAINS`, `NOT_CONTAINS`, `IS_NULL`, `IS_NOT_NULL`, `STARTS_WITH`, `ENDS_WITH`     |
+| `conditions[].value`    | A literal, or a single `{{...}}` expression to compare another field; omit for `IS_NULL` and `IS_NOT_NULL` |
 
 `IS_NULL` treats `null`, missing, `""`, `"null"` and `[]` as absent.
 
@@ -187,13 +207,15 @@ Every node has:
 ```json
 {
   "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-  "name": "Descriptive name (important for maintenance agent recovery)",
+  "name": "Descriptive plain-English name, no {{...}} (important for maintenance agent recovery)",
   "action": "ACTION_TYPE",
   "parameters": { ... }
 }
 ```
 
 **IMPORTANT:** The `id` field must be a valid UUID (e.g., `"f47ac10b-58cc-4372-a567-0e02b2c3d479"`). Do not use natural language IDs like `"click-submit-button"`. Generate UUIDs with `cloudcruise utils uuid`.
+
+Optional base fields: `description`
 
 ## Node Types
 
@@ -245,16 +267,18 @@ Click on page elements.
   }
 }
 ```
-| Parameter                | Type    | Required         | Description                                                                                                                                                                        |
-| ------------------------ | ------- | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `execution`              | string  | Yes              | `STATIC` or `LLM_VISION`                                                                                                                                                           |
-| `selector`               | string  | Yes (STATIC)     | XPath selector                                                                                                                                                                     |
-| `prompt`                 | string  | Yes (LLM_VISION) | Natural language target description                                                                                                                                                |
-| `click_type`             | string  | No               | `click` (default), `double_click`, `right_click`, `hover`                                                                                                                          |
-| `wait_time`              | number  | No               | Max ms to wait for element. Default: 15000                                                                                                                                         |
-| `selector_error_message` | string  | No               | Error code id (UUID) to fail with if the element is not found. See [Error Codes](#error-codes)                                                                                    |
-| `human_mode`             | boolean | No               | Human-like click behavior                                                                                                                                                          |
-| `end_here_on_dry_run`    | boolean | No               | Skip this node and end the workflow during dry runs. Set on the final submit/save click of write workflows so dry runs validate everything without submitting to the target system |
+
+| Parameter                | Type    | Required         | Description                                                                                                                                                                                                                                                                                                                                                                                                               |
+| ------------------------ | ------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `execution`              | string  | Yes              | `STATIC` or `LLM_VISION`                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `selector`               | string  | Yes (STATIC)     | XPath selector                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `prompt`                 | string  | Yes (LLM_VISION) | Natural language target description                                                                                                                                                                                                                                                                                                                                                                                       |
+| `click_type`             | string  | No               | `click` (default), `double_click`, `right_click`, `hover`                                                                                                                                                                                                                                                                                                                                                                 |
+| `wait_time`              | number  | No               | Max ms to wait for element. Default: 15000                                                                                                                                                                                                                                                                                                                                                                                |
+| `selector_error_message` | string  | No               | Error code id (UUID) to fail with if the element is not found. See Error Codes                                                                                                                                                                                                                                                                                                                                            |
+| `human_mode`             | boolean | No               | Human-like click behavior                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `end_here_on_dry_run`    | boolean | No               | Skip this node and end the workflow during dry runs. Set ONLY on the final data-mutating submit/save click of a write workflow (e.g. checkout, place order, submit form) so dry runs validate everything without committing to the target system. Do NOT set it on login/sign-in submits, consent/popup dismissals, or intermediate navigation — those must run during a dry run so the rest of the flow can be validated |
+| `run_if`                 | object  | No               | Run this node only if the condition matches; otherwise skip it and continue on the `to` edge                                                                                                                                                                                                                                                                                                                              |
 
 ### INPUT_TEXT
 
@@ -273,21 +297,23 @@ Type text into form fields.
 }
 ```
 
-| Parameter             | Type    | Required         | Description                                                                                                             |
-| --------------------- | ------- | ---------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `text`                | string  | Yes              | Text to type (supports variables and JSONata). `{{...}}` keystroke tokens press keys — see below                        |
-| `execution`           | string  | Yes              | `STATIC` or `LLM_VISION`                                                                                                |
-| `selector`            | string  | Yes (STATIC)     | XPath selector                                                                                                          |
-| `prompt`              | string  | Yes (LLM_VISION) | Natural language field description                                                                                      |
-| `do_not_clear`        | boolean | No               | Append without clearing existing content                                                                                |
-| `submit_after_input`  | boolean | No               | Press Enter after typing                                                                                                |
-| `aggressive_clear`    | boolean | No               | Adds a second clear pass. Enable only after observing typing leaves old text behind or appends to it — not preemptively |
-| `wait_time`           | number  | No               | Max ms to wait. Default: 15000                                                                                          |
-| `human_mode`          | boolean | No               | Human-like typing behavior                                                                                              |
-| `end_here_on_dry_run` | boolean | No               | In dry runs, end the workflow before this node runs                                                                    |
-| `omit_focus`          | boolean | No               | Send the keys to whatever currently has focus. No `selector`, no click, no clearing     |
-| `paste_via_clipboard` | boolean | No               | Paste the resolved text via the OS clipboard (ctrl+v) instead of typing it. Ignored when `text` has keystroke tokens |
-| `typing_delay_ms`     | integer | No               | Delay between keystrokes in ms (1–1000). Use when typed characters get dropped, e.g. over RDP |
+| Parameter                | Type    | Required         | Description                                                                                                             |
+| ------------------------ | ------- | ---------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `text`                   | string  | Yes              | Text to type (supports variables and JSONata). `{{...}}` keystroke tokens press keys — see below                        |
+| `execution`              | string  | Yes              | `STATIC` or `LLM_VISION`                                                                                                |
+| `selector`               | string  | Yes (STATIC)     | XPath selector                                                                                                          |
+| `prompt`                 | string  | Yes (LLM_VISION) | Natural language field description                                                                                      |
+| `do_not_clear`           | boolean | No               | Append without clearing existing content                                                                                |
+| `submit_after_input`     | boolean | No               | Press Enter after typing                                                                                                |
+| `aggressive_clear`       | boolean | No               | Adds a second clear pass. Enable only after observing typing leaves old text behind or appends to it — not preemptively |
+| `wait_time`              | number  | No               | Max ms to wait. Default: 15000                                                                                          |
+| `selector_error_message` | string  | No               | Error code id (UUID) to fail with if the element is not found. See Error Codes                                          |
+| `human_mode`             | boolean | No               | Human-like typing behavior                                                                                              |
+| `end_here_on_dry_run`    | boolean | No               | In dry runs, end the workflow before this node runs                                                                     |
+| `omit_focus`             | boolean | No               | Send the keys to whatever currently has focus. No `selector`, no click, no clearing                                     |
+| `paste_via_clipboard`    | boolean | No               | Paste the resolved text via the OS clipboard (ctrl+v) instead of typing it. Ignored when `text` has keystroke tokens    |
+| `typing_delay_ms`        | integer | No               | Delay between keystrokes in ms (1–1000). Set only after observing typed characters get dropped, e.g. over RDP           |
+| `run_if`                 | object  | No               | Run this node only if the condition matches; otherwise skip it and continue on the `to` edge                            |
 
 **Keystroke tokens.** `text` presses a key wherever it contains one of the tokens below; any other `{{...}}` goes through normal variable and JSONata interpolation. Tokens and text within one node run in order, so `"john{{tab}}secret{{enter}}"` types, tabs, types, enters. Reach for these only when the user asks for them or the site offers no other way — ordinary `CLICK` and `INPUT_TEXT` nodes remain the default.
 
@@ -304,7 +330,33 @@ Type text into form fields.
 
 Keep the `selector` when the keys belong in a field that must be focused first. The node clicks the element before typing, so the selector must be the field itself, and a key that follows the text acts on whatever that field opened.
 
+```json
+{
+  "id": "a1b2c3d4-5678-4abc-def0-123456789abc",
+  "name": "Set start date and dismiss the picker",
+  "action": "INPUT_TEXT",
+  "parameters": {
+    "execution": "STATIC",
+    "selector": "//input[@id='start-date']",
+    "text": "03/15/2025{{escape}}"
+  }
+}
+```
+
 For keys with no field to type into, set `omit_focus: true` and give no `selector` and no `prompt`.
+
+```json
+{
+  "id": "b2c3d4e5-6789-4abc-def0-123456789abc",
+  "name": "Dismiss dialog",
+  "action": "INPUT_TEXT",
+  "parameters": {
+    "execution": "STATIC",
+    "omit_focus": true,
+    "text": "{{esc}}"
+  }
+}
+```
 
 ### INPUT_SELECT
 
@@ -322,14 +374,16 @@ Select options from dropdowns. Handles native `<select>`, Select2, and similar l
 }
 ```
 
-| Parameter     | Type    | Required | Description                                                                        |
-| ------------- | ------- | -------- | ---------------------------------------------------------------------------------- |
-| `value`       | string  | No       | Option value or text to select                                                     |
-| `selector`    | string  | No       | XPath to the select element                                                        |
-| `fuzzy_match` | boolean | No       | Fuzzy matching for option values (e.g., "New Patient" matches "New Patient Visit") |
-| `prompt`      | string  | No       | Natural language description (LLM execution)                                       |
-| `wait_time`   | number  | No       | Max ms to wait. Default: 15000                                                     |
-| `end_here_on_dry_run` | boolean | No | In dry runs, end the workflow before this node runs                            |
+| Parameter                | Type    | Required | Description                                                                                  |
+| ------------------------ | ------- | -------- | -------------------------------------------------------------------------------------------- |
+| `value`                  | string  | No       | Option value or text to select                                                               |
+| `selector`               | string  | Yes      | XPath to the select element                                                                  |
+| `execution`              | string  | No       | `STATIC` (default). Other values are accepted but ignored: the node always uses `selector`   |
+| `fuzzy_match`            | boolean | No       | Fuzzy matching for option values (e.g., "New Patient" matches "New Patient Visit")           |
+| `wait_time`              | number  | No       | Max ms to wait. Default: 15000                                                               |
+| `selector_error_message` | string  | No       | Error code id (UUID) to fail with if the element is not found. See Error Codes               |
+| `end_here_on_dry_run`    | boolean | No       | In dry runs, end the workflow before this node runs                                          |
+| `run_if`                 | object  | No       | Run this node only if the condition matches; otherwise skip it and continue on the `to` edge |
 
 ### NAVIGATE
 
@@ -344,9 +398,9 @@ Navigate browser to a URL.
 }
 ```
 
-| Parameter | Type   | Required | Description                                                            |
-| --------- | ------ | -------- | ---------------------------------------------------------------------- |
-| `url`     | string | Yes      | URL to navigate to. Use `"back"` for browser back. Supports variables. |
+| Parameter | Type   | Required | Description                                                                                                                                     |
+| --------- | ------ | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `url`     | string | Yes      | URL to navigate to. Use `"back"` for browser back, or `"reload"` to refresh the current page. Reload can strand some pages. Supports variables. |
 
 ### EXTRACT_DATAMODEL
 
@@ -380,26 +434,28 @@ Extract structured data from the page using a JSON schema.
 }
 ```
 
-| Parameter            | Type    | Required        | Description                                                                                                              |
-| -------------------- | ------- | --------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `extract_data_model` | object  | Yes             | JSON Schema with CloudCruise extensions (see below)                                                                      |
-| `execution`          | string  | No              | `STATIC`, `LLM_DOM` (default), `LLM_VISION`, or `PROMPT`                                                                 |
-| `selector`           | string  | Yes (`LLM_DOM`) | XPath to scope extraction area                                                                                           |
-| `prompt`             | string  | Yes (`PROMPT`)  | Additional instructions for the model                                                                                    |
-| `wait_time`          | number  | No              | Max ms to wait for selector. Default: 15000                                                                              |
-| `keep_html_metadata` | boolean | No              | Only used by `LLM_DOM`. Preserve HTML attributes (id, class, data-\*) so the model can extract from them. Default: false |
+| Parameter                | Type    | Required        | Description                                                                                                                                                                                                                         |
+| ------------------------ | ------- | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `extract_data_model`     | object  | Yes             | JSON Schema with CloudCruise extensions (see below)                                                                                                                                                                                 |
+| `execution`              | string  | No              | `STATIC`, `LLM_DOM` (default), `LLM_VISION`, or `PROMPT`                                                                                                                                                                            |
+| `selector`               | string  | Yes (`LLM_DOM`) | `STATIC`: optional; XPath to wait for before extracting (readiness gate; does NOT scope field paths in the datamodel). `LLM_DOM`: required; DOM subtree whose `outerHTML` is sent to the model. Not used for `LLM_VISION`/`PROMPT`. |
+| `prompt`                 | string  | Yes (`PROMPT`)  | Additional instructions for the model                                                                                                                                                                                               |
+| `wait_time`              | number  | No              | Max ms to wait for selector. Default: 15000                                                                                                                                                                                         |
+| `selector_error_message` | string  | No              | Error code id (UUID) to fail with if the element is not found. See Error Codes                                                                                                                                                      |
+| `keep_html_metadata`     | boolean | No              | Only used by `LLM_DOM`. Preserve HTML attributes (id, class, data-\*) so the model can extract from them. Default: false                                                                                                            |
+| `run_if`                 | object  | No              | Run this node only if the condition matches; otherwise skip it and continue on the `to` edge                                                                                                                                        |
 
 #### Data Model Schema Extensions
 
 CloudCruise extends JSON Schema with:
 
-| Property             | Description                                                           |
-| -------------------- | --------------------------------------------------------------------- |
-| `selected`           | Set `true` to include this field in extraction                        |
-| `path`               | XPath for STATIC extraction, JSONata/JSONPath for ExtractNetwork      |
-| `mode`               | Set `"xpath"` for XPath-based extraction                              |
-| `description`        | Helps LLM understand what to extract                                  |
-| `overwriteArrayKeys` | Array of keys to overwrite (instead of append) on repeated extraction |
+| Property             | Description                                                                                                                                                                                         |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `selected`           | Set `true` to include this field in extraction                                                                                                                                                      |
+| `path`               | XPath for STATIC extraction, JSONata/JSONPath for ExtractNetwork                                                                                                                                    |
+| `mode`               | Set `"xpath"` for XPath-based extraction                                                                                                                                                            |
+| `description`        | Helps LLM understand what to extract                                                                                                                                                                |
+| `overwriteArrayKeys` | Array property names to replace instead of append on re-extraction. Set at the root of `extract_data_model`. Required for pagination — without it, each page's data appends to the previous page's. |
 
 **STATIC array extraction with relative XPaths** (table rows):
 
@@ -413,13 +469,25 @@ CloudCruise extends JSON Schema with:
     "items": {
       "type": "object",
       "properties": {
-        "id": { "type": "string", "path": "/td[1]", "mode": "xpath" },
-        "name": { "type": "string", "path": "/td[2]", "mode": "xpath" }
+        "id": {
+          "type": "string",
+          "selected": true,
+          "path": "/td[1]",
+          "mode": "xpath"
+        },
+        "name": {
+          "type": "string",
+          "selected": true,
+          "path": "/td[2]",
+          "mode": "xpath"
+        }
       }
     }
   }
 }
 ```
+
+Every leaf you want extracted needs `selected: true`, including the leaves inside `items.properties`. A leaf without it is dropped before extraction runs — and an array whose item leaves are all dropped silently returns each row's plain text instead of objects, with no error.
 
 **Browser variables** (STATIC execution only):
 
@@ -452,43 +520,61 @@ Conditional branching. Uses `true`/`false` edges.
   }
 }
 ```
-| Parameter                | Type    | Required                 | Description                                                                |
-| ------------------------ | ------- | ------------------------ | -------------------------------------------------------------------------- |
-| `execution`              | string  | Yes                      | `STATIC`, `LLM_VISION`, or `PROMPT`                                        |
-| `comparison_operator`    | string  | Yes (STATIC)             | `EQUAL`, `NOT_EQUAL`, `IS_NULL`, `IS_NOT_NULL`, `CONTAINS`, `NOT_CONTAINS` |
-| `comparison_value_1`     | string  | Yes (STATIC)             | First value. Supports variables, JSONata, and `<<xpath:...>>` (see below)  |
-| `comparison_value_2`     | string  | No                       | Second value (STATIC). Not needed for IS_NULL/IS_NOT_NULL                  |
-| `prompt`                 | string  | Yes (LLM_VISION, PROMPT) | Natural language condition                                                 |
-| `clear_cookies_on_false` | boolean | No                       | Clear cookies when false (useful for login flows, default false)           |
-| `wait_time`              | number  | No                       | Max ms to wait before evaluation (default 15000)                          |
-| `error_on_false_message` | string  | No                       | Error code id (UUID) to fail with when false, instead of following the `false` edge. See [Error Codes](#error-codes) |
+
+| Parameter                | Type    | Required                 | Description                                                                                            |
+| ------------------------ | ------- | ------------------------ | ------------------------------------------------------------------------------------------------------ |
+| `execution`              | string  | Yes                      | `STATIC`, `LLM_VISION`, or `PROMPT`                                                                    |
+| `comparison_operator`    | string  | Yes (STATIC)             | `EQUAL`, `NOT_EQUAL`, `CONTAINS`, `NOT_CONTAINS`, `STARTS_WITH`, `ENDS_WITH`, `IS_NULL`, `IS_NOT_NULL` |
+| `comparison_value_1`     | string  | Yes (STATIC)             | First value. Supports variables, JSONata, and `<<xpath:...>>` (see below)                              |
+| `comparison_value_2`     | string  | No                       | Second value (STATIC). Not needed for IS_NULL/IS_NOT_NULL                                              |
+| `prompt`                 | string  | Yes (LLM_VISION, PROMPT) | Natural language condition                                                                             |
+| `clear_cookies_on_false` | boolean | No                       | Clear cookies when false (useful for login flows, default false)                                       |
+| `wait_time`              | number  | No                       | Max ms to wait before evaluation. Default: 15000                                                       |
+| `error_on_false_message` | string  | No                       | Error code id (UUID) to fail with when false, instead of following the `false` edge. See Error Codes   |
+| `max_iterations`         | number  | No                       | Iteration cap when a branch loops back. Defaults to 100; `0` = unbounded                               |
+
+When a `true`/`false` edge loops back to an earlier node (retry / while / pagination loops), `max_iterations` caps how many times the condition may execute — the run fails with `STUCK_LOOP-E0001` when the cap is hit. Looping conditions default to 100 if unset; set an explicit bound when the loop can legitimately run longer than that, or `0` to disable the cap. Forward-only if/else conditions don't need it.
+
+#### Choosing the right execution type
+
+**Always prefer STATIC** for conditions — it's faster, deterministic, and doesn't consume LLM tokens. Use LLM_VISION or PROMPT only when the condition requires visual interpretation or reasoning that can't be expressed as a comparison.
+
+**Simple variable comparison** (most common case):
+
+```json
+{"execution": "STATIC", "comparison_operator": "EQUAL", "comparison_value_1": "{{context.inputs.relationship}}", "comparison_value_2": "Self"}
+{"execution": "STATIC", "comparison_operator": "NOT_EQUAL", "comparison_value_1": "{{context.inputs.status}}", "comparison_value_2": "Pending"}
+```
+
+**Check if a variable has a value:**
+
+```json
+{"execution": "STATIC", "comparison_operator": "IS_NOT_NULL", "comparison_value_1": "{{context.inputs.member_id}}"}
+{"execution": "STATIC", "comparison_operator": "CONTAINS", "comparison_value_1": "{{context.inputs.insurance_type}}", "comparison_value_2": "Commercial"}
+```
 
 #### XPath evaluation with `<<xpath:...>>`
 
-To evaluate a condition against a live DOM element, wrap the XPath in `<<xpath:...>>`. The browser agent locates the element and extracts its text content as the comparison value. If the element is not found, the value resolves to null (useful with `IS_NULL`/`IS_NOT_NULL` to check element existence). Variables work inside the XPath: `<<xpath://tr[normalize-space()='{{context.inputs.name}}']>>`.
+**Check if a DOM element exists or has specific content** by wrapping XPath in `<<xpath:...>>`. The browser agent locates the element and extracts its text content as the comparison value. If the element is not found, the value resolves to null (useful with `IS_NULL`/`IS_NOT_NULL` to check element existence).
 
 ```json
-{"comparison_operator": "IS_NOT_NULL", "comparison_value_1": "<<xpath://div[@id='error-banner']>>"}
-{"comparison_operator": "EQUAL", "comparison_value_1": "<<xpath://span[@data-testid='status']>>", "comparison_value_2": "Approved"}
+{"execution": "STATIC", "comparison_operator": "IS_NOT_NULL", "comparison_value_1": "<<xpath://div[@id='error-banner']>>"}
+{"execution": "STATIC", "comparison_operator": "EQUAL", "comparison_value_1": "<<xpath://span[@data-testid='status']>>", "comparison_value_2": "Approved"}
 ```
 
-**Use JSONata for complex conditions.** When you need logic beyond simple `EQUAL`/`IS_NULL` (e.g., numeric comparisons, array membership, string operations, compound conditions), evaluate the expression in `comparison_value_1` and compare against `"true"`:
+Variables work inside XPath: `<<xpath://tr[normalize-space()='{{context.inputs.name}}']>>`.
+
+#### JSONata for complex conditions
+
+When you need logic beyond simple comparisons (numeric operations, array membership, string functions, compound conditions), use a JSONata expression in `comparison_value_1` and compare against `"true"`:
 
 ```json
-{
-  "comparison_value_1": "{{context.drug in [\"Skyrizi\", \"Tremfya\", \"Botox\"]}}",
-  "comparison_value_2": "true",
-  "comparison_operator": "EQUAL"
-}
-```
-
-More examples:
-
-```json
-{"comparison_value_1": "{{context.inputs.amount > 100}}", "comparison_value_2": "true", "comparison_operator": "EQUAL"}
-{"comparison_value_1": "{{$contains(context.page_text, \"success\") and $not($contains(context.page_text, \"pending\"))}}", "comparison_value_2": "true", "comparison_operator": "EQUAL"}
-{"comparison_value_1": "{{$count(context.results) > 0}}", "comparison_value_2": "true", "comparison_operator": "EQUAL"}
-{"comparison_value_1": "{{$now() > context.inputs.deadline}}", "comparison_value_2": "true", "comparison_operator": "EQUAL"}
+{"execution": "STATIC", "comparison_value_1": "{{context.inputs.relationship = 'Self' or context.inputs.relationship = 'Spouse'}}", "comparison_value_2": "true", "comparison_operator": "EQUAL"}
+{"execution": "STATIC", "comparison_value_1": "{{context.drug in [\"Skyrizi\", \"Tremfya\", \"Botox\"]}}", "comparison_value_2": "true", "comparison_operator": "EQUAL"}
+{"execution": "STATIC", "comparison_value_1": "{{context.inputs.amount > 100}}", "comparison_value_2": "true", "comparison_operator": "EQUAL"}
+{"execution": "STATIC", "comparison_value_1": "{{$contains(context.page_text, \"success\") and $not($contains(context.page_text, \"pending\"))}}", "comparison_value_2": "true", "comparison_operator": "EQUAL"}
+{"execution": "STATIC", "comparison_value_1": "{{$count(context.results) > 0}}", "comparison_value_2": "true", "comparison_operator": "EQUAL"}
+{"execution": "STATIC", "comparison_value_1": "{{$now() > context.inputs.deadline}}", "comparison_value_2": "true", "comparison_operator": "EQUAL"}
 ```
 
 ### LOOP
@@ -516,9 +602,15 @@ Iterate over arrays or repeat N times. Uses `loop_done`/`loop_not_done` edges.
 
 The last node in the loop body must edge back to the loop node. Access items via `{{context.runtime.current_order}}`.
 
+**Wiring a LOOP into an existing graph:** When inserting a LOOP between node A and node B:
+
+- Change A's edge from `{ "to": "B" }` to `{ "to": "LOOP" }`
+- Set LOOP edges: `{ "loop_not_done": "LOOP" , "loop_done": "B" }` — the self-referencing `loop_not_done` is a temporary placeholder until loop body nodes are added
+- After adding loop body nodes, rewire `loop_not_done` to the first body node, and wire the last body node back to LOOP with `{ "to": "LOOP" }`
+
 ### TRANSFORM
 
-Reshape data in `context.*` without touching the browser.
+Clean, derive, or reshape data already in `context.*` without touching the browser. Each operation writes to a dot-path under `context.*`; expressions are raw JSONata — no `{{...}}` wrapping.
 
 ```json
 {
@@ -547,16 +639,21 @@ Reshape data in `context.*` without touching the browser.
 | ------------ | ----- | -------- | ---------------------------------------------------------------- |
 | `operations` | array | Yes      | Ordered list of `{ type, target, value?, optional? }` operations |
 
-| Operation field | Type    | Required     | Description                                      |
-| --------------- | ------- | ------------ | ------------------------------------------------ |
-| `type`          | string  | Yes          | `SET` or `DELETE`                                |
-| `target`        | string  | Yes          | Path under `context.` (e.g. `context.email_clean`) |
-| `value`         | string  | For `SET`    | Raw JSONata, no `{{...}}`                        |
-| `optional`      | boolean | No (`false`) | Allow an empty result                            |
+| Operation field | Type    | Required     | Description                                          |
+| --------------- | ------- | ------------ | ---------------------------------------------------- |
+| `type`          | string  | Yes          | `SET` (assign) or `DELETE` (remove path, no `value`) |
+| `target`        | string  | Yes          | Path under `context.` (e.g. `context.email_clean`)   |
+| `value`         | string  | For `SET`    | Raw JSONata, no `{{...}}`                            |
+| `optional`      | boolean | No (`false`) | Allow an empty result                                |
 
-**Every `SET` is required by default:** an empty result (`null`, `""`, `[]`) fails the node with `unmet required output(s)`. Set `optional: true` to allow it; there is no `required` field. Don't use placeholders like `" "`.
+**Every `SET` is required by default:** an empty result (`null`, `""`, `[]`) fails the node with `unmet required output(s)`. Set `optional: true` to allow it; there is no `required` field. Don't use placeholders like `" "`. An optional `SET` still writes its empty result to `target`, so the previous value at that path is not preserved.
 
-Operations run in order and see each other's writes.
+Operations run in order and see each other's writes. For shaping beyond a plain assign, use JSONata inside `SET`:
+
+- Merge objects: `SET` with `$merge([<target>, <value>])`.
+- Append to an array: `SET` with `$append(<target>, [<value>])`.
+
+Use TRANSFORM for: 1. Data shaping, turning context into another shape. 2. Execution-state updates, managing values needed while the flow runs, like pagination cursor offsets or derived runtime vars.
 
 ### DELAY
 
@@ -611,12 +708,14 @@ Capture a screenshot.
 }
 ```
 
-| Parameter     | Type   | Required | Description                                   |
-| ------------- | ------ | -------- | --------------------------------------------- |
-| `metadata`    | object | No       | Metadata for identification in results        |
-| `wait_time`   | number | No       | Max ms to wait. Default: 15000                |
-| `margin`      | number | No       | Pixel padding (useful to crop sticky headers) |
-| `max_scrolls` | number | No       | Scrolls for full-page capture                 |
+| Parameter                | Type   | Required | Description                                                                                  |
+| ------------------------ | ------ | -------- | -------------------------------------------------------------------------------------------- |
+| `metadata`               | object | No       | Metadata for identification in results                                                       |
+| `wait_time`              | number | No       | Max ms to wait. Default: 15000                                                               |
+| `margin`                 | number | No       | Pixel padding (useful to crop sticky headers)                                                |
+| `max_scrolls`            | number | No       | Scrolls for full-page capture                                                                |
+| `selector_error_message` | string | No       | Error code id (UUID) to fail with if the element is not found. See Error Codes               |
+| `run_if`                 | object | No       | Run this node only if the condition matches; otherwise skip it and continue on the `to` edge |
 
 ### SCROLL
 
@@ -662,16 +761,17 @@ Scroll the page or containers.
 }
 ```
 
-| Parameter                              | Type   | Required           | Description                                                                       |
-| -------------------------------------- | ------ | ------------------ | --------------------------------------------------------------------------------- |
-| `scroll_mode`                          | string | No                 | `simple` (default), `to-element`, or `region`                                     |
-| `direction`                            | string | No                 | `up` or `down` (default `down`). Used by `simple` and `region` modes              |
-| `load_events_triggered_through_scroll` | number | Yes                | Number of scroll wheel ticks. Only used by `simple` mode — set to `0` otherwise   |
-| `xpath`                                | string | Yes (`to-element`) | XPath of the element to scroll into view                                          |
-| `position`                             | string | No                 | `start` or `center`. Where the target ends up in the viewport (`to-element` mode) |
-| `container_xpath`                      | string | Yes (`region`)     | XPath of the scrollable container                                                 |
-| `goal`                                 | string | Yes (`region`)     | `find-element` or `full-container`                                                |
-| `wait_time`                            | number | No                 | Max ms to wait for elements. Default: 15000                                       |
+| Parameter                              | Type   | Required           | Description                                                                                                                                                                                                                                                                                                         |
+| -------------------------------------- | ------ | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `scroll_mode`                          | string | No                 | `simple` (default), `to-element`, or `region`                                                                                                                                                                                                                                                                       |
+| `direction`                            | string | No                 | `up`, `down`, `left`, or `right` (default `down`). Used by `simple` and `region` modes. In `simple` mode, vertical scrolling follows `scroll_down` (default `true`): set `scroll_down: false` to scroll up. With `goal: full-container`, `left` scrolls to the container's start and any other direction to its end |
+| `load_events_triggered_through_scroll` | number | Yes                | Number of scroll wheel ticks. Only used by `simple` mode — set to `0` otherwise                                                                                                                                                                                                                                     |
+| `xpath`                                | string | Yes (`to-element`) | XPath of the element to scroll into view                                                                                                                                                                                                                                                                            |
+| `position`                             | string | No                 | `start`, `center` (default), or `end`. Where the target ends up in the viewport (`to-element` mode)                                                                                                                                                                                                                 |
+| `container_xpath`                      | string | Yes (`region`)     | XPath of the scrollable container                                                                                                                                                                                                                                                                                   |
+| `goal`                                 | string | Yes (`region`)     | `find-element` or `full-container`                                                                                                                                                                                                                                                                                  |
+| `execution`                            | string | No                 | `STATIC` (default) or `LLM_VISION` (screenshot-driven; describe targets in `target_description` / `container_description`). `LLM_VISION` applies only to `to-element` and `region` modes; `simple` ignores it                                                                                                       |
+| `wait_time`                            | number | No                 | Max ms to wait for elements. Default: 15000                                                                                                                                                                                                                                                                         |
 
 ### TAB_MANAGEMENT
 
@@ -689,11 +789,14 @@ Open, close, or switch browser tabs.
 }
 ```
 
-| Parameter   | Type   | Required | Description                        |
-| ----------- | ------ | -------- | ---------------------------------- |
-| `tabAction` | string | Yes      | `OPEN`, `CLOSE`, or `SWITCH`       |
-| `url`       | string | No       | URL for OPEN action                |
-| `tab_index` | number | No       | 0-based tab index for SWITCH/CLOSE |
+| Parameter   | Type   | Required | Description                                                                  |
+| ----------- | ------ | -------- | ---------------------------------------------------------------------------- |
+| `tabAction` | string | Yes      | `OPEN`, `CLOSE`, or `SWITCH`                                                 |
+| `url`       | string | No       | URL for OPEN action                                                          |
+| `tab_index` | number | No       | 0-based tab index for SWITCH/CLOSE                                           |
+| `wait_time` | number | No       | Max ms to wait for the tab to load (OPEN) or appear (SWITCH). Default: 15000 |
+
+Leave `wait_time` unset unless you have already run the node once and seen the tab still blank or still loading — a large PDF or a slow report export. The interacting node that follows has its own `wait_time` for the element, and that one usually needs raising too.
 
 ### TFA (Two-Factor Authentication)
 
@@ -712,19 +815,22 @@ Handle 2FA challenges. Automatically extracts codes from SMS/email or generates 
 }
 ```
 
-| Parameter            | Type   | Required               | Description                                      |
-| -------------------- | ------ | ---------------------- | ------------------------------------------------ |
-| `tfa_type`           | string | Yes                    | `SMS`, `EMAIL`, `AUTHENTICATOR`, or `MAGIC_LINK` |
-| `credential`         | string | Yes                    | Vault credential key for the 2FA receiver        |
-| `selector`           | string | Yes (non-`MAGIC_LINK`) | XPath for code input                             |
-| `execution`          | string | No                     | `STATIC` (default) or `LLM_VISION`               |
-| `link_regex_pattern` | string | No                     | Regex to extract magic link from email           |
+| Parameter                | Type    | Required               | Description                                                                                  |
+| ------------------------ | ------- | ---------------------- | -------------------------------------------------------------------------------------------- |
+| `tfa_type`               | string  | Yes                    | `SMS`, `EMAIL`, `AUTHENTICATOR`, or `MAGIC_LINK`                                             |
+| `credential`             | string  | Yes                    | Vault credential key for the 2FA receiver                                                    |
+| `selector`               | string  | Yes (non-`MAGIC_LINK`) | XPath for code input. `LLM_VISION` finds the field on a screenshot and ignores it            |
+| `execution`              | string  | No                     | `STATIC` (default) or `LLM_VISION`                                                           |
+| `link_regex_pattern`     | string  | No                     | Regex to extract magic link from email                                                       |
+| `selector_error_message` | string  | No                     | Error code id (UUID) to fail with if the element is not found. See Error Codes               |
+| `human_mode`             | boolean | No                     | Human-like typing behavior                                                                   |
+| `run_if`                 | object  | No                     | Run this node only if the condition matches; otherwise skip it and continue on the `to` edge |
 
 Codes are automatically entered and submitted (Enter pressed). No subsequent Click node needed.
 
 ### FILE_DOWNLOAD
 
-Capture a file download triggered by a previous Click node.
+Capture a file. By default, the node waits for a download triggered by a previous Click node — it only captures, it doesn't click. This includes a PDF the click opens in the browser's PDF viewer. With `trigger_print`, the node instead saves the current page as PDF; no Click needed (see When to print below).
 
 ```json
 {
@@ -733,17 +839,28 @@ Capture a file download triggered by a previous Click node.
   "action": "FILE_DOWNLOAD",
   "parameters": {
     "metadata": { "invoice_id": "{{context.invoice_id}}" },
+    "selector": "//body",
     "timeout_seconds": 120
   }
 }
 ```
 
-| Parameter                     | Type    | Required | Description                                          |
-| ----------------------------- | ------- | -------- | ---------------------------------------------------- |
-| `metadata`                    | object  | No       | Metadata attached to the download for identification |
-| `trigger_print`               | boolean | No       | Trigger print dialog for PDF generation              |
-| `continue_on_failed_download` | boolean | No       | Continue if download times out                       |
-| `timeout_seconds`             | number  | No       | Max seconds to wait. Default: 60 (range 5-300)       |
+| Parameter                     | Type    | Required | Description                                                                                  |
+| ----------------------------- | ------- | -------- | -------------------------------------------------------------------------------------------- |
+| `metadata`                    | object  | Yes      | Metadata attached to the download for identification (`{}` if none)                          |
+| `selector`                    | string  | Yes      | XPath; required by API validation (`//body` works)                                           |
+| `trigger_print`               | boolean | No       | Save the current page as PDF instead of waiting for a download. Default: unset               |
+| `continue_on_failed_download` | boolean | No       | Continue if download times out                                                               |
+| `timeout_seconds`             | number  | No       | Max seconds to wait. Default: 60 (range 5-300)                                               |
+| `run_if`                      | object  | No       | Run this node only if the condition matches; otherwise skip it and continue on the `to` edge |
+
+#### When to print
+
+Leave `trigger_print` unset unless the page itself is the document to capture.
+
+- **Print** when the page is the artifact: a result or confirmation page kept as evidence (eligibility, claim status, submission confirmation), or an HTML report with no file export.
+- **Don't print** when a click delivers a file, including a PDF opened in the browser's PDF viewer. Printing would capture the current page instead of the file.
+- **Site "Print" button** that opens the browser's print dialog: don't click it. `trigger_print` opens the dialog itself. A "Print" button that opens a print-friendly view or delivers a file is a normal Click.
 
 ### FILE_UPLOAD
 
@@ -758,10 +875,10 @@ Upload a file to a file input. The OS file dialog must already be open (trigger 
 }
 ```
 
-| Parameter         | Type   | Required | Description                                              |
-| ----------------- | ------ | -------- | -------------------------------------------------------- |
-| `signed_file_url` | string | Yes      | Pre-authenticated URL to the file                        |
-| `file_name`       | string | No       | Custom file name (with extension) to use when uploading  |
+| Parameter         | Type   | Required | Description                                             |
+| ----------------- | ------ | -------- | ------------------------------------------------------- |
+| `signed_file_url` | string | Yes      | Pre-authenticated URL to the file                       |
+| `file_name`       | string | No       | Custom file name (with extension) to use when uploading |
 
 ### USER_INTERACTION
 
@@ -781,19 +898,19 @@ Pause for human input. Triggers `interaction.waiting` webhook.
       },
       "required": ["approval_code"]
     },
-    "timeout": 300000
+    "timeout": 180000
   }
 }
 ```
 
-| Parameter            | Type   | Required | Description                                 |
-| -------------------- | ------ | -------- | ------------------------------------------- |
-| `expected_datamodel` | object | Yes      | JSON Schema for data to collect             |
-| `server_message`     | string | No       | Message shown to user (supports variables)  |
-| `timeout`            | number | No       | Max ms to wait for response. Default: 10000 |
-| `error_message`      | string | No       | Error code id (UUID) to fail with on timeout. See [Error Codes](#error-codes) |
+| Parameter            | Type   | Required | Description                                                   |
+| -------------------- | ------ | -------- | ------------------------------------------------------------- |
+| `expected_datamodel` | object | Yes      | JSON Schema for data to collect                               |
+| `server_message`     | string | No       | Message shown to user (supports variables)                    |
+| `timeout`            | number | No       | Max ms to wait for response. Default: 180000, max: 270000     |
+| `error_message`      | string | No       | Error code id (UUID) to fail with on timeout. See Error Codes |
 
-While a run is paused on this node, submit the collected data with `cloudcruise run respond <session_id> --data '{"approval_code":"123456"}'` (keys must match `expected_datamodel`). The user's input becomes available to later nodes via `{{context.<key>}}`.
+The submitted data becomes available to later nodes via `{{context.<key>}}`. While a run is paused on this node, submit it with `cloudcruise run respond <session_id> --data '{"approval_code":"123456"}'` (keys must match `expected_datamodel`).
 
 ### EXTRACT_NETWORK
 
@@ -817,20 +934,149 @@ Intercept XHR/Fetch requests and extract data from responses.
 }
 ```
 
-| Parameter            | Type    | Required | Description                                        |
-| -------------------- | ------- | -------- | -------------------------------------------------- |
-| `url`                | string  | Yes      | URL pattern (exact, substring, or `regex:` prefix) |
-| `extract_data_model` | object  | Yes      | Schema with JSONata/JSONPath `path` expressions    |
-| `selector`           | string  | No       | XPath to wait for before extracting                |
-| `wait_time`          | number  | No       | Max ms to wait for selector. Default: 15000        |
-| `full_request`       | boolean | No       | Include full request/response metadata             |
-| `end_here_on_dry_run` | boolean | No      | In dry runs, end the workflow before this node runs |
+| Parameter                | Type    | Required | Description                                                                                  |
+| ------------------------ | ------- | -------- | -------------------------------------------------------------------------------------------- |
+| `url`                    | string  | Yes      | URL pattern: exact, substring, `*` wildcard, or `regex:` prefix                              |
+| `extract_data_model`     | object  | Yes      | Schema with JSONata/JSONPath `path` expressions                                              |
+| `selector`               | string  | No       | XPath to wait for before extracting                                                          |
+| `wait_time`              | number  | No       | Max ms to wait for selector. Default: 15000                                                  |
+| `selector_error_message` | string  | No       | Error code id (UUID) to fail with if the element is not found. See Error Codes               |
+| `full_request`           | boolean | No       | Include full request/response metadata                                                       |
+| `end_here_on_dry_run`    | boolean | No       | In dry runs, end the workflow before this node runs                                          |
+| `run_if`                 | object  | No       | Run this node only if the condition matches; otherwise skip it and continue on the `to` edge |
 
 Path syntax: `$` (root), `$.field` (direct), `$.parent.child` (nested), `$[0]` (array index).
 
-# Error Codes
+### API_FLOW
 
-`error_on_false_message` (BOOL_CONDITION), `error_message` (USER_INTERACTION) and `selector_error_message` (selector nodes) take the **id of a workspace error code**: a lowercase UUID. They do not take a code name, a placeholder or a free-text message.
+Replay a chain of HTTP (XHR/fetch) requests as one atomic node — not a UI interaction. Runs in the browser's live session, so cookies attach natively. With `credentials: "omit"`, the requests run cookie-free through a server-side relay instead. Edges: `to`.
+
+```json
+{
+  "id": "e2f3a4b5-6789-4c01-d234-56789abcdef0",
+  "name": "Search stories, then fetch the top one (API)",
+  "action": "API_FLOW",
+  "parameters": {
+    "target_step_id": "story",
+    "credentials": "include",
+    "steps": [
+      {
+        "kind": "http",
+        "id": "search",
+        "label": "Search stories",
+        "method": "POST",
+        "url": "https://api.example.com/search",
+        "body": {
+          "type": "json",
+          "value": { "query": "{{ context.inputs.search_query }}", "page": 0 }
+        },
+        "replay_target": {},
+        "extract": [
+          {
+            "name": "top_id",
+            "source": "response_body",
+            "expression": "hits[0].id",
+            "required": true
+          }
+        ]
+      },
+      {
+        "kind": "http",
+        "id": "story",
+        "label": "Fetch top story",
+        "method": "GET",
+        "url": "https://api.example.com/items/{{ steps.search.top_id }}",
+        "replay_target": {},
+        "extract": [
+          {
+            "name": "title",
+            "source": "response_body",
+            "expression": "title",
+            "required": true
+          }
+        ]
+      }
+    ],
+    "field_json_map": "{ \"top_story_title\": steps.story.title }"
+  }
+}
+```
+
+**Node parameters:**
+
+| Parameter         | Type   | Required | Description                                                                                                                                                                                                                                                                                                                         |
+| ----------------- | ------ | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `steps`           | array  | Yes      | `ApiRequestStep[]` (see below). Max 20. Steps run in array order — put a step after every step it references                                                                                                                                                                                                                        |
+| `target_step_id`  | string | Yes      | The step whose result is published to the workflow context                                                                                                                                                                                                                                                                          |
+| `credentials`     | string | No       | `include` (default; browser cookies attach natively — never thread cookies yourself), `same-origin`, or `omit` (cookie-free server-side relay)                                                                                                                                                                                      |
+| `redirect_policy` | string | No       | `follow` (default) or `manual` (capture a redirect's `Location` instead of following it, e.g. an OAuth `code`). Per-step override allowed                                                                                                                                                                                           |
+| `ordering`        | array  | No       | `{ from_step_id, to_step_id, reason }[]`. Only for a step that must run first with no value flowing between them (e.g. a `Set-Cookie` side effect). Array order must already satisfy it                                                                                                                                             |
+| `field_json_map`  | string | No       | JSONata over `{ steps, context }`. Top-level keys deep-merge into `context` (`top_story_title` → `context.top_story_title`, visible to `output_schema`). Keys under `runtime` stay out of the run result; nest there only values that later nodes read and the result should not include. Reference only `steps.<target_step_id>.*` |
+| `run_if`          | object | No       | Run this node only if the condition matches; otherwise skip it and continue on the `to` edge                                                                                                                                                                                                                                        |
+
+**`steps[]` (`ApiRequestStep`):**
+
+| Field                  | Type   | Required | Description                                                                                                                                                                             |
+| ---------------------- | ------ | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`                   | string | Yes      | `^[a-z][a-z0-9_]{0,63}$`, unique within the node                                                                                                                                        |
+| `label`                | string | Yes      | Human-readable step name                                                                                                                                                                |
+| `method`               | string | Yes      | `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `HEAD`, `OPTIONS`                                                                                                                              |
+| `url`                  | string | Yes      | Full URL; may contain `{{ }}` refs                                                                                                                                                      |
+| `replay_target`        | object | Yes      | Always set; `{}` (top frame) for almost everything. `{ "frame": { "kind": "iframe", "url_pattern": "...", "ancestry_origins": [...] } }` only for a request fired from inside an iframe |
+| `kind`                 | string | No       | `http` (default)                                                                                                                                                                        |
+| `query`                | object | No       | `{ name: value }`; value may be a literal, a `{{ }}` ref, or a string array (repeats the param). Max 40                                                                                 |
+| `headers`              | object | No       | Same shape as `query`. Max 40. Never hand-write `Authorization`/`Cookie`; they come from the browser or a `{{ steps.* }}` ref                                                           |
+| `body`                 | object | No       | See below. Omit for no body                                                                                                                                                             |
+| `extract`              | array  | No       | See below. Later steps read values as `{{ steps.<id>.<name> }}`                                                                                                                         |
+| `repeat`               | object | No       | Pagination; see below                                                                                                                                                                   |
+| `expected_status`      | object | No       | `{ "range": "2xx" }` (default) or `{ "values": [200, 201] }`                                                                                                                            |
+| `graphql_error_policy` | string | No       | GraphQL only: `fail_on_any` (default)                                                                                                                                                   |
+| `protocol_hint`        | string | No       | `rest`, `graphql`, or `other`. UI hint only                                                                                                                                             |
+
+Other per-step fields (`mutation_severity`, `is_auth_refresh`, `response_type`, `retry`, `timeout_ms`, `max_response_bytes`) have method-derived defaults. Leave them out unless needed. A per-step `redirect_policy` overrides the node's. `retry` is not allowed on `POST`/`PATCH`; `retry.max_attempts` ≤ 5.
+
+**`extract` entries** (unique `name` per step):
+
+| `source`          | Shape                                       | Notes                                                                 |
+| ----------------- | ------------------------------------------- | --------------------------------------------------------------------- |
+| `response_body`   | `{ name, source, expression }`              | JSONata path into the parsed body (GraphQL: `data.*`)                 |
+| `response_header` | `{ name, source, header }`                  | Header name to read                                                   |
+| `response_text`   | `{ name, source, pattern, flags?, group? }` | JS regex over the raw text, for non-JSON responses. Returns one match |
+
+Set `required: true` on every entry unless the value is genuinely optional. Without it, a missing value interpolates as empty and the failure surfaces downstream instead of at this step. For multiple matches, use JSONata `$match(...)` in `field_json_map` or a `response_body` expression.
+
+**`body`** (one shape per `type`):
+
+| `type`                 | Shape                                                                                |
+| ---------------------- | ------------------------------------------------------------------------------------ |
+| `json`                 | `{ "type": "json", "value": <any JSON> }` — put `{{ }}` refs directly in JSON values |
+| `form_urlencoded`      | `{ "type": "form_urlencoded", "value": { "field": "value" } }`                       |
+| `text`                 | `{ "type": "text", "value": "raw string" }`                                          |
+| `multipart` / `binary` | File uploads. Rare                                                                   |
+
+**`repeat`** (pagination — one step, many requests):
+
+| Field            | Description                                                                                                        |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `cursor.from`    | Reads the next cursor from each response. Same shapes as `extract`, without `required`                             |
+| `cursor.into`    | `{ location: "url" \| "query" \| "header" \| "body", path }` — where the cursor goes in the next request           |
+| `until`          | `{ type: "cursor_absent" }`, `{ type: "empty_collection", path }`, or `{ type: "response_predicate", expression }` |
+| `accumulate`     | JSONata path collected from every page into one array, exposed as `steps.<id>.accumulated`                         |
+| `max_iterations` | **Required.** Hard cap, max 100                                                                                    |
+
+**Value flow:** pass values between steps with an inline `{{ steps.<id>.<name> }}` ref in `url`, `query`, `headers`, or a `body` leaf. There is no bindings list. Refs must name a step in the same node. Keep refs to `steps.*` and `context.*` plain paths: operators like `&` or `$count(...)` over them are rejected at save.
+
+**Same origin:** with `credentials: "include"`, the request fires from the page the run is on. If that page's origin (subdomain included) differs from the request's, the fetch fails. Make sure an earlier node (often `START`) lands on the target origin.
+
+## Error Codes
+
+These params take the **id of a workspace error code**: a lowercase UUID. They do not take a code name, a placeholder or a free-text message.
+
+| Parameter                | Node actions                                                                                       |
+| ------------------------ | -------------------------------------------------------------------------------------------------- |
+| `selector_error_message` | `CLICK`, `INPUT_TEXT`, `INPUT_SELECT`, `EXTRACT_DATAMODEL`, `EXTRACT_NETWORK`, `SCREENSHOT`, `TFA` |
+| `error_on_false_message` | `BOOL_CONDITION`                                                                                   |
+| `error_message`          | `USER_INTERACTION`                                                                                 |
 
 ```bash
 # Find-or-create by name: returns the existing code if the name is taken ("created": false)
@@ -843,24 +1089,6 @@ cloudcruise error-codes get <id>                      # One code by id
 ```
 
 Put the returned `id` in the node param and save with `workflows update`. Saving links the code to the workflow; any other value is rejected with a 400.
-
-Error codes are separate from the maintenance agent's error categories below.
-
-# Error Classification
-
-When a run fails, the maintenance agent classifies errors:
-
-| Category           | Sub-category                 | Description                            | Recovery                  |
-| ------------------ | ---------------------------- | -------------------------------------- | ------------------------- |
-| **Workflow Error** | `XPATH_INCORRECT`            | Selector matches 0 or >1 elements      | Auto-patch selectors      |
-|                    | `ACTION_PERFORMED_TOO_EARLY` | Clicked before element loaded          | Insert waits              |
-|                    | `UNEXPECTED_POPUP`           | Modal appeared (survey, cookie banner) | Add popup handling        |
-|                    | `UNEXPECTED_UI_STATE`        | Layout differs from expected           | Update graph              |
-| **User Error**     | `PAGE_NOT_FOUND`             | URL returns 404                        | Notify user               |
-|                    | `AUTHENTICATION_ERROR`       | Wrong/expired credentials              | Notify user               |
-|                    | `INCORRECT_FORM_INPUTS`      | Invalid input data                     | Notify user               |
-| **External Error** | `SERVICE_UNAVAILABLE`        | Upstream system down                   | Exponential backoff retry |
-|                    | `PAGE_STILL_LOADING`         | Page stuck loading                     | Retry                     |
 
 ## Best Practices
 
