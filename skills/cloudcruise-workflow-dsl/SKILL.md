@@ -34,7 +34,7 @@ Leave them in the body from `workflows get`; `workflows update` sends it as-is. 
 
 **Required:** `nodes`, `edges`, `name`, `input_schema`, `output_schema`, `max_retries`
 
-**Optional:** `description`, `version_note` (on `workflows update`, set via `--version-note` only), `use_native_actions`, `video_record_session`, `extract_network_urls`, `popup_xpaths`, `vault_schema`, `enable_popup_handling`, `enable_action_timing_recovery`, `enable_xpath_recovery`, `enable_error_code_generation`, `enable_service_unavailable_recovery`, `proxy_setting`, `proxy_value`, `enable_network_listener`, `manual_captcha_solve`
+**Optional:** `description`, `version_note` (on `workflows update`, set via `--version-note` only), `use_native_actions`, `video_record_session`, `extract_network_urls`, `popup_xpaths`, `vault_schema`, `enable_popup_handling`, `enable_action_timing_recovery`, `enable_xpath_recovery`, `enable_error_code_generation`, `enable_service_unavailable_recovery`, `enable_incorrect_form_input_recovery`, `enable_password_update_recovery`, `enable_tfa_setup_recovery`, `enable_node_description_enrichment`, `allow_requeue`, `deny_requeue_past_dry_run_marker`, `proxy_setting`, `proxy_value`, `enable_network_listener`, `manual_captcha_solve`
 
 ### `popup_xpaths`
 

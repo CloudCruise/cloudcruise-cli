@@ -13,6 +13,7 @@
 ### Changed
 
 - `cloudcruise-workflow-dsl` documents API_FLOW.
+- `cloudcruise-workflow-dsl` lists the recovery and requeue workflow settings: `enable_incorrect_form_input_recovery`, `enable_password_update_recovery`, `enable_tfa_setup_recovery`, `enable_node_description_enrichment`, `allow_requeue`, `deny_requeue_past_dry_run_marker`.
 - `cloudcruise-workflow-dsl` fixes enum values and defaults to match the API: SCROLL `position: "end"` and `left`/`right`, BOOL_CONDITION `STARTS_WITH`/`ENDS_WITH`, required FILE_DOWNLOAD `selector`, USER_INTERACTION `timeout` default and maximum.
 - `cloudcruise-workflow-dsl` corrects runtime behavior: INPUT_SELECT always uses `selector`, SCROLL `LLM_VISION` applies only outside `simple` mode, and SCROLL `full-container` direction.
 - `cloudcruise` lists the current `install --skills` target directories.
