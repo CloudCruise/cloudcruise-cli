@@ -38,7 +38,7 @@ Leave them in the body from `workflows get`; `workflows update` sends it as-is. 
 
 ### `popup_xpaths`
 
-An array of XPath selectors that identify dismissible popups (cookie banners, survey modals, chat widgets, etc.). When `enable_popup_handling` is `true`, the runtime checks for elements matching these XPaths before each node executes and clicks them to dismiss. Set it at the workflow level only. Node-level `popup_xpaths` is ignored (the runtime overwrites it from the workflow level) — do not set it.
+An array of XPath selectors that identify dismissible popups (cookie banners, survey modals, chat widgets, etc.). When `enable_popup_handling` is `true`, the runtime checks for elements matching these XPaths before each node executes and clicks them to dismiss.
 
 ## Variables
 
@@ -671,9 +671,9 @@ Scroll the page or containers.
 | `direction`                            | string | No                 | `up`, `down`, `left`, or `right` (default `down`). Used by `simple` and `region` modes. In `simple` mode, vertical scrolling follows `scroll_down` (default `true`): set `scroll_down: false` to scroll up. With `goal: full-container`, `left` scrolls to the container's start and any other direction to its end |
 | `load_events_triggered_through_scroll` | number | Yes                | Number of scroll wheel ticks. Only used by `simple` mode — set to `0` otherwise   |
 | `xpath`                                | string | Yes (`to-element`) | XPath of the element to scroll into view                                          |
-| `position`                             | string | No                 | `start`, `center`, or `end`. Where the target ends up in the viewport (`to-element` mode) |
+| `position`                             | string | No                 | `start`, `center` (default), or `end`. Where the target ends up in the viewport (`to-element` mode) |
 | `container_xpath`                      | string | Yes (`region`)     | XPath of the scrollable container                                                 |
-| `goal`                                 | string | Yes (`region`)     | `find-element` or `full-container`. `scroll_behavior` takes the same values      |
+| `goal`                                 | string | Yes (`region`)     | `find-element` or `full-container`                                                |
 | `execution`                            | string | No                 | `STATIC` (default) or `LLM_VISION` (screenshot-driven; describe targets in `target_description` / `container_description`). `LLM_VISION` applies only to `to-element` and `region` modes; `simple` ignores it |
 | `wait_time`                            | number | No                 | Max ms to wait for elements. Default: 15000                                       |
 
