@@ -8,6 +8,16 @@
 - `workflows update` sends the body as-is instead of stripping 11 fields. Edits to `encrypted_keys` now reach the backend. Requires a backend that accepts echoed read-only fields.
 - `workflows update` no longer sends the body's `version_note`; the note comes only from `--version-note`. A fetched body's note describes the version it was fetched at.
 
+## 1.13.1
+
+### Changed
+
+- `cloudcruise-workflow-dsl` covers all 23 node types. New sections for API_FLOW and WINDOW_MANAGEMENT; APP_ACTION is listed as deprecated.
+- `cloudcruise-workflow-dsl` documents `execution: "COORDINATES"` on CLICK and INPUT_TEXT (selector JSON, `absolute`) and lists `COMPUTER_USE` as a deprecated alias of `LLM_VISION`.
+- `cloudcruise-workflow-dsl` has a "Deprecated and removed" list: TRANSFORM `MERGE` is deprecated, TRANSFORM `APPEND` is rejected on save, node-level `popup_xpaths` is ignored.
+- `cloudcruise-workflow-dsl` fixes enum values and defaults to match the API: SCROLL `position: "end"` and `left`/`right`, BOOL_CONDITION `STARTS_WITH`/`ENDS_WITH`, required FILE_DOWNLOAD `selector`, USER_INTERACTION `timeout` default and maximum.
+- `cloudcruise` lists the current `install --skills` target directories.
+
 ## 1.13.0
 
 ### Added
