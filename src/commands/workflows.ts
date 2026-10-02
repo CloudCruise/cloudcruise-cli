@@ -386,14 +386,18 @@ Send the JSON from \`workflows get\` as-is; read-only fields may stay in.
 
 Stale check: when the body has a \`version_id\`, the update only succeeds if
 that version is still the latest. Otherwise it creates no version and exits
-12 (VERSION_CONFLICT). The stderr envelope names the latest version (number,
-author, time, note). Re-fetch with \`workflows get\`, re-apply your edit and
-update again, or pass --force to overwrite the latest version anyway.
+12 (WORKFLOW_VERSION_CONFLICT). The stderr envelope names the latest version
+(number, author, time, note). Re-fetch with \`workflows get\`, re-apply your
+edit and update again, or pass --force to overwrite the latest version anyway.
 A body without \`version_id\` is not checked.
+
+stdout is the new version, with its new \`version_id\`. Use it as the working
+copy for the next update; the old copy now fails the stale check.
 
 Examples:
   $ cloudcruise workflows update <workflow_id> --file workflow.json --version-note "Fixed login XPath"
   $ cat workflow.json | cloudcruise workflows update <workflow_id> --stdin --version-note "Updated selectors"
+  $ cloudcruise workflows update <workflow_id> --file workflow.json > next.json && mv next.json workflow.json
   $ cloudcruise workflows get <workflow_id> --version-number 17 > rollback.json
   $ cloudcruise workflows update <workflow_id> --file rollback.json --force --version-note "Rollback to v17"
 `).action(

@@ -93,10 +93,12 @@ cloudcruise workflows validate-input <workflow_id> --file payload.json          
 cloudcruise workflows get <workflow_id> > workflow.json
 # Edit workflow.json with your file editing tools (targeted replacements, not full rewrites)
 # Leave read-only fields (id, version_id, created_at, …) in place; the body is sent as-is.
-cloudcruise workflows update <workflow_id> --file workflow.json --version-note "Description of changes"
+cloudcruise workflows update <workflow_id> --file workflow.json --version-note "Description of changes" > next.json && mv next.json workflow.json
 ```
 
-**Stale check:** `update` only succeeds if the body's `version_id` is still the latest version. If someone saved in between (dashboard edit, healing promotion, builder session), it creates no version and exits 12 (`WORKFLOW_VERSION_CONFLICT`). The stderr envelope names the latest version (`latestVersion`: number, author, time, note). Re-fetch with `workflows get`, re-apply your edit and update again. Pass `--force` only to overwrite the other save on purpose. A body without `version_id` is not checked.
+**Stale check:** `update` only succeeds if the body's `version_id` is still the latest version. Otherwise it creates no version and exits 12 (`WORKFLOW_VERSION_CONFLICT`). The stderr envelope names the latest version (`latestVersion`: number, author, time, note). Re-fetch with `workflows get`, re-apply your edit and update again. Pass `--force` only to overwrite the other save on purpose. A body without `version_id` is not checked.
+
+Your own update also creates a new latest version. `update` prints it (same shape as `get`, new `version_id`); keep it as the working copy, as above, or the next push from the old copy exits 12.
 
 **Rolling back versions:** `workflows versions` lists history newest first. Fetch a prior version's full JSON via `--version-number <N>` (same shape as latest), then push it back with `--force` to roll back (its `version_id` is not the latest, so the stale check would reject it) — history is preserved as a new version on top:
 
@@ -121,7 +123,8 @@ cloudcruise run get <session_id>
 # 2. Discover elements → validate → add nodes → run again → repeat
 cloudcruise snapshot suggest <session_id> <end_node_id>
 cloudcruise snapshot test "//input[@name='email']" <session_id> <end_node_id>
-# Edit workflow.json, push with: cloudcruise workflows update ... --version-note "..."
+# Edit workflow.json, push and keep the new version as the working copy:
+#   cloudcruise workflows update <workflow_id> --file workflow.json --version-note "..." > next.json && mv next.json workflow.json
 cloudcruise run start <workflow_id> --input '{}' --debug
 cloudcruise run get <session_id>   # poll until terminal
 # On success: inspect END node's snapshot for the next page state.
@@ -472,7 +475,7 @@ If `snapshot fetch` reports no HTML, the run was not `--debug`. Re-run with `--d
 - `run list --since` accepts duration strings: `24h`, `7d`, `30m`; without `--since`, the API defaults to the last 24 hours
 - `run errors --since` accepts duration strings: `24h`, `7d`, `30m`
 - `workflows update` requires: nodes, edges, name, input_schema, output_schema, max_retries. Keep all other fields from the GET response (e.g., description, enable_xpath_recovery, proxy_setting, version_id).
-- `workflows update` exits 12 (`WORKFLOW_VERSION_CONFLICT`) when the workflow changed since the body's `version_id`: re-fetch and re-apply, or pass `--force`.
+- `workflows update` exits 12 (`WORKFLOW_VERSION_CONFLICT`) when the body's `version_id` is not the latest, including after your own previous update: keep `update`'s output as the working copy, re-fetch and re-apply, or pass `--force`.
 - All commands accept `--api-key`, `--base-url`, and `--encryption-key` overrides
 - Auth resolution: `--api-key` flag > `CLOUDCRUISE_API_KEY` env > `~/.cloudcruise/config.json`
 - Encryption key resolution: `--encryption-key` flag > `CLOUDCRUISE_ENCRYPTION_KEY` env > profile config
