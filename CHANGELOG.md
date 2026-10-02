@@ -1,11 +1,10 @@
 # Changelog
 
-## Unreleased
+## 1.13.0
 
-### Changed
+### Added
 
-- `cloudcruise-workflow-dsl`: the `CAPTCHA` node takes `captcha_type: "hcaptcha"`.
-- `captchas.md`: the platform also solves hCaptcha. An invisible hCaptcha that a site opens from its own checkbox needs a `CLICK` on that checkbox and a `CAPTCHA` node with `captcha_type: "hcaptcha"` right after it, since automatic solving does not wait for a challenge that has not appeared.
+- Exit 12 (`USAGE_LIMIT`) for HTTP 402 `USAGE_LIMIT_EXCEEDED`, when a run is refused because the workspace is out of browser hours. The stderr envelope adds the backend's `reason`, `currentUsage` and `limit`. The backend used to return this as 401 `UNAUTHENTICATED`, which exited 3 (`AUTH`) as if the credential were bad.
 
 ## 1.12.1
 

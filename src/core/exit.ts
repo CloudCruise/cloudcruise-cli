@@ -18,7 +18,8 @@ export const ExitCode = {
   AGENT_ERROR: 8,
   TIMEOUT: 9,
   NO_BROWSER_ATTACHED: 10,
-  SKILLS_INCOMPATIBLE: 11
+  SKILLS_INCOMPATIBLE: 11,
+  USAGE_LIMIT: 12
 } as const
 
 export type ExitCodeValue = (typeof ExitCode)[keyof typeof ExitCode]
@@ -84,6 +85,8 @@ export function exitCodeForApiError(err: ApiError): ExitCodeValue {
       return ExitCode.TIMEOUT
     case "NO_BROWSER_ATTACHED":
       return ExitCode.NO_BROWSER_ATTACHED
+    case "USAGE_LIMIT_EXCEEDED":
+      return ExitCode.USAGE_LIMIT
   }
   switch (err.status) {
     case 400:
@@ -92,6 +95,8 @@ export function exitCodeForApiError(err: ApiError): ExitCodeValue {
     case 401:
     case 403:
       return ExitCode.AUTH
+    case 402:
+      return ExitCode.USAGE_LIMIT
     case 404:
       return ExitCode.SESSION_NOT_FOUND
     case 408:
@@ -129,11 +134,13 @@ export function exitCodeForStatus(status: string): ExitCodeValue {
 }
 
 /**
- * Terminal error handler for every command. Writes a machine-readable error
- * envelope to stderr (never stdout — stdout stays clean for parsers) and exits
- * with the mapped code.
+ * The stderr envelope and exit code for an error, kept separate from `fail` so
+ * the mapping can be checked without exiting the process.
  */
-export function fail(err: unknown): never {
+export function buildErrorEnvelope(err: unknown): {
+  exitCode: ExitCodeValue
+  envelope: Record<string, unknown>
+} {
   let exitCode: ExitCodeValue = ExitCode.FAILURE
   const envelope: Record<string, unknown> = {}
 
@@ -142,13 +149,25 @@ export function fail(err: unknown): never {
     envelope.code = err.code ?? "ERROR"
     envelope.statusCode = err.status
     envelope.message = err.message
-    let messageId: string | undefined
+    let body: {
+      messageId?: string
+      reason?: string
+      currentUsage?: number
+      limit?: number
+    } = {}
     try {
-      messageId = (JSON.parse(err.body) as { messageId?: string }).messageId
+      const parsed: unknown = JSON.parse(err.body)
+      if (parsed && typeof parsed === "object") body = parsed as typeof body
     } catch {
       // Non-JSON body — nothing more to surface.
     }
-    if (messageId) envelope.messageId = messageId
+    if (body.messageId) envelope.messageId = body.messageId
+    if (exitCode === ExitCode.USAGE_LIMIT) {
+      if (body.reason) envelope.reason = body.reason
+      if (typeof body.currentUsage === "number")
+        envelope.currentUsage = body.currentUsage
+      if (typeof body.limit === "number") envelope.limit = body.limit
+    }
   } else if (err instanceof AmbiguousSessionError) {
     exitCode = ExitCode.AMBIGUOUS_SESSION
     envelope.code = "AMBIGUOUS_SESSION"
@@ -169,6 +188,16 @@ export function fail(err: unknown): never {
   }
 
   envelope.exitCode = exitCode
+  return { exitCode, envelope }
+}
+
+/**
+ * Terminal error handler for every command. Writes a machine-readable error
+ * envelope to stderr (never stdout — stdout stays clean for parsers) and exits
+ * with the mapped code.
+ */
+export function fail(err: unknown): never {
+  const { exitCode, envelope } = buildErrorEnvelope(err)
   process.stderr.write(`${JSON.stringify(envelope)}\n`)
   process.exit(exitCode)
 }
