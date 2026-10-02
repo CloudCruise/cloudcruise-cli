@@ -8,9 +8,17 @@ directly or checking what the builder built. Node semantics are in the
 
 ## Automatic solving
 
-The platform solves Cloudflare Turnstile and reCAPTCHA v2. By default the solver
-runs before every action, in builder sessions and in runs. Do not author a `CLICK`
-on a captcha widget: clicking into a half-solved widget breaks the solver.
+The platform solves Cloudflare Turnstile, reCAPTCHA v2 and hCaptcha. By default
+the solver runs before every action, in builder sessions and in runs. Do not author
+a `CLICK` on a captcha widget: clicking into a half-solved widget breaks the solver.
+
+Some sites open an invisible hCaptcha from their own "I am not a robot" checkbox, a
+site element rather than hCaptcha's widget, and the challenge appears a few seconds
+after the click. Automatic solving does not wait for a challenge that has not
+appeared, so the workflow clicks the site's checkbox with a `CLICK` node and has a
+`CAPTCHA` node with `captcha_type: "hcaptcha"` right after it. That node waits up
+to 15 seconds for the challenge, solves it, and runs whether or not automatic
+solving is on.
 
 ## Manual solving
 
@@ -83,3 +91,5 @@ These failures have known fixes:
   expired. Switch to manual solving.
 - A text captcha is rejected and the run does not retry: the retry loop is
   missing. Add it.
+- An hCaptcha challenge opens after a click on the site's own checkbox and stays
+  unsolved: the `CAPTCHA` node after that click is missing. Add it.

@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- `cloudcruise-workflow-dsl`: the `CAPTCHA` node takes `captcha_type: "hcaptcha"`.
+- `captchas.md`: the platform also solves hCaptcha. An invisible hCaptcha that a site opens from its own checkbox needs a `CLICK` on that checkbox and a `CAPTCHA` node with `captcha_type: "hcaptcha"` right after it, since automatic solving does not wait for a challenge that has not appeared.
+
 ## 1.12.1
 
 ### Changed

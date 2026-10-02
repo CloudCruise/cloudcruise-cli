@@ -588,11 +588,13 @@ Solve one captcha at this point in the run. Runs the platform's solver for the n
 }
 ```
 
-| Parameter      | Type   | Required | Description                                          |
-| -------------- | ------ | -------- | ---------------------------------------------------- |
-| `captcha_type` | string | Yes      | `turnstile` (Cloudflare Turnstile) or `recaptcha_v2` |
+| Parameter      | Type   | Required | Description                                                       |
+| -------------- | ------ | -------- | ----------------------------------------------------------------- |
+| `captcha_type` | string | Yes      | `turnstile` (Cloudflare Turnstile), `recaptcha_v2`, or `hcaptcha` |
 
 Outcome: no captcha of that type on the page → the node passes and the run continues. Captcha present and solved → passes. Captcha present and not solved → the node fails with error code `CAPTCHA-E0001`, so the workflow's error-code actions (retry, alert, pause) apply. Detection finds the widget's iframe or container in the top page only. A captcha on a page embedded in another iframe is not detected, and the node passes as if no captcha were present.
+
+For `hcaptcha`, when hCaptcha is on the page but no challenge is showing yet, the node waits up to 15 seconds for one to open, and passes as soon as the widget has a token. That is what makes it work right after a `CLICK` on a site's own "I am not a robot" checkbox that opens an invisible hCaptcha: the challenge appears a few seconds after the click, and automatic solving does not wait for it.
 
 ### SCREENSHOT
 
