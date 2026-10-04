@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Added
+
+- Update notice for coding agents. Off a TTY, a newer CLI is reported as one `updateAvailable` JSON line on stderr with the update command (`npm i -g @cloudcruise/cli@latest`) and a note to update the coding-agent plugin too. On a TTY, the box is unchanged. `CI` and `NO_UPDATE_NOTIFIER` still turn it off.
+- Skills auto-refresh. The first command after a CLI upgrade reinstalls the project's skill packs that an older CLI stamped and reports them on stderr (`skillsRefreshed` JSON off a TTY). Unstamped and symlinked packs are left alone. Opt out with `settings.skillsAutoUpdate: false` in `~/.cloudcruise/config.json`; `CLOUDCRUISE_SKILLS_AUTO_UPDATE=0|1` overrides it. While opted out, the stale-skills warning still fires.
+
 ### Changed
 
 - `workflows update` detects stale edits. It sends the body's `version_id` as `base_version_id`; if someone saved in between, it creates no version and exits 13 (`WORKFLOW_VERSION_CONFLICT`). The stderr envelope adds `latestVersion` (id, number, author, time, note) and a `hint`. `--force` overwrites anyway. A body without `version_id` is not checked.

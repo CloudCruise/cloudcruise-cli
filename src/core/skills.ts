@@ -1,6 +1,8 @@
-import { existsSync, readdirSync, readFileSync } from "fs"
+import { existsSync, lstatSync, readdirSync, readFileSync } from "fs"
 import { join } from "path"
 import { CLI_VERSION } from "./version.js"
+import { installPack, listSourcePacks } from "./skill-install.js"
+import type { CliSettings } from "./config.js"
 import { SkillsIncompatibleError, fail } from "./exit.js"
 
 /**
@@ -197,4 +199,84 @@ export function checkInstalledSkills(topLevelGroup: string | undefined): void {
     return
   }
   emitWarning(status)
+}
+
+export interface AutoRefreshOptions {
+  cwd: string
+  env: Record<string, string | undefined>
+  settings: CliSettings
+  stderr: { isTTY?: boolean; write(chunk: string): unknown }
+}
+
+function readManifest(packDir: string): SkillManifest | undefined {
+  try {
+    const m = JSON.parse(
+      readFileSync(join(packDir, MANIFEST_FILE), "utf-8")
+    ) as SkillManifest
+    return m && typeof m.cliVersion === "string" ? m : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * Reinstall every CLI-managed pack (one carrying a manifest) that an older CLI
+ * stamped, so skills follow a CLI upgrade without a manual
+ * `cloudcruise install --skills`. Never throws; on failure the staleness
+ * warning still fires.
+ */
+export function autoRefreshSkills(options: AutoRefreshOptions): string[] {
+  const { cwd, stderr } = options
+  if (!skillsAutoUpdateEnabled(options)) return []
+  const paths: string[] = []
+  const packs = new Set<string>()
+  let fromVersion: string | undefined
+  try {
+    const shipped = new Set(listSourcePacks())
+    for (const root of skillsRoots(cwd)) {
+      if (!existsSync(root)) continue
+      for (const entry of readdirSync(root)) {
+        const packDir = join(root, entry)
+        if (!shipped.has(entry) || lstatSync(packDir).isSymbolicLink()) continue
+        const manifest = readManifest(packDir)
+        if (!manifest || compareVersions(manifest.cliVersion, CLI_VERSION) >= 0) {
+          continue
+        }
+        paths.push(installPack(root, entry))
+        packs.add(entry)
+        if (!fromVersion || compareVersions(manifest.cliVersion, fromVersion) < 0) {
+          fromVersion = manifest.cliVersion
+        }
+      }
+    }
+  } catch {
+    // Partial refresh — report what was done; the warning covers the rest.
+  }
+  if (paths.length) {
+    reportRefresh(stderr, { fromVersion, packs: [...packs].sort(), paths })
+  }
+  return paths
+}
+
+function skillsAutoUpdateEnabled(
+  options: Pick<AutoRefreshOptions, "env" | "settings">
+): boolean {
+  const fromEnv = options.env.CLOUDCRUISE_SKILLS_AUTO_UPDATE
+  if (fromEnv === "0") return false
+  if (fromEnv === "1") return true
+  return options.settings.skillsAutoUpdate !== false
+}
+
+function reportRefresh(
+  stderr: AutoRefreshOptions["stderr"],
+  refresh: { fromVersion?: string; packs: string[]; paths: string[] }
+): void {
+  if (stderr.isTTY) {
+    stderr.write(
+      `✓ cloudcruise skills refreshed (v${refresh.fromVersion ?? "?"} → v${CLI_VERSION}): ${refresh.packs.join(", ")}\n`
+    )
+    return
+  }
+  const payload = { cliVersion: CLI_VERSION, ...refresh }
+  stderr.write(`${JSON.stringify({ skillsRefreshed: payload })}\n`)
 }
