@@ -242,7 +242,12 @@ export function autoRefreshSkills(options: AutoRefreshOptions): string[] {
         if (!manifest || compareVersions(manifest.cliVersion, CLI_VERSION) >= 0) {
           continue
         }
-        paths.push(installPack(root, entry))
+        try {
+          paths.push(installPack(root, entry))
+        } catch {
+          // Left stale; the staleness warning still covers it.
+          continue
+        }
         packs.add(entry)
         if (!fromVersion || compareVersions(manifest.cliVersion, fromVersion) < 0) {
           fromVersion = manifest.cliVersion
@@ -250,7 +255,7 @@ export function autoRefreshSkills(options: AutoRefreshOptions): string[] {
       }
     }
   } catch {
-    // Partial refresh — report what was done; the warning covers the rest.
+    // Unreadable root — report what was done; the warning covers the rest.
   }
   if (paths.length) {
     reportRefresh(stderr, { fromVersion, packs: [...packs].sort(), paths })

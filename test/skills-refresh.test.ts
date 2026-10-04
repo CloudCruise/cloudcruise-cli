@@ -1,6 +1,7 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
 import {
+  chmodSync,
   existsSync,
   lstatSync,
   mkdirSync,
@@ -185,4 +186,26 @@ test("CLOUDCRUISE_SKILLS_AUTO_UPDATE=1 re-enables the refresh over settings.skil
   })
 
   assert.equal(stampOf(dir), CLI_VERSION)
+})
+
+// A root the user can't write (e.g. read-only checkout) must not keep the
+// other roots stale; the unwritable pack stays as it was and is not reported.
+test("a pack that cannot be reinstalled does not stop the other roots from refreshing", () => {
+  const cwd = project()
+  const locked = installedPack(cwd, ".claude", "cloudcruise", OLD_VERSION)
+  const writable = installedPack(cwd, ".agents", "cloudcruise", OLD_VERSION)
+  chmodSync(join(cwd, ".claude", "skills"), 0o555)
+  chmodSync(locked, 0o555)
+  const stderr = fakeStderr()
+
+  try {
+    autoRefreshSkills({ cwd, env: {}, settings: {}, stderr })
+  } finally {
+    chmodSync(join(cwd, ".claude", "skills"), 0o755)
+    chmodSync(locked, 0o755)
+  }
+
+  assert.equal(stampOf(locked), OLD_VERSION)
+  assert.equal(stampOf(writable), CLI_VERSION)
+  assert.deepEqual(JSON.parse(stderr.lines[0]).skillsRefreshed.paths, [writable])
 })
