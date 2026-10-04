@@ -12,7 +12,7 @@ import {
 } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { autoRefreshSkills } from "../dist/src/core/skills.js"
+import { autoRefreshSkills, computeSkillsStatus } from "../dist/src/core/skills.js"
 import { CLI_VERSION } from "../dist/src/core/version.js"
 
 const SOURCE_SKILLS = join(import.meta.dirname, "..", "skills")
@@ -208,4 +208,44 @@ test("a pack that cannot be reinstalled does not stop the other roots from refre
   assert.equal(stampOf(locked), OLD_VERSION)
   assert.equal(stampOf(writable), CLI_VERSION)
   assert.deepEqual(JSON.parse(stderr.lines[0]).skillsRefreshed.paths, [writable])
+})
+
+// The old pack is swapped out whole rather than deleted file by file. Deleting
+// in place would remove the stamp before failing on a subfolder it can't empty,
+// leaving a partial pack the CLI no longer tracks or warns about.
+test("a stale pack with a subfolder that cannot be emptied is still replaced whole and restamped", () => {
+  const cwd = project()
+  const dir = installedPack(cwd, ".claude", "cloudcruise", OLD_VERSION)
+  const locked = join(dir, "locked")
+  mkdirSync(locked)
+  writeFileSync(join(locked, "notes.md"), "local\n")
+  chmodSync(locked, 0o555)
+
+  try {
+    autoRefreshSkills({ cwd, env: {}, settings: {}, stderr: fakeStderr() })
+  } finally {
+    if (existsSync(locked)) chmodSync(locked, 0o755)
+  }
+
+  assert.equal(readFileSync(join(dir, "SKILL.md"), "utf-8"), sourceSkill("cloudcruise"))
+  assert.equal(stampOf(dir), CLI_VERSION)
+  assert.equal(existsSync(locked), false)
+  assert.deepEqual(computeSkillsStatus(cwd).stale, [])
+})
+
+// Each root is scanned on its own, so one unreadable root cannot keep the
+// roots after it stale.
+test("an unreadable skills root does not stop the roots after it from refreshing", () => {
+  const cwd = project()
+  installedPack(cwd, ".claude", "cloudcruise", OLD_VERSION)
+  const writable = installedPack(cwd, ".agents", "cloudcruise", OLD_VERSION)
+  chmodSync(join(cwd, ".claude", "skills"), 0o000)
+
+  try {
+    autoRefreshSkills({ cwd, env: {}, settings: {}, stderr: fakeStderr() })
+  } finally {
+    chmodSync(join(cwd, ".claude", "skills"), 0o755)
+  }
+
+  assert.equal(stampOf(writable), CLI_VERSION)
 })

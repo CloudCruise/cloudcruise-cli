@@ -19,14 +19,14 @@ import { registerErrorCodeCommands } from "../src/commands/error-codes.js"
 import { CLI_VERSION } from "../src/core/version.js"
 import { autoRefreshSkills, checkInstalledSkills } from "../src/core/skills.js"
 import { loadConfig } from "../src/core/config.js"
-import { notifyUpdate } from "../src/core/update-notice.js"
+import { checkForUpdate } from "../src/core/update-notice.js"
 
 const require = createRequire(import.meta.url)
 const pkg = require("../../package.json") as { name: string; version: string }
 
 loadDotEnv()
 
-notifyUpdate(updateNotifier({ pkg }), process.stderr)
+checkForUpdate(() => updateNotifier({ pkg }), process)
 
 program
   .name("cloudcruise")

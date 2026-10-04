@@ -6,9 +6,11 @@ import {
   readdirSync,
   readFileSync,
   realpathSync,
+  renameSync,
   rmSync,
   writeFileSync,
 } from "fs";
+import { randomUUID } from "crypto";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { CLI_VERSION } from "./version.js";
@@ -81,6 +83,48 @@ function writeSkillManifest(
 // the SKILL.md format (Claude Code, Cursor native, Codex, Devin) takes the same
 // unmodified pack tree — the only difference between targets is this root.
 //
+// The pack is built in a staging dir next to the root and swapped in by rename,
+// so the root only ever holds a complete pack — also when a write fails midway
+// or several CLI processes refresh the same pack at once. Staging dirs live
+// outside the root so agents never load them as skills.
+export function installPack(skillsRoot: string, pack: string): string {
+  const dest = join(skillsRoot, pack);
+  const staging = join(
+    dirname(skillsRoot),
+    `.cloudcruise-skill-${pack}-${randomUUID()}`,
+  );
+  const retired = `${staging}-old`;
+  mkdirSync(skillsRoot, { recursive: true });
+  try {
+    buildPack(pack, staging);
+    swapIn(staging, dest, retired);
+  } finally {
+    rmSync(staging, { recursive: true, force: true });
+  }
+  try {
+    rmSync(retired, { recursive: true, force: true });
+  } catch {
+    // Unremovable leftovers stay outside the root, invisible to agents.
+  }
+  return dest;
+}
+
+function swapIn(staging: string, dest: string, retired: string): void {
+  let moved = false;
+  try {
+    renameSync(dest, retired);
+    moved = true;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+  }
+  try {
+    renameSync(staging, dest);
+  } catch (err) {
+    if (moved && !existsSync(dest)) renameSync(retired, dest);
+    throw err;
+  }
+}
+
 // Shared reference dirs (skills/_shared/*) are symlinked into their consumer
 // packs in the repo; the installed copy materializes them as real files so each
 // installed pack is self-contained. Two paths get them there:
@@ -88,10 +132,8 @@ function writeSkillManifest(
 //   `dereference` does not reliably dereference directory symlinks);
 // - npm tarball: npm strips symlinks entirely, so the pack declares its shared
 //   dir in skill.meta.json (`sharedReferences`) and it's copied from _shared/.
-export function installPack(skillsRoot: string, pack: string): string {
+function buildPack(pack: string, dest: string): void {
   const source = join(getSkillsRootDir(), pack);
-  const dest = join(skillsRoot, pack);
-  rmSync(dest, { recursive: true, force: true });
   mkdirSync(dest, { recursive: true });
   cpSync(source, dest, { recursive: true });
   for (const entry of readdirSync(dest, { withFileTypes: true })) {
@@ -111,7 +153,6 @@ export function installPack(skillsRoot: string, pack: string): string {
     }
   }
   writeSkillManifest(source, dest, pack);
-  return dest;
 }
 
 export function installPacksToRoot(skillsRoot: string): string[] {

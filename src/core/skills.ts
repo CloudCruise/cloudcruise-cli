@@ -1,8 +1,9 @@
 import { existsSync, lstatSync, readdirSync, readFileSync } from "fs"
-import { join } from "path"
+import { basename, join } from "path"
 import { CLI_VERSION } from "./version.js"
 import { installPack, listSourcePacks } from "./skill-install.js"
 import type { CliSettings } from "./config.js"
+import type { StderrLike } from "./update-notice.js"
 import { SkillsIncompatibleError, fail } from "./exit.js"
 
 /**
@@ -95,26 +96,33 @@ export function readInstalledManifests(cwd: string): SkillManifest[] {
   for (const root of skillsRoots(cwd)) {
     if (!existsSync(root)) continue
     for (const entry of readdirSync(root)) {
-      const path = join(root, entry, MANIFEST_FILE)
-      if (!existsSync(path)) continue
-      try {
-        const m = JSON.parse(readFileSync(path, "utf-8")) as SkillManifest
-        if (!m || typeof m.cliVersion !== "string") continue
-        const manifest: SkillManifest = { ...m, pack: m.pack ?? entry }
-        const existing = byPack.get(manifest.pack)
-        // Keep the oldest copy: worst-case drift for this pack.
-        if (
-          !existing ||
-          compareVersions(manifest.cliVersion, existing.cliVersion) < 0
-        ) {
-          byPack.set(manifest.pack, manifest)
-        }
-      } catch {
-        // Malformed manifest — skip this pack rather than break the command.
+      const manifest = readManifest(join(root, entry))
+      if (!manifest) continue
+      const existing = byPack.get(manifest.pack)
+      // Keep the oldest copy: worst-case drift for this pack.
+      if (
+        !existing ||
+        compareVersions(manifest.cliVersion, existing.cliVersion) < 0
+      ) {
+        byPack.set(manifest.pack, manifest)
       }
     }
   }
   return [...byPack.values()]
+}
+
+// A malformed or missing manifest reads as unmanaged rather than breaking the
+// command.
+function readManifest(packDir: string): SkillManifest | undefined {
+  const path = join(packDir, MANIFEST_FILE)
+  if (!existsSync(path)) return undefined
+  try {
+    const m = JSON.parse(readFileSync(path, "utf-8")) as SkillManifest
+    if (!m || typeof m.cliVersion !== "string") return undefined
+    return { ...m, pack: m.pack ?? basename(packDir) }
+  } catch {
+    return undefined
+  }
 }
 
 export function computeSkillsStatus(cwd: string): SkillsStatus {
@@ -205,62 +213,58 @@ export interface AutoRefreshOptions {
   cwd: string
   env: Record<string, string | undefined>
   settings: CliSettings
-  stderr: { isTTY?: boolean; write(chunk: string): unknown }
-}
-
-function readManifest(packDir: string): SkillManifest | undefined {
-  try {
-    const m = JSON.parse(
-      readFileSync(join(packDir, MANIFEST_FILE), "utf-8")
-    ) as SkillManifest
-    return m && typeof m.cliVersion === "string" ? m : undefined
-  } catch {
-    return undefined
-  }
+  stderr: StderrLike
 }
 
 /**
  * Reinstall every CLI-managed pack (one carrying a manifest) that an older CLI
  * stamped, so skills follow a CLI upgrade without a manual
- * `cloudcruise install --skills`. Never throws; on failure the staleness
- * warning still fires.
+ * `cloudcruise install --skills`. Never throws; a pack that fails stays as it
+ * was, and the staleness warning still fires for it.
  */
 export function autoRefreshSkills(options: AutoRefreshOptions): string[] {
   const { cwd, stderr } = options
-  if (!skillsAutoUpdateEnabled(options)) return []
-  const paths: string[] = []
-  const packs = new Set<string>()
-  let fromVersion: string | undefined
+  if (!skillsAutoUpdateEnabled(options) || !anySkillsRoot(cwd)) return []
+  const refreshed: { path: string; pack: string; from: string }[] = []
+  let shipped: Set<string>
   try {
-    const shipped = new Set(listSourcePacks())
-    for (const root of skillsRoots(cwd)) {
-      if (!existsSync(root)) continue
-      for (const entry of readdirSync(root)) {
+    shipped = new Set(listSourcePacks())
+  } catch {
+    return []
+  }
+  for (const root of skillsRoots(cwd)) {
+    let entries: string[]
+    try {
+      entries = existsSync(root) ? readdirSync(root) : []
+    } catch {
+      continue
+    }
+    for (const entry of entries) {
+      try {
         const packDir = join(root, entry)
         if (!shipped.has(entry) || lstatSync(packDir).isSymbolicLink()) continue
         const manifest = readManifest(packDir)
         if (!manifest || compareVersions(manifest.cliVersion, CLI_VERSION) >= 0) {
           continue
         }
-        try {
-          paths.push(installPack(root, entry))
-        } catch {
-          // Left stale; the staleness warning still covers it.
-          continue
-        }
-        packs.add(entry)
-        if (!fromVersion || compareVersions(manifest.cliVersion, fromVersion) < 0) {
-          fromVersion = manifest.cliVersion
-        }
+        const path = installPack(root, entry)
+        refreshed.push({ path, pack: entry, from: manifest.cliVersion })
+      } catch {
+        continue
       }
     }
-  } catch {
-    // Unreadable root — report what was done; the warning covers the rest.
   }
-  if (paths.length) {
-    reportRefresh(stderr, { fromVersion, packs: [...packs].sort(), paths })
+  if (refreshed.length) {
+    const fromVersion = refreshed
+      .map((r) => r.from)
+      .sort(compareVersions)[0]
+    reportRefresh(stderr, {
+      fromVersion,
+      packs: [...new Set(refreshed.map((r) => r.pack))].sort(),
+      paths: refreshed.map((r) => r.path)
+    })
   }
-  return paths
+  return refreshed.map((r) => r.path)
 }
 
 function skillsAutoUpdateEnabled(
@@ -273,12 +277,12 @@ function skillsAutoUpdateEnabled(
 }
 
 function reportRefresh(
-  stderr: AutoRefreshOptions["stderr"],
-  refresh: { fromVersion?: string; packs: string[]; paths: string[] }
+  stderr: StderrLike,
+  refresh: { fromVersion: string; packs: string[]; paths: string[] }
 ): void {
   if (stderr.isTTY) {
     stderr.write(
-      `✓ cloudcruise skills refreshed (v${refresh.fromVersion ?? "?"} → v${CLI_VERSION}): ${refresh.packs.join(", ")}\n`
+      `✓ cloudcruise skills refreshed (v${refresh.fromVersion} → v${CLI_VERSION}): ${refresh.packs.join(", ")}\n`
     )
     return
   }

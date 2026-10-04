@@ -38,7 +38,7 @@ Off a TTY, the CLI reports on stderr, one JSON line each:
 - `{"skillsRefreshed":{...}}`: an older CLI installed these skills; the CLI reinstalled them from the running version. Re-read any skill you already loaded.
 - `{"skillsWarning":{...}}`: installed skills don't match the CLI. Run its `remedy`.
 
-Skills refresh on the first command after a CLI upgrade, in the current project only, and only packs that `install --skills` stamped. `settings.skillsAutoUpdate: false` in `~/.cloudcruise/config.json` turns this off; `CLOUDCRUISE_SKILLS_AUTO_UPDATE=0|1` overrides the setting.
+Skills refresh on the first command after a CLI upgrade, in the current project only, and only packs that `install --skills` stamped. Local edits to those packs are replaced. `settings.skillsAutoUpdate: false` in `~/.cloudcruise/config.json` turns this off; `CLOUDCRUISE_SKILLS_AUTO_UPDATE=0|1` overrides the setting.
 
 ## Commands
 

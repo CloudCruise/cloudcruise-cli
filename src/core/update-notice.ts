@@ -15,17 +15,30 @@ export interface StderrLike {
   write(chunk: string): unknown
 }
 
-/**
- * Surface an available CLI update. On a TTY, update-notifier's box. Off a TTY
- * (a coding agent), one JSON line on stderr; stdout stays clean.
- */
-export function notifyUpdate(
-  notifier: UpdateNotifierLike,
+export interface UpdateCheckIo {
+  stdout: { isTTY?: boolean }
   stderr: StderrLike
+}
+
+/**
+ * Run update-notifier's check and surface an available CLI update. With stdout
+ * on a TTY, update-notifier's box. Otherwise (a coding agent, or piped output),
+ * one JSON line on stderr; stdout stays clean.
+ */
+export function checkForUpdate(
+  createNotifier: () => UpdateNotifierLike,
+  io: UpdateCheckIo
 ): void {
-  if (stderr.isTTY) {
+  const exitListeners = new Set(process.listeners("exit"))
+  const notifier = createNotifier()
+  if (io.stdout.isTTY) {
     notifier.notify()
     return
+  }
+  // update-notifier queues a human-readable "update check failed" box for exit
+  // when its cache is not writable, e.g. in a sandboxed agent.
+  for (const listener of process.listeners("exit")) {
+    if (!exitListeners.has(listener)) process.off("exit", listener)
   }
   const update = notifier.update
   if (!update || compareVersions(update.latest, update.current) <= 0) return
@@ -35,5 +48,5 @@ export function notifyUpdate(
     remedy: UPDATE_COMMAND,
     pluginNote: PLUGIN_NOTE
   }
-  stderr.write(`${JSON.stringify({ updateAvailable: payload })}\n`)
+  io.stderr.write(`${JSON.stringify({ updateAvailable: payload })}\n`)
 }

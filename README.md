@@ -49,7 +49,7 @@ cloudcruise install --skills --target cursor   # Cursor only
 
 ## Staying Up to Date
 
-**CLI updates:** when a newer CLI exists, the CLI says so on stderr. On a TTY it shows a box. Off a TTY (coding agents) it prints one JSON line:
+**CLI updates:** when a newer CLI exists, the CLI says so on stderr. In a terminal it shows a box. When stdout is not a terminal (coding agents, pipes) it prints one JSON line:
 
 ```json
 {"updateAvailable":{"cliVersion":"1.13.0","latestVersion":"1.14.0","remedy":"npm i -g @cloudcruise/cli@latest","pluginNote":"Using the CloudCruise plugin in your coding agent? Update it there too."}}
@@ -57,7 +57,7 @@ cloudcruise install --skills --target cursor   # Cursor only
 
 `CI` and `NO_UPDATE_NOTIFIER` turn the check off.
 
-**Skills:** the first command after a CLI upgrade reinstalls the project's stale skills and reports them on stderr (`skillsRefreshed` JSON off a TTY). Only packs written by `cloudcruise install --skills` are touched; plugin-installed skills are updated by the agent.
+**Skills:** the first command after a CLI upgrade reinstalls the project's stale skills and reports them on stderr (`skillsRefreshed` JSON off a TTY). Only packs written by `cloudcruise install --skills` are touched, and local edits to them are replaced; plugin-installed skills are updated by the agent.
 
 To opt out (not recommended), set this in `~/.cloudcruise/config.json`:
 
