@@ -10,10 +10,12 @@ import {
   rmSync,
   writeFileSync,
 } from "fs";
-import { randomUUID } from "crypto";
-import { join, dirname } from "path";
+import { createHash, randomUUID } from "crypto";
+import { join, dirname, relative } from "path";
 import { fileURLToPath } from "url";
 import { CLI_VERSION } from "./version.js";
+
+const MANIFEST_FILE = ".cloudcruise-skill.json";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -72,11 +74,36 @@ function writeSkillManifest(
     cliVersion: CLI_VERSION,
     ...(requiresCli ? { requiresCli } : {}),
     installedAt: new Date().toISOString(),
+    contentHash: hashPack(destPackDir),
   };
   writeFileSync(
-    join(destPackDir, ".cloudcruise-skill.json"),
+    join(destPackDir, MANIFEST_FILE),
     `${JSON.stringify(manifest, null, 2)}\n`,
   );
+}
+
+// Fingerprint of an installed pack's files (paths and contents, manifest
+// excluded), recorded at install so later edits can be detected.
+export function hashPack(packDir: string): string {
+  const hash = createHash("sha256");
+  for (const file of listFiles(packDir)) {
+    const rel = relative(packDir, file).split("\\").join("/");
+    if (rel === MANIFEST_FILE) continue;
+    hash.update(`${rel}\0`);
+    hash.update(readFileSync(file));
+    hash.update("\0");
+  }
+  return hash.digest("hex");
+}
+
+function listFiles(dir: string): string[] {
+  const files: string[] = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) files.push(...listFiles(path));
+    else files.push(path);
+  }
+  return files.sort();
 }
 
 // Copy a source pack into one target's skills root. Every agent that reads

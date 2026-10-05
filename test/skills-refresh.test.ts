@@ -14,6 +14,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { autoRefreshSkills, computeSkillsStatus } from "../dist/src/core/skills.js"
 import { CLI_VERSION } from "../dist/src/core/version.js"
+import { installPacksToRoot } from "../dist/src/core/skill-install.js"
 
 const SOURCE_SKILLS = join(import.meta.dirname, "..", "skills")
 const OLD_VERSION = "0.0.1"
@@ -248,4 +249,53 @@ test("an unreadable skills root does not stop the roots after it from refreshing
   }
 
   assert.equal(stampOf(writable), CLI_VERSION)
+})
+
+// A pack installed by a CLI that records a content hash, then aged to look
+// like an older CLI installed it.
+function hashedStalePack(cwd: string, pack: string): string {
+  const root = join(cwd, ".claude", "skills")
+  installPacksToRoot(root)
+  const dir = join(root, pack)
+  const stampPath = join(dir, ".cloudcruise-skill.json")
+  const stamp = JSON.parse(readFileSync(stampPath, "utf-8"))
+  writeFileSync(stampPath, JSON.stringify({ ...stamp, cliVersion: OLD_VERSION }))
+  return dir
+}
+
+test("a stale pack whose files still match its recorded hash is refreshed", () => {
+  const cwd = project()
+  const dir = hashedStalePack(cwd, "cloudcruise")
+
+  autoRefreshSkills({ cwd, env: {}, settings: {}, stderr: fakeStderr() })
+
+  assert.equal(stampOf(dir), CLI_VERSION)
+})
+
+// Local edits to an installed pack are the user's work; only an explicit
+// `cloudcruise install --skills` may overwrite them. The pack stays stale, so
+// the staleness warning keeps pointing at it.
+test("a stale pack edited since install is left untouched and still reported stale", () => {
+  const cwd = project()
+  const dir = hashedStalePack(cwd, "cloudcruise")
+  writeFileSync(join(dir, "SKILL.md"), "my edits\n")
+  const stderr = fakeStderr()
+
+  autoRefreshSkills({ cwd, env: {}, settings: {}, stderr })
+
+  assert.equal(readFileSync(join(dir, "SKILL.md"), "utf-8"), "my edits\n")
+  assert.equal(stampOf(dir), OLD_VERSION)
+  assert.ok(computeSkillsStatus(cwd).stale.includes("cloudcruise"))
+  assert.deepEqual(stderr.lines, [])
+})
+
+test("a stale pack with a file added since install is left untouched", () => {
+  const cwd = project()
+  const dir = hashedStalePack(cwd, "cloudcruise")
+  writeFileSync(join(dir, "team-notes.md"), "ours\n")
+
+  autoRefreshSkills({ cwd, env: {}, settings: {}, stderr: fakeStderr() })
+
+  assert.equal(stampOf(dir), OLD_VERSION)
+  assert.ok(existsSync(join(dir, "team-notes.md")))
 })

@@ -57,7 +57,7 @@ cloudcruise install --skills --target cursor   # Cursor only
 
 `CI` and `NO_UPDATE_NOTIFIER` turn the check off.
 
-**Skills:** the first command after a CLI upgrade reinstalls the project's stale skills and reports them on stderr (`skillsRefreshed` JSON off a TTY). Only packs written by `cloudcruise install --skills` are touched, and local edits to them are replaced; plugin-installed skills are updated by the agent.
+**Skills:** the first command after a CLI upgrade reinstalls the project's stale skills and reports them on stderr (`skillsRefreshed` JSON off a TTY). Only packs written by `cloudcruise install --skills` are touched. Packs edited since install are skipped and stay flagged as stale; `cloudcruise install --skills` overwrites them. Plugin-installed skills are updated by the agent.
 
 To opt out (not recommended), set this in `~/.cloudcruise/config.json`:
 

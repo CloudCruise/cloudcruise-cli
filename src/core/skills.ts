@@ -1,7 +1,7 @@
 import { existsSync, lstatSync, readdirSync, readFileSync } from "fs"
 import { basename, join } from "path"
 import { CLI_VERSION } from "./version.js"
-import { installPack, listSourcePacks } from "./skill-install.js"
+import { hashPack, installPack, listSourcePacks } from "./skill-install.js"
 import type { CliSettings } from "./config.js"
 import type { StderrLike } from "./update-notice.js"
 import { SkillsIncompatibleError, fail } from "./exit.js"
@@ -46,6 +46,7 @@ export interface SkillManifest {
   cliVersion: string
   requiresCli?: string
   installedAt?: string
+  contentHash?: string
 }
 
 export interface SkillsStatus {
@@ -219,8 +220,9 @@ export interface AutoRefreshOptions {
 /**
  * Reinstall every CLI-managed pack (one carrying a manifest) that an older CLI
  * stamped, so skills follow a CLI upgrade without a manual
- * `cloudcruise install --skills`. Never throws; a pack that fails stays as it
- * was, and the staleness warning still fires for it.
+ * `cloudcruise install --skills`. Packs edited since install are left to an
+ * explicit `install --skills`. Never throws; a pack that is skipped or fails
+ * stays as it was, and the staleness warning still fires for it.
  */
 export function autoRefreshSkills(options: AutoRefreshOptions): string[] {
   const { cwd, stderr } = options
@@ -245,6 +247,9 @@ export function autoRefreshSkills(options: AutoRefreshOptions): string[] {
         if (!shipped.has(entry) || lstatSync(packDir).isSymbolicLink()) continue
         const manifest = readManifest(packDir)
         if (!manifest || compareVersions(manifest.cliVersion, CLI_VERSION) >= 0) {
+          continue
+        }
+        if (manifest.contentHash && hashPack(packDir) !== manifest.contentHash) {
           continue
         }
         const path = installPack(root, entry)
