@@ -24,9 +24,10 @@ when the user is authenticated; run commands that use profile OAuth outside the 
 After installing the CLI, run this in your project root to expose the skill reference to your coding agent:
 
 ```bash
-cloudcruise install --skills                  # install for all supported targets
-cloudcruise install --skills --target claude   # .claude/skills/cloudcruise/ only
-cloudcruise install --skills --target cursor   # .cursor/rules/cloudcruise-cli.mdc only
+cloudcruise install --skills                  # all targets: .claude/skills/, .cursor/skills/, .agents/skills/
+cloudcruise install --skills --target claude   # .claude/skills/ only
+cloudcruise install --skills --target cursor   # .cursor/skills/ only
+cloudcruise install --skills --target codex    # .agents/skills/ only (same for devin, agents)
 ```
 
 ## Commands
@@ -421,7 +422,7 @@ cloudcruise builder end
 
 ## Workflow DSL Reference
 
-See the **cloudcruise-workflow-dsl** skill for the complete workflow DSL reference: all node types, parameters, edge structure, variable system, execution types, XPath best practices, data model schema extensions, and error classification. Read it before writing, editing, or debugging any workflow node.
+See the **cloudcruise-workflow-dsl** skill for the complete workflow DSL reference: all node types, parameters, edge structure, variable system, execution types, XPath best practices, data model schema extensions, and error codes. Read it before writing, editing, or debugging any workflow node.
 
 ## Error-Fix-Verify Loop
 
