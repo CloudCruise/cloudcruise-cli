@@ -529,7 +529,7 @@ Examples:
       const failureCodes = new Set<number>()
       for (const id of ids) {
         try {
-          await client.delete(`/workflows/${id}`)
+          await client.delete(`/workflows/${encodeURIComponent(id)}`)
           results.push({ id, status: "deleted" })
         } catch (err: unknown) {
           const { exitCode, ...failure } = describeWorkflowDeleteError(err)

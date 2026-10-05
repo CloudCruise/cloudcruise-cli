@@ -181,6 +181,8 @@ const deletableIds = [
 
 const referenceBlockedId = "1f9c7a52-0000-4000-8000-0000000000aa"
 
+const emptyResponseDeletableId = "1f9c7a52-0000-4000-8000-0000000000bb"
+
 async function startDeleteBackend() {
   const requests: { method?: string; url?: string; ccKey?: string }[] = []
   const server = createServer((req, res) => {
@@ -191,6 +193,11 @@ async function startDeleteBackend() {
     })
     const id = req.url?.replace(/^\/workflows\//, "") ?? ""
     res.setHeader("content-type", "application/json")
+    if (req.method === "DELETE" && id === emptyResponseDeletableId) {
+      res.writeHead(204)
+      res.end()
+      return
+    }
     if (req.method === "DELETE" && deletableIds.includes(id)) {
       res.writeHead(200)
       res.end(JSON.stringify({ success: true }))
@@ -348,6 +355,51 @@ test("workflows delete exits 1 when ids fail for different reasons", async () =>
       JSON.parse(result.stdout).map((r: { status: string }) => r.status),
       ["not_found", "error"]
     )
+  } finally {
+    backend.server.close()
+  }
+})
+
+// A successful DELETE may answer 204 with no body. That is still a successful
+// delete, so it must not be reported as an error.
+test("workflows delete reports a delete answered with an empty 204 as deleted and exits 0", async () => {
+  const backend = await startDeleteBackend()
+  try {
+    const result = await runCli([
+      "workflows",
+      "delete",
+      emptyResponseDeletableId,
+      "--base-url",
+      backend.baseUrl
+    ])
+    assert.equal(result.code, 0)
+    assert.deepEqual(JSON.parse(result.stdout), [
+      { id: emptyResponseDeletableId, status: "deleted" }
+    ])
+  } finally {
+    backend.server.close()
+  }
+})
+
+// Unencoded, "<id>#x" would send DELETE /workflows/<id> because the fragment
+// never reaches the server, deleting a workflow the user did not name. The id
+// is sent encoded, so the backend sees a malformed id and nothing is deleted.
+test("workflows delete sends an id containing URL syntax encoded, so it cannot delete the workflow whose id it starts with", async () => {
+  const backend = await startDeleteBackend()
+  try {
+    const result = await runCli([
+      "workflows",
+      "delete",
+      `${deletableIds[0]}#x`,
+      "--base-url",
+      backend.baseUrl
+    ])
+    assert.equal(result.code, 4)
+    assert.deepEqual(
+      backend.requests.map((r) => r.url),
+      [`/workflows/${deletableIds[0]}%23x`]
+    )
+    assert.equal(JSON.parse(result.stdout)[0].status, "not_found")
   } finally {
     backend.server.close()
   }
