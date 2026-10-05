@@ -521,7 +521,7 @@ share (4 when all are not_found), or 1 when they differ.
 Examples:
   $ cloudcruise workflows delete <workflow_id>
   $ cloudcruise workflows delete <workflow_id> <workflow_id>
-  $ cloudcruise workflows list | jq -r '.[] | select(.name | startswith("[SCRATCH")) | .id' | xargs cloudcruise workflows delete
+  $ cloudcruise workflows list | jq -r '.[] | select(.name | startswith("[SCRATCH")) | .id' | xargs -r cloudcruise workflows delete
 `).action(async (ids: string[], opts: AuthOptions) => {
     try {
       const auth = await resolveAuth(opts)
