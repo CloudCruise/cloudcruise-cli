@@ -1,8 +1,13 @@
 import { Command, InvalidArgumentError } from "commander"
 import { resolveAuth } from "../core/auth.js"
-import { ApiClient } from "../core/api-client.js"
+import { ApiClient, ApiError } from "../core/api-client.js"
 import { outputJson } from "../core/output.js"
-import { ExitCode, fail } from "../core/exit.js"
+import {
+  ExitCode,
+  exitCodeForApiError,
+  fail,
+  type ExitCodeValue
+} from "../core/exit.js"
 import { addAuthOptions, type AuthOptions } from "../core/auth-options.js"
 import { requireJsonObject } from "../core/input.js"
 
@@ -24,6 +29,76 @@ export function buildWorkflowUpdateBody(
     body.version_note = opts.versionNote
   }
   return body
+}
+
+type WorkflowDeleteResult = {
+  id: string
+  status: "deleted" | "not_found" | "error"
+  message?: string
+}
+
+const WORKFLOW_REFERENCE_LABELS: Record<string, string> = {
+  webhooks: "webhooks",
+  tfa_setup_recovery_log: "TFA setup recovery log entries",
+  saved_inputs: "saved inputs"
+}
+
+function backendMessage(err: ApiError): string {
+  try {
+    const parsed: unknown = JSON.parse(err.body)
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      typeof (parsed as { message?: unknown }).message === "string"
+    ) {
+      return (parsed as { message: string }).message
+    }
+  } catch {
+    // Non-JSON body — fall back to the full error message.
+  }
+  return err.message
+}
+
+type WorkflowDeleteFailure = {
+  status: "not_found" | "error"
+  message: string
+  exitCode: ExitCodeValue
+}
+
+function describeWorkflowDeleteError(
+  err: unknown
+): WorkflowDeleteFailure {
+  if (!(err instanceof ApiError)) {
+    return {
+      status: "error",
+      message: err instanceof Error ? err.message : String(err),
+      exitCode: ExitCode.FAILURE
+    }
+  }
+  const message = backendMessage(err)
+  if (err.status === 404) {
+    return { status: "not_found", message, exitCode: ExitCode.SESSION_NOT_FOUND }
+  }
+  if (message.includes("invalid input syntax for type uuid")) {
+    return {
+      status: "not_found",
+      message: "Not a workflow id; workflow ids are UUIDs.",
+      exitCode: ExitCode.SESSION_NOT_FOUND
+    }
+  }
+  const exitCode = exitCodeForApiError(err)
+  const fkTable = /violates foreign key constraint "[^"]*" on table "([^"]+)"/.exec(
+    message
+  )?.[1]
+  if (fkTable) {
+    const label = WORKFLOW_REFERENCE_LABELS[fkTable] ?? `rows in ${fkTable}`
+    return {
+      status: "error",
+      message: `The workflow can't be deleted while ${label} still reference it. Remove those first, then retry.`,
+      exitCode
+    }
+  }
+  return { status: "error", message, exitCode }
 }
 
 export function registerWorkflowCommands(program: Command): void {
@@ -429,4 +504,47 @@ Examples:
       }
     }
   )
+
+  addAuthOptions(
+    workflows
+      .command("delete <ids...>")
+      .description("Permanently delete one or more workflows")
+  ).addHelpText("after", `
+The delete is permanent and asks no confirmation. Runs and results of the
+workflow are kept.
+
+Sends one delete per id and continues past failures. stdout is one array with
+an entry per id: { id, status: "deleted" | "not_found" | "error", message? }.
+Exits 0 when every id was deleted. Otherwise exits with the code all failures
+share (4 when all are not_found), or 1 when they differ.
+
+Examples:
+  $ cloudcruise workflows delete <workflow_id>
+  $ cloudcruise workflows delete <workflow_id> <workflow_id>
+  $ cloudcruise workflows list | jq -r '.[] | select(.name | startswith("[SCRATCH")) | .id' | xargs cloudcruise workflows delete
+`).action(async (ids: string[], opts: AuthOptions) => {
+    try {
+      const auth = await resolveAuth(opts)
+      const client = new ApiClient(auth)
+      const results: WorkflowDeleteResult[] = []
+      const failureCodes = new Set<number>()
+      for (const id of ids) {
+        try {
+          await client.delete(`/workflows/${id}`)
+          results.push({ id, status: "deleted" })
+        } catch (err: unknown) {
+          const { exitCode, ...failure } = describeWorkflowDeleteError(err)
+          results.push({ id, ...failure })
+          failureCodes.add(exitCode)
+        }
+      }
+      outputJson(results)
+      if (failureCodes.size > 0) {
+        process.exitCode =
+          failureCodes.size === 1 ? [...failureCodes][0] : ExitCode.FAILURE
+      }
+    } catch (err: unknown) {
+      fail(err)
+    }
+  })
 }

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- `workflows delete <id...>` permanently deletes one or more workflows, without confirmation. stdout is one array with `{ id, status: "deleted" | "not_found" | "error", message? }` per id. It continues past failures and exits non-zero if any id failed. A delete blocked by a webhook or other reference reports which kind of record blocks it instead of the raw Postgres error.
+
 ### Changed
 
 - `workflows update` detects stale edits. It sends the body's `version_id` as `base_version_id`; if someone saved in between, it creates no version and exits 13 (`WORKFLOW_VERSION_CONFLICT`). The stderr envelope adds `latestVersion` (id, number, author, time, note) and a `hint`. `--force` overwrites anyway. A body without `version_id` is not checked.

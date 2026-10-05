@@ -130,11 +130,12 @@ function runCli(args: string[]) {
   const child = spawn(process.execPath, ["dist/bin/cloudcruise.js", ...args], {
     env: { ...process.env, HOME: home, CLOUDCRUISE_API_KEY: "test_key" }
   })
+  let stdout = ""
   let stderr = ""
+  child.stdout.on("data", (chunk) => (stdout += chunk))
   child.stderr.on("data", (chunk) => (stderr += chunk))
-  child.stdout.resume()
-  return new Promise<{ code: number | null; stderr: string }>((resolve) =>
-    child.on("close", (code) => resolve({ code, stderr }))
+  return new Promise<{ code: number | null; stdout: string; stderr: string }>(
+    (resolve) => child.on("close", (code) => resolve({ code, stdout, stderr }))
   )
 }
 
@@ -168,6 +169,183 @@ test("workflows update exits 13 with the latest version on a stale body, and --f
     const forced = await runCli([...baseArgs, "--force"])
     assert.equal(forced.code, 0)
     assert.equal("base_version_id" in backend.received[1], false)
+  } finally {
+    backend.server.close()
+  }
+})
+
+const deletableIds = [
+  "1f9c7a52-0000-4000-8000-000000000001",
+  "1f9c7a52-0000-4000-8000-000000000002"
+]
+
+const webhookBlockedId = "1f9c7a52-0000-4000-8000-0000000000aa"
+
+async function startDeleteBackend() {
+  const requests: { method?: string; url?: string; ccKey?: string }[] = []
+  const server = createServer((req, res) => {
+    requests.push({
+      method: req.method,
+      url: req.url,
+      ccKey: req.headers["cc-key"] as string | undefined
+    })
+    const id = req.url?.replace(/^\/workflows\//, "") ?? ""
+    res.setHeader("content-type", "application/json")
+    if (req.method === "DELETE" && deletableIds.includes(id)) {
+      res.writeHead(200)
+      res.end(JSON.stringify({ success: true }))
+      return
+    }
+    if (!/^[0-9a-f-]{36}$/.test(id)) {
+      res.writeHead(400)
+      res.end(
+        JSON.stringify({
+          message: `invalid input syntax for type uuid: "${id}"`,
+          error: "Bad Request",
+          code: "BAD_REQUEST",
+          statusCode: 400
+        })
+      )
+      return
+    }
+    if (id === webhookBlockedId) {
+      res.writeHead(400)
+      res.end(
+        JSON.stringify({
+          message:
+            'update or delete on table "workflows" violates foreign key constraint "webhooks_workflow_id_fkey" on table "webhooks"',
+          error: "Bad Request",
+          code: "BAD_REQUEST",
+          statusCode: 400
+        })
+      )
+      return
+    }
+    res.writeHead(404)
+    res.end(
+      JSON.stringify({
+        message: `Workflow ${id} not found`,
+        code: "NOT_FOUND",
+        statusCode: 404
+      })
+    )
+  })
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
+  const { port } = server.address() as AddressInfo
+  return { baseUrl: `http://127.0.0.1:${port}`, requests, server }
+}
+
+test("workflows delete with several ids sends one DELETE per id and prints one deleted result per id, in order", async () => {
+  const backend = await startDeleteBackend()
+  try {
+    const result = await runCli([
+      "workflows",
+      "delete",
+      ...deletableIds,
+      "--base-url",
+      backend.baseUrl
+    ])
+    assert.equal(result.code, 0)
+    assert.deepEqual(JSON.parse(result.stdout), [
+      { id: deletableIds[0], status: "deleted" },
+      { id: deletableIds[1], status: "deleted" }
+    ])
+    assert.deepEqual(
+      backend.requests.map((r) => [r.method, r.url, r.ccKey]),
+      deletableIds.map((id) => ["DELETE", `/workflows/${id}`, "test_key"])
+    )
+  } finally {
+    backend.server.close()
+  }
+})
+
+const unknownId = "1f9c7a52-0000-4000-8000-0000000000ff"
+
+// An unknown id must not stop the remaining deletes. Exit 4 is what the CLI's
+// exit-code taxonomy assigns to a 404 when every failure is "not found".
+test("workflows delete reports an unknown id as not_found, still deletes the other ids, and exits 4", async () => {
+  const backend = await startDeleteBackend()
+  try {
+    const result = await runCli([
+      "workflows",
+      "delete",
+      unknownId,
+      deletableIds[0],
+      "--base-url",
+      backend.baseUrl
+    ])
+    assert.equal(result.code, 4)
+    const [missing, deleted] = JSON.parse(result.stdout)
+    assert.equal(missing.id, unknownId)
+    assert.equal(missing.status, "not_found")
+    assert.deepEqual(deleted, { id: deletableIds[0], status: "deleted" })
+  } finally {
+    backend.server.close()
+  }
+})
+
+// The backend passes the Postgres FK violation through as a 400. The user needs
+// to learn which kind of record blocks the delete, not the constraint name.
+// Exit 2 is the taxonomy's code for a 400 BAD_REQUEST.
+test("workflows delete of a workflow that still has a webhook reports an error naming the webhook instead of the raw Postgres message, and exits 2", async () => {
+  const backend = await startDeleteBackend()
+  try {
+    const result = await runCli([
+      "workflows",
+      "delete",
+      webhookBlockedId,
+      "--base-url",
+      backend.baseUrl
+    ])
+    assert.equal(result.code, 2)
+    const [blocked] = JSON.parse(result.stdout)
+    assert.equal(blocked.status, "error")
+    assert.match(blocked.message, /webhook/)
+    assert.doesNotMatch(blocked.message, /foreign key|fkey/)
+  } finally {
+    backend.server.close()
+  }
+})
+
+// Workflow ids are UUIDs, so a malformed id names no workflow. The backend
+// rejects it with a Postgres 400, but for the user it is just an unknown id.
+test("workflows delete reports an id that is not a UUID as not_found and exits 4", async () => {
+  const backend = await startDeleteBackend()
+  try {
+    const result = await runCli([
+      "workflows",
+      "delete",
+      "not-a-uuid",
+      "--base-url",
+      backend.baseUrl
+    ])
+    assert.equal(result.code, 4)
+    const [missing] = JSON.parse(result.stdout)
+    assert.equal(missing.status, "not_found")
+    assert.doesNotMatch(missing.message, /invalid input syntax/)
+  } finally {
+    backend.server.close()
+  }
+})
+
+// not_found maps to exit 4 and a 400 to exit 2. No single specific code
+// describes both, so the command falls back to the generic failure code 1.
+test("workflows delete exits 1 when ids fail for different reasons", async () => {
+  const backend = await startDeleteBackend()
+  try {
+    const result = await runCli([
+      "workflows",
+      "delete",
+      unknownId,
+      webhookBlockedId,
+      "--base-url",
+      backend.baseUrl
+    ])
+    assert.equal(result.code, 1)
+    assert.deepEqual(
+      JSON.parse(result.stdout).map((r: { status: string }) => r.status),
+      ["not_found", "error"]
+    )
   } finally {
     backend.server.close()
   }
