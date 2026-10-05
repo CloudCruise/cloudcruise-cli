@@ -276,9 +276,10 @@ export function autoRefreshSkills(options: AutoRefreshOptions): string[] {
   return refreshed.map((r) => r.path)
 }
 
-// True when the pack's files are exactly what the stamping CLI installed. A
-// stamp without a contentHash comes from an older CLI; its released install is
-// looked up instead. Unknown means possibly edited.
+// True when the pack's files are exactly what the stamping CLI installed.
+// Stamps from CLI 1.11.0–1.13.0 carry no contentHash; for backwards
+// compatibility their hash comes from LEGACY_SKILL_HASHES. Unknown means
+// possibly edited.
 function isUnedited(packDir: string, manifest: SkillManifest): boolean {
   const expected =
     manifest.contentHash ??
