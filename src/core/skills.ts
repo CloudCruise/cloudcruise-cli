@@ -3,6 +3,7 @@ import { basename, join } from "path"
 import { CLI_VERSION } from "./version.js"
 import { hashPack, installPack, listSourcePacks } from "./skill-install.js"
 import type { CliSettings } from "./config.js"
+import { LEGACY_SKILL_HASHES } from "./legacy-skill-hashes.js"
 import type { StderrLike } from "./update-notice.js"
 import { SkillsIncompatibleError, fail } from "./exit.js"
 
@@ -249,9 +250,7 @@ export function autoRefreshSkills(options: AutoRefreshOptions): string[] {
         if (!manifest || compareVersions(manifest.cliVersion, CLI_VERSION) >= 0) {
           continue
         }
-        if (manifest.contentHash && hashPack(packDir) !== manifest.contentHash) {
-          continue
-        }
+        if (!isUnedited(packDir, manifest)) continue
         const path = installPack(root, entry)
         refreshed.push({ path, pack: entry, from: manifest.cliVersion })
       } catch {
@@ -270,6 +269,16 @@ export function autoRefreshSkills(options: AutoRefreshOptions): string[] {
     })
   }
   return refreshed.map((r) => r.path)
+}
+
+// True when the pack's files are exactly what the stamping CLI installed. A
+// stamp without a contentHash comes from an older CLI; its released install is
+// looked up instead. Unknown means possibly edited.
+function isUnedited(packDir: string, manifest: SkillManifest): boolean {
+  const expected =
+    manifest.contentHash ??
+    LEGACY_SKILL_HASHES[manifest.cliVersion]?.[manifest.pack]
+  return !!expected && hashPack(packDir) === expected
 }
 
 function skillsAutoUpdateEnabled(

@@ -49,23 +49,16 @@ cloudcruise install --skills --target cursor   # Cursor only
 
 ## Staying Up to Date
 
-**CLI updates:** when a newer CLI exists, the CLI says so on stderr. In a terminal it shows a box. When stdout is not a terminal (coding agents, pipes) it prints one JSON line:
+- **CLI:** the CLI tells you, and your coding agent, when a newer version exists. Update with `npm i -g @cloudcruise/cli@latest`. `CI` and `NO_UPDATE_NOTIFIER` turn the check off.
+- **Skills:** after a CLI upgrade, the next command refreshes the skills that `cloudcruise install --skills` wrote into the current project. Skills you edited are left alone; `cloudcruise install --skills` overwrites them. Plugin-installed skills update with the plugin.
 
-```json
-{"updateAvailable":{"cliVersion":"1.13.0","latestVersion":"1.14.0","remedy":"npm i -g @cloudcruise/cli@latest","pluginNote":"Using the CloudCruise plugin in your coding agent? Update it there too."}}
-```
-
-`CI` and `NO_UPDATE_NOTIFIER` turn the check off.
-
-**Skills:** the first command after a CLI upgrade reinstalls the project's stale skills and reports them on stderr (`skillsRefreshed` JSON off a TTY). Only packs written by `cloudcruise install --skills` are touched. Packs edited since install are skipped and stay flagged as stale; `cloudcruise install --skills` overwrites them. Plugin-installed skills are updated by the agent.
-
-To opt out (not recommended), set this in `~/.cloudcruise/config.json`:
+To turn off the skills refresh, set this in `~/.cloudcruise/config.json`:
 
 ```json
 { "settings": { "skillsAutoUpdate": false } }
 ```
 
-`CLOUDCRUISE_SKILLS_AUTO_UPDATE=0` or `=1` overrides the setting. While opted out, the CLI warns about stale skills (`skillsWarning`); run `cloudcruise install --skills` to update them.
+`CLOUDCRUISE_SKILLS_AUTO_UPDATE=0` or `=1` overrides the setting. With the refresh off, the CLI warns about outdated skills instead.
 
 ## Quick Start
 

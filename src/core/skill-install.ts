@@ -115,6 +115,9 @@ function listFiles(dir: string): string[] {
 // or several CLI processes refresh the same pack at once. Staging dirs live
 // outside the root so agents never load them as skills.
 export function installPack(skillsRoot: string, pack: string): string {
+  if (!listSourcePacks().includes(pack)) {
+    throw new Error(`Unknown skill pack: ${pack}`);
+  }
   const dest = join(skillsRoot, pack);
   const staging = join(
     dirname(skillsRoot),

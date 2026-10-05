@@ -14,7 +14,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { autoRefreshSkills, computeSkillsStatus } from "../dist/src/core/skills.js"
 import { CLI_VERSION } from "../dist/src/core/version.js"
-import { installPacksToRoot } from "../dist/src/core/skill-install.js"
+import { hashPack, installPacksToRoot } from "../dist/src/core/skill-install.js"
 
 const SOURCE_SKILLS = join(import.meta.dirname, "..", "skills")
 const OLD_VERSION = "0.0.1"
@@ -35,6 +35,8 @@ function project(): string {
   return mkdtempSync(join(tmpdir(), "skills-refresh-"))
 }
 
+// An unedited pack as `install --skills` of `cliVersion` left it: the stamp's
+// contentHash matches the files.
 function installedPack(
   cwd: string,
   root: string,
@@ -44,13 +46,15 @@ function installedPack(
   const dir = join(cwd, root, "skills", pack)
   mkdirSync(dir, { recursive: true })
   writeFileSync(join(dir, "SKILL.md"), "outdated content\n")
-  if (cliVersion) {
-    writeFileSync(
-      join(dir, ".cloudcruise-skill.json"),
-      JSON.stringify({ pack, cliVersion })
-    )
-  }
+  if (cliVersion) stamp(dir, pack, cliVersion)
   return dir
+}
+
+function stamp(dir: string, pack: string, cliVersion: string): void {
+  writeFileSync(
+    join(dir, ".cloudcruise-skill.json"),
+    JSON.stringify({ pack, cliVersion, contentHash: hashPack(dir) })
+  )
 }
 
 function stampOf(dir: string): string {
@@ -220,6 +224,7 @@ test("a stale pack with a subfolder that cannot be emptied is still replaced who
   const locked = join(dir, "locked")
   mkdirSync(locked)
   writeFileSync(join(locked, "notes.md"), "local\n")
+  stamp(dir, "cloudcruise", OLD_VERSION)
   chmodSync(locked, 0o555)
 
   try {
@@ -298,4 +303,23 @@ test("a stale pack with a file added since install is left untouched", () => {
 
   assert.equal(stampOf(dir), OLD_VERSION)
   assert.ok(existsSync(join(dir, "team-notes.md")))
+})
+
+// CLIs before contentHash stamped without one. Such a pack is refreshed only
+// when its files match what that released version installed (a hash table built
+// from the published packages); anything else may hold user edits.
+test("a pack stamped without a hash whose files match no released install is left untouched", () => {
+  const cwd = project()
+  const dir = join(cwd, ".claude", "skills", "cloudcruise")
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, "SKILL.md"), "edited by the user\n")
+  writeFileSync(
+    join(dir, ".cloudcruise-skill.json"),
+    JSON.stringify({ pack: "cloudcruise", cliVersion: "1.12.1" })
+  )
+
+  autoRefreshSkills({ cwd, env: {}, settings: {}, stderr: fakeStderr() })
+
+  assert.equal(readFileSync(join(dir, "SKILL.md"), "utf-8"), "edited by the user\n")
+  assert.equal(stampOf(dir), "1.12.1")
 })
