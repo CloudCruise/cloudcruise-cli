@@ -1,5 +1,5 @@
 import { existsSync, lstatSync, readdirSync, readFileSync } from "fs"
-import { basename, join } from "path"
+import { basename, join, relative } from "path"
 import { CLI_VERSION } from "./version.js"
 import { hashPack, installPack, listSourcePacks } from "./skill-install.js"
 import type { CliSettings } from "./config.js"
@@ -229,6 +229,7 @@ export function autoRefreshSkills(options: AutoRefreshOptions): string[] {
   const { cwd, stderr } = options
   if (!skillsAutoUpdateEnabled(options) || !anySkillsRoot(cwd)) return []
   const refreshed: { path: string; pack: string; from: string }[] = []
+  const keptEdited: string[] = []
   let shipped: Set<string>
   try {
     shipped = new Set(listSourcePacks())
@@ -250,7 +251,10 @@ export function autoRefreshSkills(options: AutoRefreshOptions): string[] {
         if (!manifest || compareVersions(manifest.cliVersion, CLI_VERSION) >= 0) {
           continue
         }
-        if (!isUnedited(packDir, manifest)) continue
+        if (!isUnedited(packDir, manifest)) {
+          keptEdited.push(relative(cwd, packDir))
+          continue
+        }
         const path = installPack(root, entry)
         refreshed.push({ path, pack: entry, from: manifest.cliVersion })
       } catch {
@@ -265,7 +269,8 @@ export function autoRefreshSkills(options: AutoRefreshOptions): string[] {
     reportRefresh(stderr, {
       fromVersion,
       packs: [...new Set(refreshed.map((r) => r.pack))].sort(),
-      paths: refreshed.map((r) => r.path)
+      paths: refreshed.map((r) => r.path),
+      keptEdited
     })
   }
   return refreshed.map((r) => r.path)
@@ -292,14 +297,27 @@ function skillsAutoUpdateEnabled(
 
 function reportRefresh(
   stderr: StderrLike,
-  refresh: { fromVersion: string; packs: string[]; paths: string[] }
+  refresh: {
+    fromVersion: string
+    packs: string[]
+    paths: string[]
+    keptEdited: string[]
+  }
 ): void {
+  const { keptEdited, ...refreshed } = refresh
   if (stderr.isTTY) {
     stderr.write(
       `✓ cloudcruise skills refreshed (v${refresh.fromVersion} → v${CLI_VERSION}): ${refresh.packs.join(", ")}\n`
     )
+    if (keptEdited.length) {
+      stderr.write(`  kept, edited since install: ${keptEdited.join(", ")}\n`)
+    }
     return
   }
-  const payload = { cliVersion: CLI_VERSION, ...refresh }
+  const payload = {
+    cliVersion: CLI_VERSION,
+    ...refreshed,
+    ...(keptEdited.length ? { keptEdited } : {})
+  }
   stderr.write(`${JSON.stringify({ skillsRefreshed: payload })}\n`)
 }

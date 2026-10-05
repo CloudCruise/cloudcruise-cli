@@ -323,3 +323,41 @@ test("a pack stamped without a hash whose files match no released install is lef
   assert.equal(readFileSync(join(dir, "SKILL.md"), "utf-8"), "edited by the user\n")
   assert.equal(stampOf(dir), "1.12.1")
 })
+
+// The packs list merges all roots, so a pack kept in one root because it was
+// edited also appears there when its copies elsewhere refresh. The report names
+// the kept copies so it is clear the edits survived.
+test("the refresh report names the edited packs it kept, as paths relative to the project", () => {
+  const cwd = project()
+  const edited = installedPack(cwd, ".claude", "cloudcruise", OLD_VERSION)
+  writeFileSync(join(edited, "SKILL.md"), "my edits\n")
+  installedPack(cwd, ".agents", "cloudcruise", OLD_VERSION)
+  const json = fakeStderr(false)
+  const tty = fakeStderr(true)
+
+  autoRefreshSkills({ cwd, env: {}, settings: {}, stderr: json })
+  writeFileSync(join(cwd, ".agents", "skills", "cloudcruise", "SKILL.md"), "outdated content\n")
+  stamp(join(cwd, ".agents", "skills", "cloudcruise"), "cloudcruise", OLD_VERSION)
+  autoRefreshSkills({ cwd, env: {}, settings: {}, stderr: tty })
+
+  assert.deepEqual(JSON.parse(json.lines[0]).skillsRefreshed.keptEdited, [
+    join(".claude", "skills", "cloudcruise")
+  ])
+  assert.equal(
+    tty.lines[1],
+    `  kept, edited since install: ${join(".claude", "skills", "cloudcruise")}\n`
+  )
+})
+
+// An edited pack stays stale; without anything refreshed there is nothing to
+// report, so it does not print on every command (the staleness warning covers it).
+test("when only edited packs are stale, nothing is reported", () => {
+  const cwd = project()
+  const edited = installedPack(cwd, ".claude", "cloudcruise", OLD_VERSION)
+  writeFileSync(join(edited, "SKILL.md"), "my edits\n")
+  const stderr = fakeStderr()
+
+  autoRefreshSkills({ cwd, env: {}, settings: {}, stderr })
+
+  assert.deepEqual(stderr.lines, [])
+})
