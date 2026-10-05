@@ -129,6 +129,7 @@ cloudcruise snapshot test '//input[@name="email"]' --file ./snapshots/page.html
 | `workflows get <id>` | Get workflow definition |
 | `workflows versions <id>` | List workflow version history |
 | `workflows update <id>` | Update workflow (`--file`, `--stdin`, `--version-note`, `--force`); exits 13 if the body's `version_id` is no longer the latest |
+| `workflows delete <id...>` | Permanently delete workflows (no confirmation); prints one result per id, exits non-zero if any failed |
 | `components list` | List workflow components (`--full`) |
 | `components get <id>` | Get component (`--version-number`) |
 | `components versions <id>` | List component versions (`--limit`) |

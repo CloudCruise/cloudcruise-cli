@@ -362,15 +362,7 @@ Examples:
       try {
         const auth = await resolveAuth(opts)
         const client = new ApiClient(auth)
-        try {
-          await client.delete(`/workflow-components/${id}`)
-        } catch (err) {
-          // Backend returns 204; ApiClient.delete() throws SyntaxError parsing
-          // the empty body. Only swallow that — real HTTP errors must surface.
-          if (!(err instanceof SyntaxError)) {
-            throw err
-          }
-        }
+        await client.delete(`/workflow-components/${id}`)
         outputJson({ id, status: "deleted" })
       } catch (err: unknown) {
         fail(err)

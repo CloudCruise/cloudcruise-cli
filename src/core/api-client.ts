@@ -132,7 +132,8 @@ export class ApiClient {
     if (!res.ok) {
       throw await ApiError.from("DELETE", path, res)
     }
-    return res.json() as Promise<T>
+    const body = await res.text()
+    return (body ? JSON.parse(body) : undefined) as T
   }
 
   authHeaders(extra?: Record<string, string>): Record<string, string> {

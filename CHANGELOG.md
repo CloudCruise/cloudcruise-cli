@@ -4,6 +4,7 @@
 
 ### Added
 
+- `workflows delete <id...>` permanently deletes one or more workflows, without confirmation. stdout is one array with `{ id, status: "deleted" | "not_found" | "error", message? }` per id. It continues past failures and exits non-zero if any id failed.
 - Update notice for coding agents. When stdout is not a TTY, a newer CLI is reported as one `updateAvailable` JSON line on stderr with the update command (`npm i -g @cloudcruise/cli@latest`) and a note to update the coding-agent plugin too. In a terminal, the box is unchanged. `CI` and `NO_UPDATE_NOTIFIER` still turn it off.
 - Skills auto-refresh. The first command after a CLI upgrade reinstalls the project's skill packs that an older CLI stamped and reports them on stderr (`skillsRefreshed` JSON off a TTY). Each pack is swapped in whole, so a failed or concurrent refresh never leaves a partial pack. Packs edited since install are left alone: `install` now stamps a content hash, and packs from older CLIs are checked against the hashes of their released installs. Unstamped and symlinked packs are left alone too. Opt out with `settings.skillsAutoUpdate: false` in `~/.cloudcruise/config.json`; `CLOUDCRUISE_SKILLS_AUTO_UPDATE=0|1` overrides it. While opted out, the stale-skills warning still fires.
 
