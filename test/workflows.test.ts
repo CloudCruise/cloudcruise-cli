@@ -179,7 +179,7 @@ const deletableIds = [
   "1f9c7a52-0000-4000-8000-000000000002"
 ]
 
-const webhookBlockedId = "1f9c7a52-0000-4000-8000-0000000000aa"
+const referenceBlockedId = "1f9c7a52-0000-4000-8000-0000000000aa"
 
 async function startDeleteBackend() {
   const requests: { method?: string; url?: string; ccKey?: string }[] = []
@@ -208,12 +208,12 @@ async function startDeleteBackend() {
       )
       return
     }
-    if (id === webhookBlockedId) {
+    if (id === referenceBlockedId) {
       res.writeHead(400)
       res.end(
         JSON.stringify({
           message:
-            'update or delete on table "workflows" violates foreign key constraint "webhooks_workflow_id_fkey" on table "webhooks"',
+            'update or delete on table "workflows" violates foreign key constraint "tfa_setup_recovery_log_workflow_id_fkey" on table "tfa_setup_recovery_log"',
           error: "Bad Request",
           code: "BAD_REQUEST",
           statusCode: 400
@@ -287,20 +287,20 @@ test("workflows delete reports an unknown id as not_found, still deletes the oth
 // The backend passes the Postgres FK violation through as a 400. The user needs
 // to learn which kind of record blocks the delete, not the constraint name.
 // Exit 2 is the taxonomy's code for a 400 BAD_REQUEST.
-test("workflows delete of a workflow that still has a webhook reports an error naming the webhook instead of the raw Postgres message, and exits 2", async () => {
+test("workflows delete of a workflow still referenced by TFA setup recovery log entries reports an error naming them instead of the raw Postgres message, and exits 2", async () => {
   const backend = await startDeleteBackend()
   try {
     const result = await runCli([
       "workflows",
       "delete",
-      webhookBlockedId,
+      referenceBlockedId,
       "--base-url",
       backend.baseUrl
     ])
     assert.equal(result.code, 2)
     const [blocked] = JSON.parse(result.stdout)
     assert.equal(blocked.status, "error")
-    assert.match(blocked.message, /webhook/)
+    assert.match(blocked.message, /TFA setup recovery log entries/)
     assert.doesNotMatch(blocked.message, /foreign key|fkey/)
   } finally {
     backend.server.close()
@@ -337,7 +337,7 @@ test("workflows delete exits 1 when ids fail for different reasons", async () =>
       "workflows",
       "delete",
       unknownId,
-      webhookBlockedId,
+      referenceBlockedId,
       "--base-url",
       backend.baseUrl
     ])

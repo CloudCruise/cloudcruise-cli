@@ -38,7 +38,6 @@ type WorkflowDeleteResult = {
 }
 
 const WORKFLOW_REFERENCE_LABELS: Record<string, string> = {
-  webhooks: "webhooks",
   tfa_setup_recovery_log: "TFA setup recovery log entries",
   saved_inputs: "saved inputs"
 }
