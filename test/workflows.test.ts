@@ -285,7 +285,8 @@ test("workflows delete reports an unknown id as not_found, still deletes the oth
 })
 
 // The backend passes the Postgres FK violation through as a 400. The user needs
-// to learn which kind of record blocks the delete, not the constraint name.
+// to learn which kind of record blocks the delete, not the constraint name, and
+// that only support can remove it: no API deletes these records.
 // Exit 2 is the taxonomy's code for a 400 BAD_REQUEST.
 test("workflows delete of a workflow still referenced by TFA setup recovery log entries reports an error naming them instead of the raw Postgres message, and exits 2", async () => {
   const backend = await startDeleteBackend()
@@ -301,6 +302,7 @@ test("workflows delete of a workflow still referenced by TFA setup recovery log 
     const [blocked] = JSON.parse(result.stdout)
     assert.equal(blocked.status, "error")
     assert.match(blocked.message, /TFA setup recovery log entries/)
+    assert.match(blocked.message, /contact CloudCruise support/i)
     assert.doesNotMatch(blocked.message, /foreign key|fkey/)
   } finally {
     backend.server.close()

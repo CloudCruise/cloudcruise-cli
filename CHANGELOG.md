@@ -4,7 +4,7 @@
 
 ### Added
 
-- `workflows delete <id...>` permanently deletes one or more workflows, without confirmation. stdout is one array with `{ id, status: "deleted" | "not_found" | "error", message? }` per id. It continues past failures and exits non-zero if any id failed. A delete blocked by a referencing record names that kind of record instead of the raw Postgres error.
+- `workflows delete <id...>` permanently deletes one or more workflows, without confirmation. stdout is one array with `{ id, status: "deleted" | "not_found" | "error", message? }` per id. It continues past failures and exits non-zero if any id failed.
 
 ### Changed
 

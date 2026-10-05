@@ -93,7 +93,7 @@ function describeWorkflowDeleteError(
     const label = WORKFLOW_REFERENCE_LABELS[fkTable] ?? `rows in ${fkTable}`
     return {
       status: "error",
-      message: `The workflow can't be deleted while ${label} still reference it. Remove those first, then retry.`,
+      message: `The workflow can't be deleted while ${label} still reference it. Contact CloudCruise support to remove them.`,
       exitCode
     }
   }
