@@ -1,6 +1,10 @@
-import { existsSync, readdirSync, readFileSync } from "fs"
-import { join } from "path"
+import { existsSync, lstatSync, readdirSync, readFileSync } from "fs"
+import { basename, join, relative } from "path"
 import { CLI_VERSION } from "./version.js"
+import { hashPack, installPack, listSourcePacks } from "./skill-install.js"
+import type { CliSettings } from "./config.js"
+import { LEGACY_SKILL_HASHES } from "./legacy-skill-hashes.js"
+import type { StderrLike } from "./update-notice.js"
 import { SkillsIncompatibleError, fail } from "./exit.js"
 
 /**
@@ -43,6 +47,7 @@ export interface SkillManifest {
   cliVersion: string
   requiresCli?: string
   installedAt?: string
+  contentHash?: string
 }
 
 export interface SkillsStatus {
@@ -93,26 +98,33 @@ export function readInstalledManifests(cwd: string): SkillManifest[] {
   for (const root of skillsRoots(cwd)) {
     if (!existsSync(root)) continue
     for (const entry of readdirSync(root)) {
-      const path = join(root, entry, MANIFEST_FILE)
-      if (!existsSync(path)) continue
-      try {
-        const m = JSON.parse(readFileSync(path, "utf-8")) as SkillManifest
-        if (!m || typeof m.cliVersion !== "string") continue
-        const manifest: SkillManifest = { ...m, pack: m.pack ?? entry }
-        const existing = byPack.get(manifest.pack)
-        // Keep the oldest copy: worst-case drift for this pack.
-        if (
-          !existing ||
-          compareVersions(manifest.cliVersion, existing.cliVersion) < 0
-        ) {
-          byPack.set(manifest.pack, manifest)
-        }
-      } catch {
-        // Malformed manifest — skip this pack rather than break the command.
+      const manifest = readManifest(join(root, entry))
+      if (!manifest) continue
+      const existing = byPack.get(manifest.pack)
+      // Keep the oldest copy: worst-case drift for this pack.
+      if (
+        !existing ||
+        compareVersions(manifest.cliVersion, existing.cliVersion) < 0
+      ) {
+        byPack.set(manifest.pack, manifest)
       }
     }
   }
   return [...byPack.values()]
+}
+
+// A malformed or missing manifest reads as unmanaged rather than breaking the
+// command.
+function readManifest(packDir: string): SkillManifest | undefined {
+  const path = join(packDir, MANIFEST_FILE)
+  if (!existsSync(path)) return undefined
+  try {
+    const m = JSON.parse(readFileSync(path, "utf-8")) as SkillManifest
+    if (!m || typeof m.cliVersion !== "string") return undefined
+    return { ...m, pack: m.pack ?? basename(packDir) }
+  } catch {
+    return undefined
+  }
 }
 
 export function computeSkillsStatus(cwd: string): SkillsStatus {
@@ -197,4 +209,116 @@ export function checkInstalledSkills(topLevelGroup: string | undefined): void {
     return
   }
   emitWarning(status)
+}
+
+export interface AutoRefreshOptions {
+  cwd: string
+  env: Record<string, string | undefined>
+  settings: CliSettings
+  stderr: StderrLike
+}
+
+/**
+ * Reinstall every CLI-managed pack (one carrying a manifest) that an older CLI
+ * stamped, so skills follow a CLI upgrade without a manual
+ * `cloudcruise install --skills`. Packs edited since install are left to an
+ * explicit `install --skills`. Never throws; a pack that is skipped or fails
+ * stays as it was, and the staleness warning still fires for it.
+ */
+export function autoRefreshSkills(options: AutoRefreshOptions): string[] {
+  const { cwd, stderr } = options
+  if (!skillsAutoUpdateEnabled(options) || !anySkillsRoot(cwd)) return []
+  const refreshed: { path: string; pack: string; from: string }[] = []
+  const keptEdited: string[] = []
+  let shipped: Set<string>
+  try {
+    shipped = new Set(listSourcePacks())
+  } catch {
+    return []
+  }
+  for (const root of skillsRoots(cwd)) {
+    let entries: string[]
+    try {
+      entries = existsSync(root) ? readdirSync(root) : []
+    } catch {
+      continue
+    }
+    for (const entry of entries) {
+      try {
+        const packDir = join(root, entry)
+        if (!shipped.has(entry) || lstatSync(packDir).isSymbolicLink()) continue
+        const manifest = readManifest(packDir)
+        if (!manifest || compareVersions(manifest.cliVersion, CLI_VERSION) >= 0) {
+          continue
+        }
+        if (!isUnedited(packDir, manifest)) {
+          keptEdited.push(relative(cwd, packDir))
+          continue
+        }
+        const path = installPack(root, entry)
+        refreshed.push({ path, pack: entry, from: manifest.cliVersion })
+      } catch {
+        continue
+      }
+    }
+  }
+  if (refreshed.length) {
+    const fromVersion = refreshed
+      .map((r) => r.from)
+      .sort(compareVersions)[0]
+    reportRefresh(stderr, {
+      fromVersion,
+      packs: [...new Set(refreshed.map((r) => r.pack))].sort(),
+      paths: refreshed.map((r) => r.path),
+      keptEdited
+    })
+  }
+  return refreshed.map((r) => r.path)
+}
+
+// True when the pack's files are exactly what the stamping CLI installed.
+// Stamps from CLI 1.11.0–1.13.0 carry no contentHash; for backwards
+// compatibility their hash comes from LEGACY_SKILL_HASHES. Unknown means
+// possibly edited.
+function isUnedited(packDir: string, manifest: SkillManifest): boolean {
+  const expected =
+    manifest.contentHash ??
+    LEGACY_SKILL_HASHES[manifest.cliVersion]?.[manifest.pack]
+  return !!expected && hashPack(packDir) === expected
+}
+
+function skillsAutoUpdateEnabled(
+  options: Pick<AutoRefreshOptions, "env" | "settings">
+): boolean {
+  const fromEnv = options.env.CLOUDCRUISE_SKILLS_AUTO_UPDATE
+  if (fromEnv === "0") return false
+  if (fromEnv === "1") return true
+  return options.settings.skillsAutoUpdate !== false
+}
+
+function reportRefresh(
+  stderr: StderrLike,
+  refresh: {
+    fromVersion: string
+    packs: string[]
+    paths: string[]
+    keptEdited: string[]
+  }
+): void {
+  const { keptEdited, ...refreshed } = refresh
+  if (stderr.isTTY) {
+    stderr.write(
+      `✓ cloudcruise skills refreshed (v${refresh.fromVersion} → v${CLI_VERSION}): ${refresh.packs.join(", ")}\n`
+    )
+    if (keptEdited.length) {
+      stderr.write(`  kept, edited since install: ${keptEdited.join(", ")}\n`)
+    }
+    return
+  }
+  const payload = {
+    cliVersion: CLI_VERSION,
+    ...refreshed,
+    ...(keptEdited.length ? { keptEdited } : {})
+  }
+  stderr.write(`${JSON.stringify({ skillsRefreshed: payload })}\n`)
 }

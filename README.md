@@ -47,6 +47,19 @@ cloudcruise install --skills --target claude   # Claude Code only
 cloudcruise install --skills --target cursor   # Cursor only
 ```
 
+## Staying Up to Date
+
+- **CLI:** the CLI tells you, and your coding agent, when a newer version exists. Update with `npm i -g @cloudcruise/cli@latest`. `CI` and `NO_UPDATE_NOTIFIER` turn the check off.
+- **Skills:** after a CLI upgrade, the next command refreshes the skills that `cloudcruise install --skills` wrote into the current project. Skills you edited are left alone; `cloudcruise install --skills` overwrites them. Plugin-installed skills update with the plugin.
+
+To turn off the skills refresh, set this in `~/.cloudcruise/config.json`:
+
+```json
+{ "settings": { "skillsAutoUpdate": false } }
+```
+
+`CLOUDCRUISE_SKILLS_AUTO_UPDATE=0` or `=1` overrides the setting. With the refresh off, the CLI warns about outdated skills instead.
+
 ## Quick Start
 
 ```bash

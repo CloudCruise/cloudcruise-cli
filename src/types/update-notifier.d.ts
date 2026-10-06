@@ -15,7 +15,15 @@ declare module "update-notifier" {
     isGlobal?: boolean
   }
 
+  interface UpdateInfo {
+    current: string
+    latest: string
+    type: string
+    name: string
+  }
+
   interface Notifier {
+    update?: UpdateInfo
     notify(options?: NotifyOptions): void
   }
 
