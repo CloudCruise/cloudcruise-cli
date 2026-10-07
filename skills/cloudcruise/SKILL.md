@@ -192,7 +192,7 @@ cloudcruise utils uuid --count 5    # Generate multiple UUIDs
 
 ```bash
 cloudcruise run start <workflow_id>                          # Start run, returns { session_id } immediately (non-blocking)
-cloudcruise run start <workflow_id> --debug                  # Start with debug snapshots on every node
+cloudcruise run start <workflow_id> --debug                  # Start with debug snapshots on every node + network traffic recording
 cloudcruise run start <workflow_id> --dry-run                # Run but skip final submit/save actions (nodes marked end_here_on_dry_run)
 cloudcruise run start <workflow_id> --no-notifications       # Suppress workspace run notifications (Slack/email) for this run
 cloudcruise run start <workflow_id> --input '{"key":"val"}'  # Start with input variables
@@ -203,6 +203,7 @@ cloudcruise run respond <session_id> --data '{"approval_code":"123456"}' # Submi
 cloudcruise run live-view <session_id>                       # Fresh viewer URL + one-time auth token to watch an active session (re-run to renew after the previous token is used)
 cloudcruise run errors <workflow_id> --since 24h             # Error analytics (24h, 7d, 30m)
 cloudcruise run snapshots <session_id> <node_id>             # Debug snapshots for a specific node
+cloudcruise run network <session_id>                         # All recorded network traffic of a run (--include-noise, --output <path>)
 ```
 
 ### Snapshots
@@ -481,6 +482,14 @@ cloudcruise snapshot test "//input[@name='email']" <session_id> <node_id>
 **Also view the screenshot** (saved by `snapshot fetch`) to check visibility, popups, or unexpected pages.
 
 If `snapshot fetch` reports no HTML, the run was not `--debug`. Re-run with `--debug`.
+
+**Network traffic:** a `--debug` run also records the run's network traffic (on workers with network capture). `run network <session_id>` returns all of it in one JSON document, oldest first: `{ session_id, complete, events[] }`. Each event has `retry`, `method`, `status`, `url`, `category`, `content_type`, headers, bodies and `*_truncated`. Filter locally:
+
+```bash
+cloudcruise run network <session_id> | jq '.events[] | select(.url | test("/api/")) | {method, status, url}'
+```
+
+Noise (preflights, analytics, assets) is filtered unless `--include-noise`. `complete: false` means the run is still going. Credentials are redacted. Debug runs keep JSON/HTML/text/XML bodies up to 2 MB, other bodies up to 100 KB.
 
 **Snapshot timing:** Snapshots capture page state _when a node starts executing_ (i.e., post-action state of the _previous_ node). To see what appeared after a node's action, inspect the _next_ node's snapshot. On success, the END node shows final state. On failure, the END node has no snapshot — use the _failed_ node's snapshot instead.
 

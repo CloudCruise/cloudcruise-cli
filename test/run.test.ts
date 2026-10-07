@@ -1,6 +1,10 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { buildRunStartBody } from "../dist/src/commands/run.js"
+import {
+  buildRunNetworkPath,
+  buildRunStartBody,
+  summarizeRunNetwork
+} from "../dist/src/commands/run.js"
 
 test("buildRunStartBody omits notifications by default", () => {
   const body = buildRunStartBody("wf_1", {}, {})
@@ -27,4 +31,28 @@ test("buildRunStartBody carries workflow_id and run_input_variables", () => {
   const body = buildRunStartBody("wf_1", { USER: "abc" }, {})
   assert.equal(body.workflow_id, "wf_1")
   assert.deepEqual(body.run_input_variables, { USER: "abc" })
+})
+
+test("buildRunNetworkPath targets the run network endpoint and filters noise by default", () => {
+  assert.equal(buildRunNetworkPath("sess_1", {}), "/run/sess_1/network")
+})
+
+test("buildRunNetworkPath passes --include-noise through as include_noise=true", () => {
+  assert.equal(
+    buildRunNetworkPath("sess_1", { includeNoise: true }),
+    "/run/sess_1/network?include_noise=true"
+  )
+})
+
+test("summarizeRunNetwork reports where --output wrote the traffic instead of echoing every event", () => {
+  const summary = summarizeRunNetwork(
+    { session_id: "sess_1", complete: true, events: [{}, {}, {}] },
+    "traffic.json"
+  )
+  assert.deepEqual(summary, {
+    session_id: "sess_1",
+    complete: true,
+    event_count: 3,
+    file: "traffic.json"
+  })
 })
