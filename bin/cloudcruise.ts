@@ -17,16 +17,16 @@ import { registerBuilderCommands } from "../src/commands/builder.js"
 import { registerWorkspaceCommands } from "../src/commands/workspaces.js"
 import { registerErrorCodeCommands } from "../src/commands/error-codes.js"
 import { CLI_VERSION } from "../src/core/version.js"
-import { checkInstalledSkills } from "../src/core/skills.js"
+import { autoRefreshSkills, checkInstalledSkills } from "../src/core/skills.js"
+import { loadConfig } from "../src/core/config.js"
+import { checkForUpdate } from "../src/core/update-notice.js"
 
 const require = createRequire(import.meta.url)
 const pkg = require("../../package.json") as { name: string; version: string }
 
 loadDotEnv()
 
-if (process.stderr.isTTY) {
-  updateNotifier({ pkg }).notify()
-}
+checkForUpdate(() => updateNotifier({ pkg }), process)
 
 program
   .name("cloudcruise")
@@ -46,12 +46,20 @@ registerSnapshotCommands(program)
 registerSecretProviderCommands(program)
 registerVaultCommands(program)
 
-// Warn (or, on a breaking release, block) when a project's installed skills have
-// drifted from this CLI version. Resolves the invoked command's top-level group
-// and only acts on the gated groups; never fires for --help/--version.
+// Refresh a project's stale CLI-installed skills, then warn (or, on a breaking
+// release, block) about any drift left. Resolves the invoked command's top-level
+// group; never fires for --help/--version.
 program.hook("preAction", (_thisCommand, actionCommand) => {
   let cmd = actionCommand
   while (cmd.parent && cmd.parent.parent) cmd = cmd.parent
+  if (cmd.name() !== "install") {
+    autoRefreshSkills({
+      cwd: process.cwd(),
+      env: process.env,
+      settings: loadConfig().settings ?? {},
+      stderr: process.stderr
+    })
+  }
   checkInstalledSkills(cmd.name())
 })
 

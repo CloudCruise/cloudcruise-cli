@@ -30,6 +30,16 @@ cloudcruise install --skills --target cursor   # .cursor/skills/ only
 cloudcruise install --skills --target codex    # .agents/skills/ only (same for devin, agents)
 ```
 
+### Staying Up to Date
+
+Off a TTY, the CLI reports on stderr, one JSON line each:
+
+- `{"updateAvailable":{...}}`: a newer CLI exists. Tell the user and suggest `remedy` (`npm i -g @cloudcruise/cli@latest`). If they use the CloudCruise plugin in their coding agent, they update it there too.
+- `{"skillsRefreshed":{...}}`: an older CLI installed these skills; the CLI reinstalled them from the running version. Tell the user which skills were refreshed (`paths`, they show up in `git status`) and which were kept because someone edited them (`keptEdited`). Re-read any skill you already loaded.
+- `{"skillsWarning":{...}}`: installed skills don't match the CLI. Run its `remedy`.
+
+Skills refresh on the first command after a CLI upgrade, in the current project only, and only packs that `install --skills` stamped and nobody edited since. An edited pack stays stale and keeps the `skillsWarning`; ask the user before running its `remedy`, which overwrites the edits. `settings.skillsAutoUpdate: false` in `~/.cloudcruise/config.json` turns this off; `CLOUDCRUISE_SKILLS_AUTO_UPDATE=0|1` overrides the setting.
+
 ## Commands
 
 ### Auth

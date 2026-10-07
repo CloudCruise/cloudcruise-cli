@@ -37,9 +37,16 @@ export interface ProfileConfig {
   currentWorkspaceId?: string
 }
 
+export interface CliSettings {
+  // Reinstall stale CLI-installed skill packs on the first command after a
+  // CLI upgrade. Default true. CLOUDCRUISE_SKILLS_AUTO_UPDATE=0|1 overrides.
+  skillsAutoUpdate?: boolean
+}
+
 export interface CliConfig {
   activeProfile?: string
   profiles?: Record<string, ProfileConfig>
+  settings?: CliSettings
   // Legacy flat fields — kept only for migration detection
   apiKey?: string
   baseUrl?: string
@@ -76,7 +83,8 @@ function migrateIfNeeded(config: CliConfig): CliConfig {
 
   const migrated: CliConfig = {
     activeProfile: "default",
-    profiles: { default: profile }
+    profiles: { default: profile },
+    ...(config.settings ? { settings: config.settings } : {})
   }
   writeRawConfig(migrated)
   return migrated
