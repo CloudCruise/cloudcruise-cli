@@ -489,7 +489,7 @@ If `snapshot fetch` reports no HTML, the run was not `--debug`. Re-run with `--d
 cloudcruise run network <session_id> | jq '.events[] | select(.url | test("/api/")) | {method, status, url}'
 ```
 
-Noise (preflights, analytics, assets) is filtered unless `--include-noise`. `complete: false` means the run is still going. Credentials are redacted. Debug runs keep JSON/HTML/text/XML bodies up to 2 MB, other bodies up to 100 KB.
+Noise (preflights, analytics, assets) is filtered unless `--include-noise`. `complete: false` means the run is still going. Credentials are redacted.
 
 **Snapshot timing:** Snapshots capture page state _when a node starts executing_ (i.e., post-action state of the _previous_ node). To see what appeared after a node's action, inspect the _next_ node's snapshot. On success, the END node shows final state. On failure, the END node has no snapshot — use the _failed_ node's snapshot instead.
 
