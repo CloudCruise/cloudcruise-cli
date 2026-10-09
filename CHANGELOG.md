@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.15.0
+
+### Added
+
+- `run network <session_id>` returns all network traffic recorded for a run as one JSON document, oldest first, for filtering with `jq`. `--include-noise` adds preflights, analytics and assets; `--output <path>` writes the document to a file and prints a summary. `--debug` runs now record network traffic.
+
 ## 1.14.0
 
 ### Added
