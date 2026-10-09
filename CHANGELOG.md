@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- `cloudcruise-workflow-dsl` documents CLICK `click_type: "draw"`, which traces the image at `draw_image_url` (usually a signed URL run input) into pen strokes and draws them into the target, such as a signature box.
+
 ## 1.14.0
 
 ### Added
