@@ -297,6 +297,8 @@ cloudcruise builder conversations get "conv-abc123"              # Full transcri
 cloudcruise builder conversations get "conv-abc123" --limit 20   # Last 20 messages only
 cloudcruise builder conversations get "conv-abc123" --limit 0    # Metadata only, no transcript
 cloudcruise builder conversations get "conv-abc123" --limit 0 --output ./conv.json   # Full response to file, metadata to stdout
+cloudcruise builder conversations digest "conv-abc123"         # Compact digest of an ended conversation
+cloudcruise builder conversations digest "conv-abc123" --detail full --include network --output ./digest.json
 
 # ── Target a specific conversation (concurrent/multi-conversation) ──
 cloudcruise builder status --conversation "conv-abc123"
