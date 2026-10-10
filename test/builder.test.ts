@@ -9,7 +9,8 @@ import {
   parseTranscriptLimit,
   tailChat,
   buildArchiveOutput,
-  archiveFallbackHint
+  archiveFallbackHint,
+  digestPath
 } from "../dist/src/commands/builder.js"
 import { UsageError } from "../dist/src/core/exit.js"
 import { ApiError } from "../dist/src/core/api-client.js"
@@ -329,4 +330,26 @@ test("archiveFallbackHint stays quiet for other API errors", () => {
 test("archiveFallbackHint stays quiet for non-API errors", () => {
   assert.equal(archiveFallbackHint(new Error("network down"), "1"), undefined)
   assert.equal(archiveFallbackHint(undefined, "1"), undefined)
+})
+
+test("digestPath requests the summary digest by default", () => {
+  assert.equal(
+    digestPath("conv 1", {}),
+    "/workflow-builder/conversations/conv%201/digest?detail=summary"
+  )
+})
+
+test("digestPath passes --detail full and the --include sections", () => {
+  assert.equal(
+    digestPath("conv-1", { detail: "full", include: "network, logs" }),
+    "/workflow-builder/conversations/conv-1/digest?detail=full&include=network%2Clogs"
+  )
+})
+
+test("digestPath rejects an unknown detail level before calling the API", () => {
+  assert.throws(() => digestPath("conv-1", { detail: "everything" }), UsageError)
+})
+
+test("digestPath rejects an unknown include section before calling the API", () => {
+  assert.throws(() => digestPath("conv-1", { include: "network,recording" }), UsageError)
 })

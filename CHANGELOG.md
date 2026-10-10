@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- `builder conversations digest [id]` prints the digest of an ended conversation as JSON: header, timeline page, workflow revisions, debug runs, artifacts and PostHog sessions. `--detail full` adds raw messages, `--include network,logs` adds those sections (logs need an admin key) and `--output` writes to file. A live conversation exits with the backend's 409.
+
 ### Changed
 
 - `cloudcruise-workflow-dsl` documents CLICK `click_type: "draw"`, which traces the image at `draw_image_url` (usually a signed URL run input) into pen strokes and draws them into the target, such as a signature box.

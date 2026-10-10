@@ -258,6 +258,31 @@ function parseLimit(limit: string | undefined): number | undefined {
  * exists to keep a request sane, but nothing is requested here, and a limit
  * past the end of the transcript just means "all of it".
  */
+const DIGEST_DETAILS = ["summary", "full"]
+const DIGEST_SECTIONS = ["network", "logs"]
+
+export function digestPath(
+  conversationId: string,
+  opts: { detail?: string; include?: string }
+): string {
+  const detail = opts.detail ?? "summary"
+  if (!DIGEST_DETAILS.includes(detail)) {
+    throw new UsageError("--detail must be summary or full")
+  }
+  const params = new URLSearchParams({ detail })
+  if (opts.include !== undefined) {
+    const sections = opts.include.split(",").map((part) => part.trim())
+    const unknown = sections.filter((part) => !DIGEST_SECTIONS.includes(part))
+    if (unknown.length > 0) {
+      throw new UsageError(
+        `--include accepts ${DIGEST_SECTIONS.join(", ")}; got ${unknown.join(", ")}`
+      )
+    }
+    params.set("include", sections.join(","))
+  }
+  return `${CONVERSATIONS_BASE}/${encodeURIComponent(conversationId)}/digest?${params}`
+}
+
 export function parseTranscriptLimit(
   limit: string | undefined
 ): number | undefined {
@@ -1272,6 +1297,51 @@ Returns { conversationId, conversation, chat_error, total, limit, hasMore, chat 
           file: opts.output
         })
         outputJson(stripBase64(out))
+      } catch (err: unknown) {
+        fail(err)
+      }
+    }
+  )
+
+  // ── builder conversations digest ────────────────────────────────
+  // A compact, paged view of an ended conversation for analysis. The backend
+  // answers 409 while the conversation is live; use `get` for those.
+  addConversationOption(addAuthOptions(
+    conversations
+      .command("digest [id]")
+      .description("Get the digest of an ended conversation")
+      .option("--detail <level>", "summary (default) or full")
+      .option("--include <sections>", "Comma-separated extras: network, logs (logs need an admin key)")
+      .option("--output <path>", "Write the digest JSON to file instead of stdout")
+  )).addHelpText("after", `
+Returns { version, status, conversation, timeline, workflow, debugRuns, artifacts,
+latest, recording, posthogSessions, network?, logs?, unavailable }
+
+`).action(
+    async (
+      id: string | undefined,
+      opts: {
+        detail?: string
+        include?: string
+        output?: string
+      } & ConversationOptions
+    ) => {
+      try {
+        const auth = await resolveAuth(opts)
+        const client = new ApiClient(auth)
+        const { conversationId, source } = await resolveConversation(
+          client,
+          { conversation: pickConversationSelector(id, opts.conversation) },
+          auth.workspaceId
+        )
+        echoSession(conversationId, source)
+        const digest = await client.get<unknown>(digestPath(conversationId, opts))
+        if (opts.output) {
+          writeFileSync(opts.output, JSON.stringify(digest, null, 2) + "\n")
+          outputJson({ conversationId, file: opts.output })
+        } else {
+          outputJson(digest)
+        }
       } catch (err: unknown) {
         fail(err)
       }
