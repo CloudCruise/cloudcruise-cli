@@ -1,4 +1,5 @@
 import { ResolvedAuth } from "./auth.js"
+import { clientIdentityHeaders } from "./client-identity.js"
 
 /**
  * Error thrown for non-2xx API responses. Carries the HTTP status and, when the
@@ -138,6 +139,7 @@ export class ApiClient {
 
   authHeaders(extra?: Record<string, string>): Record<string, string> {
     return {
+      ...clientIdentityHeaders(),
       ...(this.auth.authScheme === "bearer"
         ? { Authorization: `Bearer ${this.auth.token}` }
         : { "cc-key": this.auth.token }),
