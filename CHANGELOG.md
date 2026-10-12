@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- `cloudcruise-workflow-dsl` no longer lists `use_native_actions` and `video_record_session` as workflow settings. Run video is always recorded and input actions always use native OS input, so neither setting exists; the backend still accepts and ignores both fields if a saved workflow carries them.
+
 ## 1.15.0
 
 ### Added
