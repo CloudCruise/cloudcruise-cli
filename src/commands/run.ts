@@ -1,4 +1,5 @@
 import { Command } from "commander"
+import { writeFileSync } from "fs"
 import { resolveAuth } from "../core/auth.js"
 import { ApiClient } from "../core/api-client.js"
 import { outputJson } from "../core/output.js"
@@ -41,6 +42,26 @@ export function buildRunStartBody(
   return body
 }
 
+export function buildRunNetworkPath(
+  sessionId: string,
+  opts: { includeNoise?: boolean }
+): string {
+  const path = `/run/${encodeURIComponent(sessionId)}/network`
+  return opts.includeNoise ? `${path}?include_noise=true` : path
+}
+
+export function summarizeRunNetwork(
+  data: { session_id: string; complete: boolean; events: unknown[] },
+  file: string
+): { session_id: string; complete: boolean; event_count: number; file: string } {
+  return {
+    session_id: data.session_id,
+    complete: data.complete,
+    event_count: data.events.length,
+    file
+  }
+}
+
 export function registerRunCommands(program: Command): void {
   const run = program.command("run").description("Manage runs")
 
@@ -49,7 +70,7 @@ export function registerRunCommands(program: Command): void {
       .command("start <workflow_id>")
       .description("Start a new run")
       .option("--input <json>", "Input variables as JSON string", "{}")
-      .option("--debug", "Enable debug snapshots on every node")
+      .option("--debug", "Enable debug snapshots on every node and record network traffic")
       .option("--dry-run", "Run the workflow but skip final submit/save actions (nodes marked end_here_on_dry_run)")
       .option("--no-notifications", "Suppress workspace run notifications (Slack/email) for this run")
   ).addHelpText("after", `
@@ -322,6 +343,49 @@ Examples:
         const data = await client.get(
           `/run/${sessionId}/debug-snapshots/${nodeId}`
         )
+        outputJson(data)
+      } catch (err: unknown) {
+        fail(err)
+      }
+    }
+  )
+
+  addAuthOptions(
+    run
+      .command("network <session_id>")
+      .description("Get all recorded network traffic of a run")
+      .option("--include-noise", "Include every captured event (preflights, analytics, assets, ...)")
+      .option("--output <path>", "Write the traffic JSON to a file instead of stdout")
+  ).addHelpText("after", `
+Returns { session_id, complete, events[] }, oldest first. Each event has id, retry,
+timestamp, method, status, url, category, content_type, request/response headers
+and bodies, and request/response_truncated. complete is false until the run ends.
+Traffic is recorded for --debug runs on workers with network capture.
+
+With --output, stdout gets { session_id, complete, event_count, file }.
+
+Examples:
+  $ cloudcruise run network sess_abc123 | jq '.events[] | {method, status, url}'
+  $ cloudcruise run network sess_abc123 --include-noise
+  $ cloudcruise run network sess_abc123 --output traffic.json
+`).action(
+    async (
+      sessionId: string,
+      opts: { includeNoise?: boolean; output?: string } & AuthOptions
+    ) => {
+      try {
+        const auth = await resolveAuth(opts)
+        const client = new ApiClient(auth)
+        const data = await client.get<{
+          session_id: string
+          complete: boolean
+          events: unknown[]
+        }>(buildRunNetworkPath(sessionId, opts))
+        if (opts.output) {
+          writeFileSync(opts.output, JSON.stringify(data, null, 2) + "\n")
+          outputJson(summarizeRunNetwork(data, opts.output))
+          return
+        }
         outputJson(data)
       } catch (err: unknown) {
         fail(err)

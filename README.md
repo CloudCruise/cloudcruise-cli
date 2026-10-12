@@ -150,6 +150,7 @@ cloudcruise snapshot test '//input[@name="email"]' --file ./snapshots/page.html
 | `run live-view <id>` | Get a fresh live-view connection (viewer URL + one-time auth token) for an active session |
 | `run errors <id>` | Error analytics (`--since`, `--limit`) |
 | `run snapshots <id> <node_id>` | Get debug snapshot metadata |
+| `run network <id>` | Get all recorded network traffic of a run (`--include-noise`, `--output`) |
 | `snapshot fetch <sid> <nid>` | Download HTML, screenshots, metadata (`--html`, `--image`) |
 | `snapshot suggest [sid] [nid]` | Suggest XPath selectors (`--file`, `--filter`) |
 | `snapshot test <xpath> [sid] [nid]` | Test XPath against snapshot (`--file`, `--count`) |
