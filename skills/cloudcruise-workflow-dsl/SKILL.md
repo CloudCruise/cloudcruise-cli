@@ -952,7 +952,7 @@ Intercept XHR/Fetch requests and extract data from responses.
 
 Path syntax: `$` (root), `$.field` (direct), `$.parent.child` (nested), `$[0]` (array index).
 
-**No matching request.** By default the node fails with `EXTRACT-E0001` once `wait_time` runs out. When the page fires the request only some of the time, set `allow_empty_on_no_match: true`: the node then extracts from `{}`, every field comes back empty, and the run continues. Branch on the result with a BOOL_CONDITION: `IS_NULL` on an extracted field, or on `<field>.response.body` when `full_request` is true, because `full_request` wraps each field in a `{ request, response, timestamp }` object that is never empty. The flag covers only the request: a `selector` that never appears still fails the node.
+**No matching request.** By default the node fails with `EXTRACT-E0001` once `wait_time` runs out. When the page fires the request only some of the time, set `allow_empty_on_no_match: true`: the node then extracts from `{}`, every field comes back empty, and the run continues. Branch on the result with a BOOL_CONDITION (`IS_NULL` on an extracted field). The flag covers only the request: a `selector` that never appears still fails the node.
 
 ### API_FLOW
 
