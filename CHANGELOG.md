@@ -1,9 +1,10 @@
 # Changelog
 
-## Unreleased
+## 1.15.1
 
 ### Changed
 
+- `cloudcruise-workflow-dsl` documents EXTRACT_NETWORK `allow_empty_on_no_match`, which continues with an empty result instead of failing with `EXTRACT-E0001` when no request matches, and `api_method`, which filters matches by HTTP method. `wait_time` is now described as the budget for the whole node, shared by the `selector` wait and the request wait.
 - `cloudcruise-workflow-dsl` no longer lists `use_native_actions` and `video_record_session` as workflow settings. Run video is always recorded and input actions always use native OS input, so neither setting exists; the backend still accepts and ignores both fields if a saved workflow carries them.
 
 ## 1.15.0
@@ -16,6 +17,7 @@
 
 ### Changed
 
+- `cloudcruise-workflow-dsl` documents CLICK `click_type: "draw"`, which traces the image at `draw_image_url` (usually a signed URL run input) into pen strokes and draws them into the target, such as a signature box.
 - `workflows update` detects stale edits. It sends the body's `version_id` as `base_version_id`; if someone saved in between, it creates no version and exits 13 (`WORKFLOW_VERSION_CONFLICT`). The stderr envelope adds `latestVersion` (id, number, author, time, note) and a `hint`. `--force` overwrites anyway. A body without `version_id` is not checked.
 - `workflows update` sends the body as-is instead of stripping 11 fields. Edits to `encrypted_keys` now reach the backend. Requires a backend that accepts echoed read-only fields.
 - `workflows update` no longer sends the body's `version_note`; the note comes only from `--version-note`. A fetched body's note describes the version it was fetched at.
