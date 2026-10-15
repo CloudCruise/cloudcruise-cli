@@ -935,18 +935,22 @@ Intercept XHR/Fetch requests and extract data from responses.
 }
 ```
 
-| Parameter                | Type    | Required | Description                                                                                  |
-| ------------------------ | ------- | -------- | -------------------------------------------------------------------------------------------- |
-| `url`                    | string  | Yes      | URL pattern: exact, substring, `*` wildcard, or `regex:` prefix                              |
-| `extract_data_model`     | object  | Yes      | Schema with JSONata/JSONPath `path` expressions                                              |
-| `selector`               | string  | No       | XPath to wait for before extracting                                                          |
-| `wait_time`              | number  | No       | Max ms to wait for selector. Default: 15000                                                  |
-| `selector_error_message` | string  | No       | Error code id (UUID) to fail with if the element is not found. See Error Codes               |
-| `full_request`           | boolean | No       | Include full request/response metadata                                                       |
-| `end_here_on_dry_run`    | boolean | No       | In dry runs, end the workflow before this node runs                                          |
-| `run_if`                 | object  | No       | Run this node only if the condition matches; otherwise skip it and continue on the `to` edge |
+| Parameter                 | Type    | Required | Description                                                                                                       |
+| ------------------------- | ------- | -------- | ----------------------------------------------------------------------------------------------------------------- |
+| `url`                     | string  | Yes      | URL pattern: exact, substring, `*` wildcard, or `regex:` prefix                                                   |
+| `extract_data_model`      | object  | Yes      | Schema with JSONata/JSONPath `path` expressions                                                                   |
+| `api_method`              | string  | No       | Match only requests with this HTTP method (`GET`, `POST`, …)                                                      |
+| `selector`                | string  | No       | XPath to wait for before extracting                                                                               |
+| `wait_time`               | number  | No       | Max ms for the whole node: the `selector` wait and the wait for a matching request share it. Default: 15000       |
+| `allow_empty_on_no_match` | boolean | No       | Continue with an empty result instead of failing when no request matches within `wait_time`. Default: false      |
+| `selector_error_message`  | string  | No       | Error code id (UUID) to fail with if the element is not found. See Error Codes                                    |
+| `full_request`            | boolean | No       | Include full request/response metadata                                                                            |
+| `end_here_on_dry_run`     | boolean | No       | In dry runs, end the workflow before this node runs                                                               |
+| `run_if`                  | object  | No       | Run this node only if the condition matches; otherwise skip it and continue on the `to` edge                      |
 
 Path syntax: `$` (root), `$.field` (direct), `$.parent.child` (nested), `$[0]` (array index).
+
+**No matching request.** By default the node fails with `EXTRACT-E0001` once `wait_time` runs out. When the page fires the request only some of the time, set `allow_empty_on_no_match: true`: the node then extracts from `{}`, every field comes back empty, and the run continues. Branch on the result with a BOOL_CONDITION (`IS_NULL` on an extracted field). The flag covers only the request: a `selector` that never appears still fails the node.
 
 ### API_FLOW
 

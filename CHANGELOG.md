@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- `cloudcruise-workflow-dsl` documents EXTRACT_NETWORK `allow_empty_on_no_match`, which continues with an empty result instead of failing with `EXTRACT-E0001` when no request matches, and `api_method`, which filters matches by HTTP method. `wait_time` is now described as the budget for the whole node, shared by the `selector` wait and the request wait.
+
 ## 1.15.0
 
 ### Added
