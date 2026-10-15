@@ -5,6 +5,7 @@
 ### Changed
 
 - `cloudcruise-workflow-dsl` documents EXTRACT_NETWORK `allow_empty_on_no_match`, which continues with an empty result instead of failing with `EXTRACT-E0001` when no request matches, and `api_method`, which filters matches by HTTP method. `wait_time` is now described as the budget for the whole node, shared by the `selector` wait and the request wait.
+- `cloudcruise-workflow-dsl` no longer lists `use_native_actions` and `video_record_session` as workflow settings. Run video is always recorded and input actions always use native OS input, so neither setting exists; the backend still accepts and ignores both fields if a saved workflow carries them.
 
 ## 1.15.0
 
