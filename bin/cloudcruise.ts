@@ -32,6 +32,7 @@ program
   .name("cloudcruise")
   .description("CloudCruise CLI for managing workflows and runs")
   .version(CLI_VERSION)
+  .enablePositionalOptions()
 
 registerAuthCommands(program)
 registerWorkflowCommands(program)

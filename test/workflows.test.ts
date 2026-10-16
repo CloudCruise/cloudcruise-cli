@@ -6,12 +6,16 @@ import type { AddressInfo } from "node:net"
 import { mkdtempSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { buildWorkflowUpdateBody } from "../dist/src/commands/workflows.js"
+import {
+  buildWorkflowGetPath,
+  buildWorkflowUpdateBody
+} from "../dist/src/commands/workflows.js"
 
 const fetchedWorkflow = {
   id: "d413c71b-841e-40e6-8765-29df2968af26",
   version_id: "7b0f1e2a-0000-4000-8000-000000000017",
-  version_number: 17,
+  version: "1.17.0",
+  branch_id: "b7c1d2e3-0000-4000-8000-0000000000b1",
   created_at: "2026-09-29T10:00:00Z",
   created_by: "user_1",
   workspace_id: "ws_123",
@@ -58,7 +62,7 @@ test("buildWorkflowUpdateBody derives base_version_id from version_id when the b
 // Sending it back would label the new version with the old version's note.
 test("buildWorkflowUpdateBody without --version-note drops the version_note from the file", () => {
   const body = buildWorkflowUpdateBody(
-    { ...fetchedWorkflow, version_note: "note of v17" },
+    { ...fetchedWorkflow, version_note: "note of 1.17.0" },
     {}
   )
   assert.equal("version_note" in body, false)
@@ -66,7 +70,7 @@ test("buildWorkflowUpdateBody without --version-note drops the version_note from
 
 test("buildWorkflowUpdateBody lets --version-note replace the version_note from the file", () => {
   const body = buildWorkflowUpdateBody(
-    { ...fetchedWorkflow, version_note: "note of v17" },
+    { ...fetchedWorkflow, version_note: "note of 1.17.0" },
     { versionNote: "Fixed login XPath" }
   )
   assert.equal(body.version_note, "Fixed login XPath")
@@ -107,7 +111,8 @@ async function startWorkflowBackend() {
             code: "WORKFLOW_VERSION_CONFLICT",
             message: "This workflow was updated by another session.",
             latestVersionId,
-            latestVersionNumber: 18,
+            latestVersion: "1.18.0",
+            latestBranchId: fetchedWorkflow.branch_id,
             latestCreatedBy: "user_2",
             latestCreatedAt: "2026-09-30T08:15:00Z",
             latestVersionNote: "Healed submit XPath",
@@ -117,7 +122,7 @@ async function startWorkflowBackend() {
         return
       }
       res.writeHead(200, { "content-type": "application/json" })
-      res.end(JSON.stringify({ id: fetchedWorkflow.id, version_number: 19 }))
+      res.end(JSON.stringify({ id: fetchedWorkflow.id, version: "1.19.0" }))
     })
   })
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
@@ -139,9 +144,9 @@ function runCli(args: string[]) {
   )
 }
 
-// A workflow fetched at v17 is pushed after v18 was saved elsewhere. Like the
+// A workflow fetched at 1.17.0 is pushed after 1.18.0 was saved elsewhere. Like the
 // real backend, the stub checks staleness only on base_version_id. The command
-// must refuse with exit 13 and name v18, and the --force retry must omit
+// must refuse with exit 13 and name 1.18.0, and the --force retry must omit
 // base_version_id so the backend accepts the overwrite.
 test("workflows update exits 13 with the latest version on a stale body, and --force overwrites it", async () => {
   const backend = await startWorkflowBackend()
@@ -163,7 +168,7 @@ test("workflows update exits 13 with the latest version on a stale body, and --f
     assert.equal(stale.code, 13)
     const envelope = JSON.parse(stale.stderr.trim().split("\n").at(-1)!)
     assert.equal(envelope.code, "WORKFLOW_VERSION_CONFLICT")
-    assert.equal(envelope.latestVersion.number, 18)
+    assert.equal(envelope.latestVersion.version, "1.18.0")
     assert.equal(backend.received[0].base_version_id, fetchedWorkflow.version_id)
 
     const forced = await runCli([...baseArgs, "--force"])
@@ -400,6 +405,159 @@ test("workflows delete sends an id containing URL syntax encoded, so it cannot d
       [`/workflows/${deletableIds[0]}%23x`]
     )
     assert.equal(JSON.parse(result.stdout)[0].status, "not_found")
+  } finally {
+    backend.server.close()
+  }
+})
+
+const otherBranchId = "b7c1d2e3-0000-4000-8000-0000000000b2"
+
+test("buildWorkflowGetPath without options reads the workflow itself, which is the default branch's head", () => {
+  assert.equal(buildWorkflowGetPath("wf_1", {}), "/workflows/wf_1")
+})
+
+// A range like ">=1.2.3 <2.0.0" contains a space and "<", and "^" is not a
+// URL-safe character, so the version must be percent-encoded into one path
+// segment for the backend to receive it intact.
+test("buildWorkflowGetPath with --version percent-encodes a semver range into the versions path segment", () => {
+  assert.equal(
+    buildWorkflowGetPath("wf_1", { version: ">=1.2.3 <2.0.0" }),
+    "/workflows/wf_1/versions/%3E%3D1.2.3%20%3C2.0.0"
+  )
+  assert.equal(
+    buildWorkflowGetPath("wf_1", { version: "^1.2.0" }),
+    "/workflows/wf_1/versions/%5E1.2.0"
+  )
+  assert.equal(
+    buildWorkflowGetPath("wf_1", { version: "2.1.0" }),
+    "/workflows/wf_1/versions/2.1.0"
+  )
+})
+
+// The legacy option keeps the integer path that the old production backend
+// accepts and the new backend reads as the latest N.x.x.
+test("buildWorkflowGetPath with the legacy --version-number sends the bare integer as the version", () => {
+  assert.equal(
+    buildWorkflowGetPath("wf_1", { versionNumber: 18 }),
+    "/workflows/wf_1/versions/18"
+  )
+})
+
+test("buildWorkflowGetPath with --branch reads that branch's head through the branch_id query parameter", () => {
+  assert.equal(
+    buildWorkflowGetPath("wf_1", { branch: otherBranchId }),
+    `/workflows/wf_1?branch_id=${otherBranchId}`
+  )
+})
+
+// Each option names a different version to read, so combining them is
+// ambiguous and must be refused as a usage error rather than one silently
+// winning.
+test("buildWorkflowGetPath refuses any combination of --version, --version-number and --branch", () => {
+  for (const opts of [
+    { version: "2.1.0", versionNumber: 2 },
+    { version: "2.1.0", branch: otherBranchId },
+    { versionNumber: 2, branch: otherBranchId }
+  ]) {
+    assert.throws(() => buildWorkflowGetPath("wf_1", opts), {
+      name: "UsageError",
+      message: /Pass only one of/
+    })
+  }
+})
+
+// The old production backend rejects unknown body fields, so a plain update
+// must not carry any of the fields the new flags add.
+test("buildWorkflowUpdateBody without the branch and release flags adds no release_version, bypass_protection or new branch_id", () => {
+  const { branch_id: _branch, ...withoutBranch } = fetchedWorkflow
+  const body = buildWorkflowUpdateBody(withoutBranch, {})
+  assert.equal("branch_id" in body, false)
+  assert.equal("release_version" in body, false)
+  assert.equal("bypass_protection" in body, false)
+})
+
+test("buildWorkflowUpdateBody with --branch saves to that branch instead of the branch the body was read from", () => {
+  const body = buildWorkflowUpdateBody(fetchedWorkflow, {
+    branch: otherBranchId
+  })
+  assert.equal(body.branch_id, otherBranchId)
+})
+
+test("buildWorkflowUpdateBody with --release-version and --bypass-protection sends release_version and bypass_protection: true", () => {
+  const body = buildWorkflowUpdateBody(fetchedWorkflow, {
+    releaseVersion: "2.0.0",
+    bypassProtection: true
+  })
+  assert.equal(body.release_version, "2.0.0")
+  assert.equal(body.bypass_protection, true)
+})
+
+// The backend only accepts a plain major.minor.patch release. Catching a
+// range, a prefix or a missing part before the request gives exit 2 instead
+// of a 400 after reading the body.
+test("buildWorkflowUpdateBody refuses a --release-version that is not major.minor.patch", () => {
+  for (const releaseVersion of ["2.0", "v2.0.0", "^2.0.0", "2.0.0-beta", "02.0.0"]) {
+    assert.throws(
+      () => buildWorkflowUpdateBody(fetchedWorkflow, { releaseVersion }),
+      { name: "UsageError", message: /--release-version/ }
+    )
+  }
+})
+
+async function startGetBackend() {
+  const urls: (string | undefined)[] = []
+  const server = createServer((req, res) => {
+    urls.push(req.url)
+    res.writeHead(200, { "content-type": "application/json" })
+    res.end(JSON.stringify(fetchedWorkflow))
+  })
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
+  const { port } = server.address() as AddressInfo
+  return { baseUrl: `http://127.0.0.1:${port}`, urls, server }
+}
+
+// The root program also has a --version option (print the CLI version). The
+// subcommand's --version must reach `workflows get` instead of printing the
+// CLI version and exiting 0.
+test("workflows get --version requests the encoded version path instead of printing the CLI version", async () => {
+  const backend = await startGetBackend()
+  try {
+    const result = await runCli([
+      "workflows",
+      "get",
+      fetchedWorkflow.id,
+      "--version",
+      "^1.2.0",
+      "--base-url",
+      backend.baseUrl
+    ])
+    assert.equal(result.code, 0)
+    assert.deepEqual(backend.urls, [
+      `/workflows/${fetchedWorkflow.id}/versions/%5E1.2.0`
+    ])
+    assert.deepEqual(JSON.parse(result.stdout), fetchedWorkflow)
+  } finally {
+    backend.server.close()
+  }
+})
+
+test("workflows get with both --version and --branch exits 2 without sending a request", async () => {
+  const backend = await startGetBackend()
+  try {
+    const result = await runCli([
+      "workflows",
+      "get",
+      fetchedWorkflow.id,
+      "--version",
+      "1.2.0",
+      "--branch",
+      otherBranchId,
+      "--base-url",
+      backend.baseUrl
+    ])
+    assert.equal(result.code, 2)
+    assert.equal(JSON.parse(result.stderr.trim().split("\n").at(-1)!).code, "BAD_ARGS")
+    assert.deepEqual(backend.urls, [])
   } finally {
     backend.server.close()
   }

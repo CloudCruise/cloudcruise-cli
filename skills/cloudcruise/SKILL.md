@@ -82,13 +82,15 @@ cloudcruise workflows list --folder "Claims/EOB"                                
 cloudcruise workflows folders                                                    # List all folders (allFolderPaths = full tree)
 cloudcruise workflows folders --path "Claims"                                   # List direct subfolders under a folder (with workflow counts)
 cloudcruise workflows folders --search invoice                                  # Search folders/workflows by name or id
-cloudcruise workflows get <workflow_id>                                          # Get latest workflow definition with nodes
-cloudcruise workflows get <workflow_id> --version-number 18                      # Get a specific historical version
+cloudcruise workflows get <workflow_id>                                          # Get the default branch's head with nodes
+cloudcruise workflows get <workflow_id> --version 2.1.0                          # Get a specific version (or a range: "^2.1.0", "2.x", 2 = latest 2.x.x)
+cloudcruise workflows get <workflow_id> --branch <branch_id>                     # Get a branch's head
 cloudcruise workflows versions <workflow_id>                                     # List version history (newest first)
 cloudcruise workflows versions <workflow_id> --limit 10                          # Cap the list
 cloudcruise workflows update <workflow_id> --file w.json --version-note "..."   # Update workflow (creates new version)
 cloudcruise workflows update <workflow_id> --stdin --version-note "..."          # Update from piped JSON
 cloudcruise workflows update <workflow_id> --file w.json --force                 # Overwrite even if a newer version exists
+cloudcruise workflows update <workflow_id> --file w.json --release-version 3.0.0 # Save as release 3.0.0 instead of the automatic bump
 cloudcruise workflows validate-input <workflow_id> --file payload.json           # Validate a run input payload against the saved input schema
 cloudcruise workflows delete <workflow_id> [<workflow_id>...]                     # Permanently delete workflows (no confirmation)
 ```
@@ -110,17 +112,21 @@ cloudcruise workflows get <workflow_id> > workflow.json
 cloudcruise workflows update <workflow_id> --file workflow.json --version-note "Description of changes" > next.json && mv next.json workflow.json
 ```
 
-**Stale check:** `update` only succeeds if the body's `version_id` is still the latest version. Otherwise it creates no version and exits 13 (`WORKFLOW_VERSION_CONFLICT`). The stderr envelope names the latest version (`latestVersion`: number, author, time, note). Re-fetch with `workflows get`, re-apply your edit and update again. Pass `--force` only to overwrite the other save on purpose. A body without `version_id` is not checked.
+**Versions and branches:** workflow versions are semver strings (`version`, e.g. `"2.1.0"`) identified by `version_id`; there is no workflow `version_number`. `--version` takes an exact version, a semver range (quote it: `"^2.1.0"`, `"~2.1.3"`, `"2.x"`; the highest match wins) or `N` for the latest `N.x.x`. `--version-number <N>` is the legacy form of `--version N`. `--version`, `--version-number` and `--branch` are mutually exclusive.
+
+**Stale check:** `update` only succeeds if the body's `version_id` is still the latest version on its branch. Otherwise it creates no version and exits 13 (`WORKFLOW_VERSION_CONFLICT`). The stderr envelope names the latest version (`latestVersion`: id, version, branchId, author, time, note; `number` only from older backends). Re-fetch with `workflows get`, re-apply your edit and update again. Pass `--force` only to overwrite the other save on purpose. A body without `version_id` is not checked.
 
 The version note comes only from `--version-note`; the body's `version_note` is not sent.
 
+The update saves to the body's `branch_id` (the branch `get` read it from); `--branch <branch_id>` overrides it. A protected branch rejects the save with 403 unless you pass `--bypass-protection`. `--release-version <x.y.z>` sets the new version instead of the automatic bump; it must be higher than the version the body is based on.
+
 Your own update also creates a new latest version. `update` prints it (same shape as `get`, new `version_id`); keep it as the working copy, as above, or the next push from the old copy exits 13.
 
-**Rolling back versions:** `workflows versions` lists history newest first. Fetch a prior version's full JSON via `--version-number <N>` (same shape as latest), then push it back with `--force` to roll back (its `version_id` is not the latest, so the stale check would reject it) — history is preserved as a new version on top:
+**Rolling back versions:** `workflows versions` lists history newest first. Fetch a prior version's full JSON via `--version <x.y.z>` (same shape as latest), then push it back with `--force` to roll back (its `version_id` is not the latest, so the stale check would reject it) — history is preserved as a new version on top:
 
 ```bash
-cloudcruise workflows get <workflow_id> --version-number 17 > rollback.json
-cloudcruise workflows update <workflow_id> --file rollback.json --force --version-note "Rollback to v17"
+cloudcruise workflows get <workflow_id> --version 2.1.0 > rollback.json
+cloudcruise workflows update <workflow_id> --file rollback.json --force --version-note "Rollback to 2.1.0"
 ```
 
 **Login workflow edit pattern:** For existing login workflows, make the first three nodes `START (logged-in destination URL)` → `IF (already logged in?)` → false branch login recovery. On the false branch, set `clear_cookies_on_false: true`, then add a `NAVIGATE` node to the login page before the credential-entry steps.
@@ -196,6 +202,8 @@ cloudcruise run start <workflow_id> --debug                  # Start with debug 
 cloudcruise run start <workflow_id> --dry-run                # Run but skip final submit/save actions (nodes marked end_here_on_dry_run)
 cloudcruise run start <workflow_id> --no-notifications       # Suppress workspace run notifications (Slack/email) for this run
 cloudcruise run start <workflow_id> --input '{"key":"val"}'  # Start with input variables
+cloudcruise run start <workflow_id> --version "^2.1.0"       # Run the highest tagged release matching a version or range
+cloudcruise run start <workflow_id> --branch <branch_id>     # Run a branch's head (default: the default branch's head)
 cloudcruise run get <session_id>                             # Get run status, errors, screenshots, output (poll until status is terminal)
 cloudcruise run list --workflow <id> --status <s> --since 7d --limit 50 # List runs with filters
 cloudcruise run interrupt <session_id>                       # Stop a running session
