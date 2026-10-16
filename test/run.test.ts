@@ -38,6 +38,35 @@ test("buildRunStartBody carries workflow_id and run_input_variables", () => {
   assert.deepEqual(body.run_input_variables, { USER: "abc" })
 })
 
+// The old production backend rejects unknown body fields, so a run without
+// --version or --branch must not carry workflow_version or workflow_branch_id.
+test("buildRunStartBody without --version or --branch sends neither workflow_version nor workflow_branch_id", () => {
+  const body = buildRunStartBody("wf_1", {}, {})
+  assert.equal("workflow_version" in body, false)
+  assert.equal("workflow_branch_id" in body, false)
+})
+
+test("buildRunStartBody sends --version as workflow_version", () => {
+  const body = buildRunStartBody("wf_1", {}, { version: "^2.1.0" })
+  assert.equal(body.workflow_version, "^2.1.0")
+  assert.equal("workflow_branch_id" in body, false)
+})
+
+test("buildRunStartBody sends --branch as workflow_branch_id", () => {
+  const body = buildRunStartBody("wf_1", {}, { branch: "b_1" })
+  assert.equal(body.workflow_branch_id, "b_1")
+  assert.equal("workflow_version" in body, false)
+})
+
+// The backend accepts at most one way to pick the version to run, so the
+// combination is refused locally as a usage error.
+test("buildRunStartBody refuses --version together with --branch", () => {
+  assert.throws(
+    () => buildRunStartBody("wf_1", {}, { version: "2.1.0", branch: "b_1" }),
+    { name: "UsageError", message: /Pass only one of --version, --branch/ }
+  )
+})
+
 test("buildRunNetworkPath targets the run network endpoint and filters noise by default", () => {
   assert.equal(buildRunNetworkPath("sess_1", {}), "/run/sess_1/network")
 })

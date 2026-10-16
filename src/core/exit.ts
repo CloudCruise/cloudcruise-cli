@@ -161,7 +161,9 @@ export function buildErrorEnvelope(err: unknown): {
       currentUsage?: number
       limit?: number
       latestVersionId?: string
+      latestVersion?: string | null
       latestVersionNumber?: number
+      latestBranchId?: string | null
       latestCreatedBy?: string | null
       latestCreatedAt?: string
       latestVersionNote?: string | null
@@ -182,7 +184,11 @@ export function buildErrorEnvelope(err: unknown): {
     if (exitCode === ExitCode.VERSION_CONFLICT) {
       envelope.latestVersion = {
         id: body.latestVersionId,
-        number: body.latestVersionNumber,
+        version: body.latestVersion,
+        branchId: body.latestBranchId,
+        ...(body.latestVersionNumber !== undefined
+          ? { number: body.latestVersionNumber }
+          : {}),
         createdBy: body.latestCreatedBy,
         createdAt: body.latestCreatedAt,
         note: body.latestVersionNote

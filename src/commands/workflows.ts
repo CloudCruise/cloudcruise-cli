@@ -6,15 +6,58 @@ import {
   ExitCode,
   exitCodeForApiError,
   fail,
+  UsageError,
   type ExitCodeValue
 } from "../core/exit.js"
 import { addAuthOptions, type AuthOptions } from "../core/auth-options.js"
 import { requireJsonObject } from "../core/input.js"
 
+const RELEASE_VERSION_PATTERN = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/
+
+export function buildWorkflowGetPath(
+  id: string,
+  opts: { version?: string; versionNumber?: number; branch?: string }
+): string {
+  const given: string[] = []
+  if (opts.version !== undefined) given.push("--version")
+  if (opts.versionNumber !== undefined) given.push("--version-number")
+  if (opts.branch !== undefined) given.push("--branch")
+  if (given.length > 1) {
+    throw new UsageError(`Pass only one of ${given.join(", ")}`)
+  }
+  if (opts.version !== undefined) {
+    if (opts.version.trim() === "") {
+      throw new UsageError("--version must not be empty")
+    }
+    return `/workflows/${id}/versions/${encodeURIComponent(opts.version)}`
+  }
+  if (opts.versionNumber !== undefined) {
+    return `/workflows/${id}/versions/${opts.versionNumber}`
+  }
+  if (opts.branch !== undefined) {
+    return `/workflows/${id}?${new URLSearchParams({ branch_id: opts.branch }).toString()}`
+  }
+  return `/workflows/${id}`
+}
+
 export function buildWorkflowUpdateBody(
   workflow: Record<string, unknown>,
-  opts: { versionNote?: string; force?: boolean }
+  opts: {
+    versionNote?: string
+    force?: boolean
+    branch?: string
+    releaseVersion?: string
+    bypassProtection?: boolean
+  }
 ): Record<string, unknown> {
+  if (
+    opts.releaseVersion !== undefined &&
+    !RELEASE_VERSION_PATTERN.test(opts.releaseVersion)
+  ) {
+    throw new UsageError(
+      `--release-version must be major.minor.patch, e.g. 2.1.0 (got: ${opts.releaseVersion})`
+    )
+  }
   const body = { ...workflow }
   if (opts.force) {
     delete body.base_version_id
@@ -28,6 +71,11 @@ export function buildWorkflowUpdateBody(
   if (opts.versionNote) {
     body.version_note = opts.versionNote
   }
+  if (opts.branch !== undefined) body.branch_id = opts.branch
+  if (opts.releaseVersion !== undefined) {
+    body.release_version = opts.releaseVersion
+  }
+  if (opts.bypassProtection) body.bypass_protection = true
   return body
 }
 
@@ -279,25 +327,38 @@ Examples:
   addAuthOptions(
     workflows
       .command("get <id>")
-      .description("Get workflow with nodes (latest version by default)")
+      .description(
+        "Get workflow with nodes (head of the default branch by default)"
+      )
+      .option(
+        "--version <version>",
+        "Fetch a version: exact (2.1.0), a semver range (^2.1.0, ~2.1.3, 2.x) or N for the latest N.x.x (use `workflows versions <id>` to list)"
+      )
       .option(
         "--version-number <n>",
-        "Fetch a specific historical version by version_number (use `workflows versions <id>` to list)",
+        "Legacy: fetch the latest <n>.x.x version; prefer --version",
         parsePositiveInt
       )
+      .option("--branch <branch_id>", "Fetch the head of this branch instead of the default branch")
   ).addHelpText("after", `
+--version, --version-number and --branch are mutually exclusive. A range
+resolves to the highest matching version. The response's \`version\` is the
+version string (e.g. "2.1.0") and \`branch_id\` the branch it was read from.
+
 Examples:
   $ cloudcruise workflows get <workflow_id>
   $ cloudcruise workflows get <workflow_id> > workflow.json
-  $ cloudcruise workflows get <workflow_id> --version-number 18
-`).action(async (id: string, opts: { versionNumber?: number } & AuthOptions) => {
+  $ cloudcruise workflows get <workflow_id> --version 2.1.0
+  $ cloudcruise workflows get <workflow_id> --version "^2.1.0"
+  $ cloudcruise workflows get <workflow_id> --branch <branch_id>
+`).action(async (
+    id: string,
+    opts: { version?: string; versionNumber?: number; branch?: string } & AuthOptions
+  ) => {
     try {
+      const path = buildWorkflowGetPath(id, opts)
       const auth = await resolveAuth(opts)
       const client = new ApiClient(auth)
-      const path =
-        opts.versionNumber !== undefined
-          ? `/workflows/${id}/versions/${opts.versionNumber}`
-          : `/workflows/${id}`
       const data = await client.get(path)
       outputJson(data)
     } catch (err: unknown) {
@@ -456,6 +517,15 @@ Examples:
         "--force",
         "Overwrite even if the workflow changed since the version in the body"
       )
+      .option(
+        "--branch <branch_id>",
+        "Save to this branch (default: the body's branch_id, else the default branch)"
+      )
+      .option(
+        "--release-version <x.y.z>",
+        "Tag the new version as this release; must be higher than the version it is based on"
+      )
+      .option("--bypass-protection", "Save to a protected branch")
   ).addHelpText("after", `
 Send the JSON from \`workflows get\` as-is; read-only fields may stay in.
 
@@ -476,8 +546,9 @@ Examples:
   $ cloudcruise workflows update <workflow_id> --file workflow.json --version-note "Fixed login XPath"
   $ cat workflow.json | cloudcruise workflows update <workflow_id> --stdin --version-note "Updated selectors"
   $ cloudcruise workflows update <workflow_id> --file workflow.json > next.json && mv next.json workflow.json
-  $ cloudcruise workflows get <workflow_id> --version-number 17 > rollback.json
-  $ cloudcruise workflows update <workflow_id> --file rollback.json --force --version-note "Rollback to v17"
+  $ cloudcruise workflows update <workflow_id> --file workflow.json --release-version 3.0.0
+  $ cloudcruise workflows get <workflow_id> --version 2.1.0 > rollback.json
+  $ cloudcruise workflows update <workflow_id> --file rollback.json --force --version-note "Rollback to 2.1.0"
 `).action(
     async (
       id: string,
@@ -486,6 +557,9 @@ Examples:
         stdin?: boolean
         versionNote?: string
         force?: boolean
+        branch?: string
+        releaseVersion?: string
+        bypassProtection?: boolean
       } & AuthOptions
     ) => {
       try {
