@@ -4,6 +4,7 @@ import { resolveAuth } from "../core/auth.js"
 import { ApiClient } from "../core/api-client.js"
 import { outputJson } from "../core/output.js"
 import { fail, UsageError } from "../core/exit.js"
+import { resolveBranchId } from "../core/workflow-branches.js"
 import { addAuthOptions, type AuthOptions } from "../core/auth-options.js"
 import { requireJsonObject } from "../core/input.js"
 
@@ -30,8 +31,20 @@ function parseSince(since: string): Date {
 export function buildRunStartBody(
   workflowId: string,
   inputVariables: Record<string, unknown>,
-  opts: { debug?: boolean; dryRun?: boolean; notifications?: boolean }
+  opts: {
+    debug?: boolean
+    dryRun?: boolean
+    notifications?: boolean
+    version?: string
+    branch?: string
+  }
 ): Record<string, unknown> {
+  if (opts.version !== undefined && opts.branch !== undefined) {
+    throw new UsageError("Pass only one of --version, --branch")
+  }
+  if (opts.version !== undefined && opts.version.trim() === "") {
+    throw new UsageError("--version must not be empty")
+  }
   const body: Record<string, unknown> = {
     workflow_id: workflowId,
     run_input_variables: inputVariables
@@ -39,6 +52,8 @@ export function buildRunStartBody(
   if (opts.debug) body.debug = true
   if (opts.dryRun) body.dry_run = { enabled: true }
   if (opts.notifications === false) body.notifications = { enabled: false }
+  if (opts.version !== undefined) body.workflow_version = opts.version
+  if (opts.branch !== undefined) body.workflow_branch_id = opts.branch
   return body
 }
 
@@ -73,14 +88,24 @@ export function registerRunCommands(program: Command): void {
       .option("--debug", "Enable debug snapshots on every node and record network traffic")
       .option("--dry-run", "Run the workflow but skip final submit/save actions (nodes marked end_here_on_dry_run)")
       .option("--no-notifications", "Suppress workspace run notifications (Slack/email) for this run")
+      .option(
+        "--version <version>",
+        "Run a tagged release: exact (2.1.0) or a semver range (^2.1.0, 2.x); the highest match runs"
+      )
+      .option("--branch <branch>", "Run the latest version on this branch (name or id)")
   ).addHelpText("after", `
 Returns { session_id } immediately. Poll status with 'cloudcruise run get <session_id>'.
+
+Without --version or --branch, the head of the default branch runs. The two are
+mutually exclusive.
 
 Examples:
   $ cloudcruise run start <workflow_id>
   $ cloudcruise run start <workflow_id> --debug
   $ cloudcruise run start <workflow_id> --dry-run
   $ cloudcruise run start <workflow_id> --no-notifications
+  $ cloudcruise run start <workflow_id> --version "^2.1.0"
+  $ cloudcruise run start <workflow_id> --branch fix-login
   $ cloudcruise run start <workflow_id> --input '{"USER":"f47ac10b-58cc-4372-a567-0e02b2c3d479"}'
 `).action(
     async (
@@ -90,12 +115,11 @@ Examples:
         debug?: boolean
         dryRun?: boolean
         notifications: boolean
+        version?: string
+        branch?: string
       } & AuthOptions
     ) => {
       try {
-        const auth = await resolveAuth(opts)
-        const client = new ApiClient(auth)
-
         let inputVariables: Record<string, unknown>
         try {
           inputVariables = JSON.parse(opts.input)
@@ -103,7 +127,17 @@ Examples:
           throw new UsageError(`Invalid --input JSON: ${opts.input}`)
         }
 
-        const body = buildRunStartBody(workflowId, inputVariables, opts)
+        buildRunStartBody(workflowId, inputVariables, opts)
+
+        const auth = await resolveAuth(opts)
+        const client = new ApiClient(auth)
+        const body = buildRunStartBody(workflowId, inputVariables, {
+          ...opts,
+          branch:
+            opts.branch === undefined
+              ? undefined
+              : await resolveBranchId(client, workflowId, opts.branch)
+        })
 
         const result = await client.post<{ session_id: string }>("/run", body)
         outputJson(result)

@@ -12,7 +12,9 @@ A workflow is a directed graph of nodes (actions) connected by edges. The browse
 ```json
 {
   "id": "uuid (read-only)",
-  "version_number": 1,
+  "version_id": "uuid (read-only)",
+  "version": "2.1.0",
+  "branch_id": "uuid",
   "name": "My Workflow",
   "description": "Optional description",
   "nodes": [ ... ],
@@ -26,9 +28,9 @@ A workflow is a directed graph of nodes (actions) connected by edges. The browse
 
 ### Read-Only Fields
 
-`id`, `version_id`, `version_number`, `created_at`, `created_by`, `updated_at`, `workspace_id`, `workflow_id`, `conversation_id`
+`id`, `version_id`, `version`, `major`, `minor`, `patch`, `bump_type`, `default_branch_id`, `parent_version_id`, `merge_parent_version_id`, `generation`, `created_at`, `created_by`, `updated_at`, `workspace_id`, `workflow_id`, `conversation_id`
 
-Leave them in the body from `workflows get`; `workflows update` sends it as-is. `version_id` drives the stale check: the update fails with exit 13 if a newer version exists (`--force` overrides). `id`, `workflow_id` and `workspace_id` must match the target workflow.
+Leave them in the body from `workflows get`; `workflows update` sends it as-is. `version_id` drives the stale check: the update fails with exit 13 if a newer version exists on the branch (`--force` overrides). `version` is the semver string (`"2.1.0"`); workflows have no `version_number`. `branch_id` is the branch the body was read from and the update saves to (`--branch` overrides it). `id`, `workflow_id` and `workspace_id` must match the target workflow.
 
 ### Mutable Fields (accepted by PUT)
 

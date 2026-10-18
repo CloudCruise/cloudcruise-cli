@@ -20,7 +20,8 @@ export const ExitCode = {
   NO_BROWSER_ATTACHED: 10,
   SKILLS_INCOMPATIBLE: 11,
   USAGE_LIMIT: 12,
-  VERSION_CONFLICT: 13
+  VERSION_CONFLICT: 13,
+  MERGE_CONFLICTS: 14
 } as const
 
 export type ExitCodeValue = (typeof ExitCode)[keyof typeof ExitCode]
@@ -31,6 +32,37 @@ export type ExitCodeValue = (typeof ExitCode)[keyof typeof ExitCode]
  */
 export class UsageError extends Error {
   readonly name = "UsageError"
+}
+
+/**
+ * A pull request can't merge until its conflicts are answered. Maps to exit 14
+ * so a driver can tell "decide on these conflicts" apart from other failures.
+ * Carries each conflict's key and summary for the stderr envelope.
+ */
+export class MergeConflictsError extends Error {
+  readonly name = "MergeConflictsError"
+  constructor(
+    message: string,
+    readonly conflicts: { key: string; reason: string; summary: string }[],
+    readonly hint: string
+  ) {
+    super(message)
+  }
+}
+
+/**
+ * A branch moved after the merge preview the caller resolved conflicts
+ * against. Maps to exit 13 like the API's own version conflicts: re-read, then
+ * decide again.
+ */
+export class StalePreviewError extends Error {
+  readonly name = "StalePreviewError"
+  constructor(
+    message: string,
+    readonly hint: string
+  ) {
+    super(message)
+  }
 }
 
 /**
@@ -161,10 +193,14 @@ export function buildErrorEnvelope(err: unknown): {
       currentUsage?: number
       limit?: number
       latestVersionId?: string
+      latestVersion?: string | null
       latestVersionNumber?: number
+      latestBranchId?: string | null
       latestCreatedBy?: string | null
       latestCreatedAt?: string
       latestVersionNote?: string | null
+      conflicts?: unknown
+      errors?: unknown
     } = {}
     try {
       const parsed: unknown = JSON.parse(err.body)
@@ -173,6 +209,8 @@ export function buildErrorEnvelope(err: unknown): {
       // Non-JSON body — nothing more to surface.
     }
     if (body.messageId) envelope.messageId = body.messageId
+    if (Array.isArray(body.conflicts)) envelope.conflicts = body.conflicts
+    if (Array.isArray(body.errors)) envelope.errors = body.errors
     if (exitCode === ExitCode.USAGE_LIMIT) {
       if (body.reason) envelope.reason = body.reason
       if (typeof body.currentUsage === "number")
@@ -182,13 +220,29 @@ export function buildErrorEnvelope(err: unknown): {
     if (exitCode === ExitCode.VERSION_CONFLICT) {
       envelope.latestVersion = {
         id: body.latestVersionId,
-        number: body.latestVersionNumber,
+        version: body.latestVersion,
+        branchId: body.latestBranchId,
+        ...(body.latestVersionNumber !== undefined
+          ? { number: body.latestVersionNumber }
+          : {}),
         createdBy: body.latestCreatedBy,
         createdAt: body.latestCreatedAt,
         note: body.latestVersionNote
       }
       envelope.hint = VERSION_CONFLICT_HINT
     }
+    if (err.hint) envelope.hint = err.hint
+  } else if (err instanceof MergeConflictsError) {
+    exitCode = ExitCode.MERGE_CONFLICTS
+    envelope.code = "MERGE_CONFLICTS"
+    envelope.message = err.message
+    envelope.conflicts = err.conflicts
+    envelope.hint = err.hint
+  } else if (err instanceof StalePreviewError) {
+    exitCode = ExitCode.VERSION_CONFLICT
+    envelope.code = "STALE_MERGE_PREVIEW"
+    envelope.message = err.message
+    envelope.hint = err.hint
   } else if (err instanceof AmbiguousSessionError) {
     exitCode = ExitCode.AMBIGUOUS_SESSION
     envelope.code = "AMBIGUOUS_SESSION"

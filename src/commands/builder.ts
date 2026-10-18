@@ -20,6 +20,7 @@ import {
 import type { RosterEntry } from "../core/conversation.js"
 import { enforceNoArgSecrets } from "../core/secret-args.js"
 import { readStdin } from "../core/input.js"
+import { resolveBranchId, resolveVersionId } from "../core/workflow-branches.js"
 
 /** Options carried by every command that targets an existing conversation. */
 type ConversationOptions = AuthOptions & { conversation?: string }
@@ -591,11 +592,32 @@ export function registerBuilderCommands(program: Command): void {
         "--use-last-browser-state",
         "Continue from previous browser state"
       )
+      .option(
+        "--branch <branch>",
+        "Edit this branch's latest version (name or id); saves go to this branch"
+      )
+      .option(
+        "--version <version>",
+        "Start from this version: exact (2.1.0) or a semver range (^2.1.0)"
+      )
       .option("--open-builder", "Open the builder in the default browser")
+  ).addHelpText(
+    "after",
+    `
+Without --branch or --version the session edits the default branch's latest
+version. Saves go to the session's branch; a protected branch rejects them, so
+edit on another branch (\`branches create\`) and open a pull request instead.
+--version and --branch are mutually exclusive.
+
+Examples:
+  $ cloudcruise builder edit --workflow <workflow_id> --branch fix-login
+  $ cloudcruise builder edit --workflow <workflow_id> --version 2.1.0`
   ).action(
     async (
       opts: {
         workflow: string
+        branch?: string
+        version?: string
         targetNode?: string
         input?: string
         useExampleInputs?: boolean
@@ -607,6 +629,9 @@ export function registerBuilderCommands(program: Command): void {
     ) => {
       try {
         const credentialFields = editCredentialFields(opts)
+        if (opts.branch !== undefined && opts.version !== undefined) {
+          throw new UsageError("Pass only one of --branch, --version")
+        }
 
         const auth = await resolveAuth(opts)
         const client = new ApiClient(auth)
@@ -614,6 +639,12 @@ export function registerBuilderCommands(program: Command): void {
         const body: Record<string, unknown> = {
           workflowId: opts.workflow,
           ...credentialFields
+        }
+        if (opts.branch !== undefined) {
+          body.branchId = await resolveBranchId(client, opts.workflow, opts.branch)
+        }
+        if (opts.version !== undefined) {
+          body.versionId = await resolveVersionId(client, opts.workflow, opts.version)
         }
         if (opts.targetNode) body.targetNodeId = opts.targetNode
         if (opts.input) body.inputVariables = JSON.parse(opts.input)

@@ -82,13 +82,15 @@ cloudcruise workflows list --folder "Claims/EOB"                                
 cloudcruise workflows folders                                                    # List all folders (allFolderPaths = full tree)
 cloudcruise workflows folders --path "Claims"                                   # List direct subfolders under a folder (with workflow counts)
 cloudcruise workflows folders --search invoice                                  # Search folders/workflows by name or id
-cloudcruise workflows get <workflow_id>                                          # Get latest workflow definition with nodes
-cloudcruise workflows get <workflow_id> --version-number 18                      # Get a specific historical version
+cloudcruise workflows get <workflow_id>                                          # Get the default branch's head with nodes
+cloudcruise workflows get <workflow_id> --version 2.1.0                          # Get a specific version (or a range: "^2.1.0", "2.x", 2 = latest 2.x.x)
+cloudcruise workflows get <workflow_id> --branch fix-login                       # Get a branch's latest version (name or id)
 cloudcruise workflows versions <workflow_id>                                     # List version history (newest first)
 cloudcruise workflows versions <workflow_id> --limit 10                          # Cap the list
 cloudcruise workflows update <workflow_id> --file w.json --version-note "..."   # Update workflow (creates new version)
 cloudcruise workflows update <workflow_id> --stdin --version-note "..."          # Update from piped JSON
 cloudcruise workflows update <workflow_id> --file w.json --force                 # Overwrite even if a newer version exists
+cloudcruise workflows update <workflow_id> --file w.json --release-version 3.0.0 # Save as release 3.0.0 instead of the automatic bump
 cloudcruise workflows validate-input <workflow_id> --file payload.json           # Validate a run input payload against the saved input schema
 cloudcruise workflows delete <workflow_id> [<workflow_id>...]                     # Permanently delete workflows (no confirmation)
 ```
@@ -110,17 +112,21 @@ cloudcruise workflows get <workflow_id> > workflow.json
 cloudcruise workflows update <workflow_id> --file workflow.json --version-note "Description of changes" > next.json && mv next.json workflow.json
 ```
 
-**Stale check:** `update` only succeeds if the body's `version_id` is still the latest version. Otherwise it creates no version and exits 13 (`WORKFLOW_VERSION_CONFLICT`). The stderr envelope names the latest version (`latestVersion`: number, author, time, note). Re-fetch with `workflows get`, re-apply your edit and update again. Pass `--force` only to overwrite the other save on purpose. A body without `version_id` is not checked.
+**Versions and branches:** workflow versions are semver strings (`version`, e.g. `"2.1.0"`) identified by `version_id`; there is no workflow `version_number`. `--version` takes an exact version, a semver range (quote it: `"^2.1.0"`, `"~2.1.3"`, `"2.x"`; the highest match wins) or `N` for the latest `N.x.x`. `--version-number <N>` is the legacy form of `--version N`. `--version`, `--version-number` and `--branch` are mutually exclusive.
+
+**Stale check:** `update` only succeeds if the body's `version_id` is still the latest version on its branch. Otherwise it creates no version and exits 13 (`WORKFLOW_VERSION_CONFLICT`). The stderr envelope names the latest version (`latestVersion`: id, version, branchId, author, time, note; `number` only from older backends). Re-fetch with `workflows get`, re-apply your edit and update again. Pass `--force` only to overwrite the other save on purpose. A body without `version_id` is not checked.
 
 The version note comes only from `--version-note`; the body's `version_note` is not sent.
 
+The update saves to the body's `branch_id` (the branch `get` read it from); `--branch <name|id>` overrides it. A protected branch rejects the save with 403: save to another branch and open a pull request (see Branches and Pull Requests). `--bypass-protection` only works for a login whose workspace role is in the branch ruleset's bypass list; API keys can't bypass. `--release-version <x.y.z>` sets the new version instead of the automatic bump; it must be higher than the version the body is based on.
+
 Your own update also creates a new latest version. `update` prints it (same shape as `get`, new `version_id`); keep it as the working copy, as above, or the next push from the old copy exits 13.
 
-**Rolling back versions:** `workflows versions` lists history newest first. Fetch a prior version's full JSON via `--version-number <N>` (same shape as latest), then push it back with `--force` to roll back (its `version_id` is not the latest, so the stale check would reject it) — history is preserved as a new version on top:
+**Rolling back versions:** `workflows versions` lists history newest first. Fetch a prior version's full JSON via `--version <x.y.z>` (same shape as latest), then push it back with `--force` to roll back (its `version_id` is not the latest, so the stale check would reject it) — history is preserved as a new version on top:
 
 ```bash
-cloudcruise workflows get <workflow_id> --version-number 17 > rollback.json
-cloudcruise workflows update <workflow_id> --file rollback.json --force --version-note "Rollback to v17"
+cloudcruise workflows get <workflow_id> --version 2.1.0 > rollback.json
+cloudcruise workflows update <workflow_id> --file rollback.json --force --version-note "Rollback to 2.1.0"
 ```
 
 **Login workflow edit pattern:** For existing login workflows, make the first three nodes `START (logged-in destination URL)` → `IF (already logged in?)` → false branch login recovery. On the false branch, set `clear_cookies_on_false: true`, then add a `NAVIGATE` node to the login page before the credential-entry steps.
@@ -146,6 +152,51 @@ cloudcruise run get <session_id>   # poll until terminal
 # On success: inspect END node's snapshot for the next page state.
 # On failure: inspect the failed node's snapshot (see Debug Snapshots).
 ```
+
+### Branches and Pull Requests
+
+Branches and pull requests work like git and `gh pr`. Every `--branch`/`--head`/`--base` takes a branch name or id; a pull request is `12`, `#12` or its id. Every command needs `--workflow <workflow_id>`.
+
+```bash
+cloudcruise branches list --workflow <workflow_id>                        # is_default marks the branch unpinned runs use
+cloudcruise branches create fix-login --workflow <workflow_id>            # From the default branch (--from <branch>, --from-version 2.1.0)
+cloudcruise branches set-default <branch> --workflow <workflow_id>
+cloudcruise branches delete <branch> --workflow <workflow_id>             # Not the default branch; --close-open-prs closes its PRs
+cloudcruise workflows get <workflow_id> --branch fix-login > workflow.json
+cloudcruise workflows update <workflow_id> --file workflow.json --branch fix-login --version-note "..."
+cloudcruise run start <workflow_id> --branch fix-login                    # Test the branch
+cloudcruise prs create --workflow <workflow_id> --head fix-login --title "Fix login XPath"   # --base defaults to the default branch
+cloudcruise prs list --workflow <workflow_id>                             # --state open|merged|closed|all
+cloudcruise prs view 12 --workflow <workflow_id>                          # Includes approvals
+cloudcruise prs diff 12 --workflow <workflow_id>                          # Conflicts + match_heads
+cloudcruise prs approve 12 --workflow <workflow_id>                       # Not your own PR
+cloudcruise prs merge 12 --workflow <workflow_id>
+cloudcruise prs close 12 --workflow <workflow_id>
+```
+
+**Merging with conflicts.** When the branches changed the same item differently, `prs merge` exits 14 (`MERGE_CONFLICTS`); the stderr envelope's `message` names each conflict and `conflicts` lists their keys and summaries. Run `prs diff`: each conflict has a `key`, a one-line `summary` and the `base`/`source`/`target` values (`source` = the PR's branch, `target` = the branch it merges into). Then merge with the diff's `match_heads` and an answer for every conflict:
+
+```bash
+cloudcruise prs merge 12 --workflow <workflow_id> --match-heads <match_heads> \
+  --resolve nodes:<node_id>=target --resolve max_retries:\$value=source   # source | target | delete (delete: not for single values)
+cloudcruise prs merge 12 --workflow <workflow_id> --match-heads <match_heads> --take source       # Every remaining conflict
+cloudcruise prs diff 12 --workflow <workflow_id> --resolutions-template r.json   # Edit custom values, then:
+cloudcruise prs merge 12 --workflow <workflow_id> --match-heads <match_heads> --resolutions-file r.json
+```
+
+Precedence: `--resolutions-file`, then `--resolve`, then `--take`. A conflict with `depends_on` follows the side its driving conflict takes. With `--match-heads`, if a branch moved since the diff, nothing is merged and it exits 13 (`STALE_MERGE_PREVIEW`): diff again. Pass `--match-heads` on a conflict-free merge too, to merge exactly what you reviewed. A `--resolutions-file` value equal to one side counts as that side, so an unedited `--resolutions-template` file merges. Unknown or unanswered keys exit 2 before anything is sent.
+
+**Resolve and test before merging (like merging main into your branch in git).** Open a pull request from the base into your branch, merge it with resolutions, test your branch, then merge your branch: it no longer conflicts.
+
+```bash
+cloudcruise prs create --workflow <workflow_id> --head main --base fix-login --title "Sync main"
+cloudcruise prs diff <n> --workflow <workflow_id>
+cloudcruise prs merge <n> --workflow <workflow_id> --match-heads <match_heads> --resolve ...
+cloudcruise run start <workflow_id> --branch fix-login
+cloudcruise prs create --workflow <workflow_id> --head fix-login && cloudcruise prs merge <m> --workflow <workflow_id>
+```
+
+**Review and permissions.** A branch's ruleset can block direct saves (403: use a PR) and require approvals before merging (403 `Needs N approval(s)`). You can't approve your own PR; an API key acts as the user who created it, so another member has to approve. `prs merge --admin` (skip required approvals) and `workflows update --bypass-protection` need a login whose workspace role is in the ruleset's bypass list; API keys can't use them. Errors carry a `hint` with the next step.
 
 ### Workflow Components
 
@@ -196,6 +247,8 @@ cloudcruise run start <workflow_id> --debug                  # Start with debug 
 cloudcruise run start <workflow_id> --dry-run                # Run but skip final submit/save actions (nodes marked end_here_on_dry_run)
 cloudcruise run start <workflow_id> --no-notifications       # Suppress workspace run notifications (Slack/email) for this run
 cloudcruise run start <workflow_id> --input '{"key":"val"}'  # Start with input variables
+cloudcruise run start <workflow_id> --version "^2.1.0"       # Run the highest tagged release matching a version or range
+cloudcruise run start <workflow_id> --branch <branch_id>     # Run a branch's head (default: the default branch's head)
 cloudcruise run get <session_id>                             # Get run status, errors, screenshots, output (poll until status is terminal)
 cloudcruise run list --workflow <id> --status <s> --since 7d --limit 50 # List runs with filters
 cloudcruise run interrupt <session_id>                       # Stop a running session
@@ -311,6 +364,8 @@ cloudcruise builder end         # End the conversation and clean up
 
 **Credentials for builder sessions.** A workflow with a non-empty `vault_schema` needs its credential supplied, or login fails at the password step. Both `builder start` and `builder edit` take `--vault-user-id <permissioned_user_id>` + `--vault-domain <domain>` (both-or-neither) for a single credential; edit matches the domain to the workflow's `vault_schema` alias. For a multi-credential workflow, bind extra aliases via `builder edit --input '{"<alias>":"<permissioned_user_id>"}'`. `builder edit` also takes `--use-example-inputs` to pre-fill non-credential inputs from the workflow's `input_schema` examples (server-side).
 
+**Editing a branch or version.** `builder edit --workflow <workflow_id> --branch fix-login` edits that branch's latest version, and the session's saves go to that branch. `--version 2.1.0` (or a range) starts from that version instead. Without either, the default branch is edited. A protected branch rejects the builder's saves: create a branch first (`branches create`), edit it, then open a pull request.
+
 **Conversation resolution is server-driven** — there is no local session file. `start` prints the `conversationId`; the server roster (`builder conversations list`) is the source of truth for what's live. When exactly one conversation is live in your workspace, every other builder command resolves to it automatically. When more than one is live, commands error with exit 5 (ambiguous) and you must pass `--conversation <id>` (or set `CLOUDCRUISE_CONVERSATION`). With none live, they exit 2. `--conversation` overrides everything, including workspace scope. Each command echoes `conversation <id> (via flag|env|roster)` to stderr so you can tell how it resolved.
 
 **Important guidelines:**
@@ -331,7 +386,7 @@ cloudcruise builder end         # End the conversation and clean up
 
 **Status codes** (`builder status` — exit code in parens): `completed` (0) → proceed to next step. `awaiting-human-input` (7) → respond then re-check. `agent-errored` (8) → inspect messages, send corrective instruction. `processing` (9) → wait and re-check. `idle` (0) → no pending work. `ended` (0) → session is over. `terminal: true` means the current turn has settled and needs no more polling (`completed`, `awaiting-human-input`, `agent-errored`, or `ended`); it does not mean the conversation has ended. A driver can branch on the exit code alone without parsing stdout — note that a non-zero `status` exit (7/8/9) is the *state*, not a command failure.
 
-**409 exit codes:** `builder send` on a busy session → `SESSION_BUSY` (exit 6). `builder respond` after the input was already answered → `ALREADY_ANSWERED` (exit 7). `workflows update` on a stale body → `WORKFLOW_VERSION_CONFLICT` (exit 13). The code is printed to stderr.
+**409 exit codes:** `builder send` on a busy session → `SESSION_BUSY` (exit 6). `builder respond` after the input was already answered → `ALREADY_ANSWERED` (exit 7). `workflows update` on a stale body → `WORKFLOW_VERSION_CONFLICT` (exit 13). `prs merge` with a branch that moved since `prs diff` → `STALE_MERGE_PREVIEW` (exit 13); with unanswered conflicts → `MERGE_CONFLICTS` (exit 14). The code is printed to stderr.
 
 `builder screenshot`/`html` with no attached browser → `NO_BROWSER_ATTACHED` (exit 10); provision/warm a browser, then retry.
 
