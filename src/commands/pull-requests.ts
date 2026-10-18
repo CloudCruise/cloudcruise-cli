@@ -77,10 +77,11 @@ export function validateMergeOptions(opts: MergeOptions): void {
 }
 
 /**
- * The merge request body. Resolutions are checked against a preview fetched
- * now, and only when its heads are the ones the caller decided against
- * (--match-heads, printed by `prs diff`): a resolution is a literal value, so
- * applying it after a branch moved would silently drop what changed.
+ * The merge request body. Whenever --match-heads is given (required when
+ * resolving), the merge only goes ahead if a preview fetched now still has the
+ * heads the caller reviewed in `prs diff`, and the heads are sent so the API
+ * re-checks them: otherwise changes pushed after the review would merge
+ * unseen, and a resolution - a literal value - would silently drop them.
  */
 export function buildMergeBody(
   preview: MergePreview | undefined,
@@ -90,23 +91,25 @@ export function buildMergeBody(
   validateMergeOptions(opts)
   const body: Record<string, unknown> = {}
   if (opts.admin) body.force = true
-  if (!hasResolutionInput(opts)) return body
-  const expected = parseMatchHeads(opts.matchHeads as string)
-  if (!preview) throw new Error("A merge preview is required to resolve conflicts")
+  if (!opts.matchHeads) return body
+  const expected = parseMatchHeads(opts.matchHeads)
+  if (!preview) throw new Error("A merge preview is required to check --match-heads")
   if (
     expected.sourceHeadVersionId !== preview.sourceHeadVersionId ||
     expected.targetHeadVersionId !== preview.targetHeadVersionId
   ) {
     throw new StalePreviewError(
       `A branch moved since that diff (now ${formatMatchHeads(preview)})`,
-      "Run `prs diff` again and decide on the current conflicts."
+      "Run `prs diff` again and review the current changes."
     )
   }
-  body.resolutions = buildResolutions(preview.conflicts, {
-    resolve: opts.resolve,
-    take: opts.take,
-    custom
-  })
+  if (hasResolutionInput(opts)) {
+    body.resolutions = buildResolutions(preview.conflicts, {
+      resolve: opts.resolve,
+      take: opts.take,
+      custom
+    })
+  }
   body.previewSourceHeadVersionId = preview.sourceHeadVersionId
   body.previewTargetHeadVersionId = preview.targetHeadVersionId
   return body
@@ -355,7 +358,7 @@ Example:
         )
         .option("--take <side>", "Resolve every remaining conflict to source or target", parseSide)
         .option("--resolutions-file <path>", "JSON object of \"<conflict key>\": <value> for custom values")
-        .option("--match-heads <heads>", "The match_heads printed by `prs diff`; required when resolving")
+        .option("--match-heads <heads>", "The match_heads printed by `prs diff`: merge only if neither branch moved since; required when resolving")
         .option("--admin", "Merge without the required approvals (needs bypass rights)")
     )
   )
@@ -365,8 +368,9 @@ Example:
 Without conflicts, \`prs merge <pr>\` is enough. If the pull request has
 unanswered conflicts it exits 14 (MERGE_CONFLICTS) and lists them. Run \`prs diff\`
 first, then answer each conflict (or let --take answer the rest) and pass the
-diff's match_heads. If either branch moved since that diff, nothing is merged
-(exit 13); diff again. Precedence: --resolutions-file, then --resolve, then
+diff's match_heads. With --match-heads, if either branch moved since that diff,
+nothing is merged (exit 13); diff again. Pass it on a conflict-free merge too,
+to merge exactly what you reviewed. Precedence: --resolutions-file, then --resolve, then
 --take. "delete" removes the item; it isn't allowed for single values such as
 max_retries.
 
@@ -386,7 +390,7 @@ Examples:
         validateMergeOptions(opts)
         const client = new ApiClient(await resolveAuth(opts))
         const pr = await getPullRequest(client, opts.workflow, ref)
-        const preview = hasResolutionInput(opts)
+        const preview = opts.matchHeads
           ? await client.get<MergePreview>(prPath(opts.workflow, pr, "preview"))
           : undefined
         const body = buildMergeBody(preview, opts, custom)

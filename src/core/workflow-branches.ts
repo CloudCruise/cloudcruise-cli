@@ -362,12 +362,31 @@ function sideValue(conflict: MergeConflict, side: "source" | "target"): unknown 
 }
 
 /**
+ * Which side a literal resolution value picks, as the API decides it for
+ * referential conflicts: null picks the side that deleted the item, a value
+ * equal to one side picks that side, anything else is custom.
+ */
+function sideOfValue(
+  conflict: MergeConflict,
+  value: unknown
+): "source" | "target" | "custom" {
+  if (value === null) {
+    if (conflict.source === undefined) return "source"
+    if (conflict.target === undefined) return "target"
+    return "custom"
+  }
+  if (sameJson(value, conflict.source)) return "source"
+  if (sameJson(value, conflict.target)) return "target"
+  return "custom"
+}
+
+/**
  * Turns per-conflict choices into the literal values the merge endpoint
  * expects, taken from the same preview the heads are checked against.
  * Precedence: --resolutions-file values, then --resolve, then --take. A
  * referential conflict left unanswered follows the side its driving conflict
- * took, as the API does; it stays unresolved when the driving one was given a
- * custom value. Every conflict must end up answered, and every answer must
+ * took, as the API does - including a file value equal to one side's - and
+ * stays unresolved when the driving one was given a value matching neither. Every conflict must end up answered, and every answer must
  * name a real conflict - the API would otherwise ignore a stale key silently.
  */
 export function buildResolutions(
@@ -390,9 +409,9 @@ export function buildResolutions(
   }
 
   for (const [key, value] of Object.entries(input.custom ?? {})) {
-    requireConflict(key, "--resolutions-file")
+    const conflict = requireConflict(key, "--resolutions-file")
     resolutions[key] = value
-    sides.set(key, "custom")
+    sides.set(key, sideOfValue(conflict, value))
   }
 
   for (const { key, choice } of input.resolve ?? []) {
@@ -407,14 +426,7 @@ export function buildResolutions(
         )
       }
       resolutions[key] = null
-      sides.set(
-        key,
-        conflict.source === undefined
-          ? "source"
-          : conflict.target === undefined
-            ? "target"
-            : "custom"
-      )
+      sides.set(key, sideOfValue(conflict, null))
     } else {
       resolutions[key] = sideValue(conflict, choice)
       sides.set(key, choice)

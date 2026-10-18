@@ -184,7 +184,7 @@ cloudcruise prs diff 12 --workflow <workflow_id> --resolutions-template r.json  
 cloudcruise prs merge 12 --workflow <workflow_id> --match-heads <match_heads> --resolutions-file r.json
 ```
 
-Precedence: `--resolutions-file`, then `--resolve`, then `--take`. A conflict with `depends_on` follows the side its driving conflict takes. If a branch moved since the diff, nothing is merged and it exits 13 (`STALE_MERGE_PREVIEW`): diff again. Unknown or unanswered keys exit 2 before anything is sent.
+Precedence: `--resolutions-file`, then `--resolve`, then `--take`. A conflict with `depends_on` follows the side its driving conflict takes. With `--match-heads`, if a branch moved since the diff, nothing is merged and it exits 13 (`STALE_MERGE_PREVIEW`): diff again. Pass `--match-heads` on a conflict-free merge too, to merge exactly what you reviewed. A `--resolutions-file` value equal to one side counts as that side, so an unedited `--resolutions-template` file merges. Unknown or unanswered keys exit 2 before anything is sent.
 
 **Resolve and test before merging (like merging main into your branch in git).** Open a pull request from the base into your branch, merge it with resolutions, test your branch, then merge your branch: it no longer conflicts.
 

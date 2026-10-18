@@ -266,6 +266,24 @@ test("buildResolutions leaves a referential conflict unresolved when its driver 
   )
 })
 
+// The generated template omits referential conflicts and pre-fills source
+// values; sending it back unchanged must complete the merge, so a file value
+// equal to one side counts as that side, as the API itself decides.
+test("buildResolutions lets a referential conflict follow a file value equal to one side, so an unedited template merges", () => {
+  const conflicts = [modifyModify, edgeFollowingNodeA]
+  const template = buildResolutionsTemplate(preview(conflicts))
+  const resolutions = buildResolutions(conflicts, { custom: template })
+  assert.deepEqual(resolutions[`edges:${NODE_A}`], edgeFollowingNodeA.source)
+})
+
+test("buildResolutions treats a file null as picking the side that deleted the item, for its referential conflicts", () => {
+  const dependent = { ...edgeFollowingNodeA, key: NODE_B, dependsOn: { field: "nodes", key: NODE_B } }
+  const resolutions = buildResolutions([deletedOnTarget, dependent], {
+    custom: { [`nodes:${NODE_B}`]: null }
+  })
+  assert.deepEqual(resolutions[`edges:${NODE_B}`], dependent.target)
+})
+
 test("buildResolutions lists every unanswered conflict instead of letting the API reject the merge", () => {
   assert.throws(
     () => buildResolutions([modifyModify, maxRetries], {}),
@@ -295,6 +313,17 @@ test("buildMergeBody refuses to resolve against a preview whose heads moved, and
   const { exitCode, envelope } = buildErrorEnvelope(new StalePreviewError("moved", "diff again"))
   assert.equal(exitCode, ExitCode.VERSION_CONFLICT)
   assert.equal(envelope.code, "STALE_MERGE_PREVIEW")
+})
+
+// --match-heads on a conflict-free merge means "merge what I reviewed":
+// ignoring it would let changes pushed after the review merge unseen.
+test("buildMergeBody checks --match-heads even without resolutions and sends the heads for the API to re-check", () => {
+  assert.deepEqual(buildMergeBody(preview([]), { matchHeads: HEADS }), {
+    previewSourceHeadVersionId: SOURCE_HEAD,
+    previewTargetHeadVersionId: TARGET_HEAD
+  })
+  const moved = { ...preview([]), sourceHeadVersionId: TARGET_HEAD }
+  assert.throws(() => buildMergeBody(moved, { matchHeads: HEADS }), StalePreviewError)
 })
 
 test("buildMergeBody sends the resolutions with the preview heads the API checks for staleness", () => {
