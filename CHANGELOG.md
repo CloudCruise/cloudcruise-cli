@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.16.0
 
 Git-style workflow versioning (ADR-0027). The marked options need a backend with it; the rest works against older backends too.
 
