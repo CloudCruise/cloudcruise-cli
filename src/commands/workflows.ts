@@ -11,6 +11,7 @@ import {
 } from "../core/exit.js"
 import { addAuthOptions, type AuthOptions } from "../core/auth-options.js"
 import { requireJsonObject } from "../core/input.js"
+import { resolveBranchId, withBranchHint } from "../core/workflow-branches.js"
 
 const RELEASE_VERSION_PATTERN = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/
 
@@ -339,7 +340,7 @@ Examples:
         "Legacy: fetch the latest <n>.x.x version; prefer --version",
         parsePositiveInt
       )
-      .option("--branch <branch_id>", "Fetch the head of this branch instead of the default branch")
+      .option("--branch <branch>", "Fetch the latest version on this branch (name or id) instead of the default branch")
   ).addHelpText("after", `
 --version, --version-number and --branch are mutually exclusive. A range
 resolves to the highest matching version. The response's \`version\` is the
@@ -350,15 +351,22 @@ Examples:
   $ cloudcruise workflows get <workflow_id> > workflow.json
   $ cloudcruise workflows get <workflow_id> --version 2.1.0
   $ cloudcruise workflows get <workflow_id> --version "^2.1.0"
-  $ cloudcruise workflows get <workflow_id> --branch <branch_id>
+  $ cloudcruise workflows get <workflow_id> --branch fix-login
 `).action(async (
     id: string,
     opts: { version?: string; versionNumber?: number; branch?: string } & AuthOptions
   ) => {
     try {
-      const path = buildWorkflowGetPath(id, opts)
+      buildWorkflowGetPath(id, opts)
       const auth = await resolveAuth(opts)
       const client = new ApiClient(auth)
+      const path = buildWorkflowGetPath(id, {
+        ...opts,
+        branch:
+          opts.branch === undefined
+            ? undefined
+            : await resolveBranchId(client, id, opts.branch)
+      })
       const data = await client.get(path)
       outputJson(data)
     } catch (err: unknown) {
@@ -518,8 +526,8 @@ Examples:
         "Overwrite even if the workflow changed since the version in the body"
       )
       .option(
-        "--branch <branch_id>",
-        "Save to this branch (default: the body's branch_id, else the default branch)"
+        "--branch <branch>",
+        "Save to this branch, name or id (default: the body's branch_id, else the default branch)"
       )
       .option(
         "--release-version <x.y.z>",
@@ -563,17 +571,22 @@ Examples:
       } & AuthOptions
     ) => {
       try {
-        const body = buildWorkflowUpdateBody(
-          await requireJsonObject(opts),
-          opts
-        )
+        const workflow = await requireJsonObject(opts)
+        buildWorkflowUpdateBody(workflow, opts)
 
         const auth = await resolveAuth(opts)
         const client = new ApiClient(auth)
+        const body = buildWorkflowUpdateBody(workflow, {
+          ...opts,
+          branch:
+            opts.branch === undefined
+              ? undefined
+              : await resolveBranchId(client, id, opts.branch)
+        })
         const data = await client.put(`/workflows/${id}`, body)
         outputJson(data)
       } catch (err: unknown) {
-        fail(err)
+        fail(withBranchHint(err))
       }
     }
   )

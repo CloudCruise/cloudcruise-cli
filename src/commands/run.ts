@@ -4,6 +4,7 @@ import { resolveAuth } from "../core/auth.js"
 import { ApiClient } from "../core/api-client.js"
 import { outputJson } from "../core/output.js"
 import { fail, UsageError } from "../core/exit.js"
+import { resolveBranchId } from "../core/workflow-branches.js"
 import { addAuthOptions, type AuthOptions } from "../core/auth-options.js"
 import { requireJsonObject } from "../core/input.js"
 
@@ -91,7 +92,7 @@ export function registerRunCommands(program: Command): void {
         "--version <version>",
         "Run a tagged release: exact (2.1.0) or a semver range (^2.1.0, 2.x); the highest match runs"
       )
-      .option("--branch <branch_id>", "Run the head of this branch")
+      .option("--branch <branch>", "Run the latest version on this branch (name or id)")
   ).addHelpText("after", `
 Returns { session_id } immediately. Poll status with 'cloudcruise run get <session_id>'.
 
@@ -104,7 +105,7 @@ Examples:
   $ cloudcruise run start <workflow_id> --dry-run
   $ cloudcruise run start <workflow_id> --no-notifications
   $ cloudcruise run start <workflow_id> --version "^2.1.0"
-  $ cloudcruise run start <workflow_id> --branch <branch_id>
+  $ cloudcruise run start <workflow_id> --branch fix-login
   $ cloudcruise run start <workflow_id> --input '{"USER":"f47ac10b-58cc-4372-a567-0e02b2c3d479"}'
 `).action(
     async (
@@ -126,10 +127,17 @@ Examples:
           throw new UsageError(`Invalid --input JSON: ${opts.input}`)
         }
 
-        const body = buildRunStartBody(workflowId, inputVariables, opts)
+        buildRunStartBody(workflowId, inputVariables, opts)
 
         const auth = await resolveAuth(opts)
         const client = new ApiClient(auth)
+        const body = buildRunStartBody(workflowId, inputVariables, {
+          ...opts,
+          branch:
+            opts.branch === undefined
+              ? undefined
+              : await resolveBranchId(client, workflowId, opts.branch)
+        })
 
         const result = await client.post<{ session_id: string }>("/run", body)
         outputJson(result)

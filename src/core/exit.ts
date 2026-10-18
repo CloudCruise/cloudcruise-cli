@@ -34,6 +34,21 @@ export class UsageError extends Error {
 }
 
 /**
+ * A branch moved after the merge preview the caller resolved conflicts
+ * against. Maps to exit 13 like the API's own version conflicts: re-read, then
+ * decide again.
+ */
+export class StalePreviewError extends Error {
+  readonly name = "StalePreviewError"
+  constructor(
+    message: string,
+    readonly hint: string
+  ) {
+    super(message)
+  }
+}
+
+/**
  * More than one live conversation in scope and no explicit `--conversation`.
  * Maps to exit 5. Carries the candidate roster so the handler can print it to
  * stderr.
@@ -167,6 +182,8 @@ export function buildErrorEnvelope(err: unknown): {
       latestCreatedBy?: string | null
       latestCreatedAt?: string
       latestVersionNote?: string | null
+      conflicts?: unknown
+      errors?: unknown
     } = {}
     try {
       const parsed: unknown = JSON.parse(err.body)
@@ -175,6 +192,8 @@ export function buildErrorEnvelope(err: unknown): {
       // Non-JSON body — nothing more to surface.
     }
     if (body.messageId) envelope.messageId = body.messageId
+    if (Array.isArray(body.conflicts)) envelope.conflicts = body.conflicts
+    if (Array.isArray(body.errors)) envelope.errors = body.errors
     if (exitCode === ExitCode.USAGE_LIMIT) {
       if (body.reason) envelope.reason = body.reason
       if (typeof body.currentUsage === "number")
@@ -195,6 +214,12 @@ export function buildErrorEnvelope(err: unknown): {
       }
       envelope.hint = VERSION_CONFLICT_HINT
     }
+    if (err.hint) envelope.hint = err.hint
+  } else if (err instanceof StalePreviewError) {
+    exitCode = ExitCode.VERSION_CONFLICT
+    envelope.code = "STALE_MERGE_PREVIEW"
+    envelope.message = err.message
+    envelope.hint = err.hint
   } else if (err instanceof AmbiguousSessionError) {
     exitCode = ExitCode.AMBIGUOUS_SESSION
     envelope.code = "AMBIGUOUS_SESSION"

@@ -16,6 +16,8 @@ import { registerSecretProviderCommands } from "../src/commands/secret-providers
 import { registerBuilderCommands } from "../src/commands/builder.js"
 import { registerWorkspaceCommands } from "../src/commands/workspaces.js"
 import { registerErrorCodeCommands } from "../src/commands/error-codes.js"
+import { registerBranchCommands } from "../src/commands/branches.js"
+import { registerPullRequestCommands } from "../src/commands/pull-requests.js"
 import { CLI_VERSION } from "../src/core/version.js"
 import { autoRefreshSkills, checkInstalledSkills } from "../src/core/skills.js"
 import { loadConfig } from "../src/core/config.js"
@@ -36,6 +38,8 @@ program
 
 registerAuthCommands(program)
 registerWorkflowCommands(program)
+registerBranchCommands(program)
+registerPullRequestCommands(program)
 registerWorkspaceCommands(program)
 registerComponentCommands(program)
 registerErrorCodeCommands(program)

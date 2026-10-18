@@ -126,10 +126,21 @@ cloudcruise snapshot test '//input[@name="email"]' --file ./snapshots/page.html
 | `workspaces clear` | Clear the active workspace for a profile |
 | `workflows list` | List workflows (`--full` for details, `--folder <path>` to scope to a folder) |
 | `workflows folders` | List workflow folders (`--path` to scope, `--search`) |
-| `workflows get <id>` | Get workflow definition (`--version <version\|range>`, `--branch <branch_id>`; `--version-number <n>` is legacy for latest `n.x.x`) |
+| `workflows get <id>` | Get workflow definition (`--version <version\|range>`, `--branch <name\|id>`; `--version-number <n>` is legacy for latest `n.x.x`) |
 | `workflows versions <id>` | List workflow version history |
 | `workflows update <id>` | Update workflow (`--file`, `--stdin`, `--version-note`, `--force`, `--branch`, `--release-version`, `--bypass-protection`); exits 13 if the body's `version_id` is no longer the latest |
 | `workflows delete <id...>` | Permanently delete workflows (no confirmation); prints one result per id, exits non-zero if any failed |
+| `branches list` | List a workflow's branches; `is_default` marks the default (`--workflow`) |
+| `branches create <name>` | Create a branch (`--workflow`, `--from <branch>`, `--from-version <version>`) |
+| `branches delete <branch>` | Delete a non-default branch (`--workflow`, `--close-open-prs`) |
+| `branches set-default <branch>` | Make a branch the default (`--workflow`) |
+| `prs list` | List pull requests (`--workflow`, `--state open\|merged\|closed\|all`) |
+| `prs view <pr>` | Show a pull request and its approvals (`--workflow`) |
+| `prs create` | Open a pull request (`--workflow`, `--head`, `--base`, `--title`) |
+| `prs diff <pr>` | Merge preview: conflicts with keys and summaries, `match_heads` (`--merged`, `--resolutions-template`) |
+| `prs approve <pr>` | Approve a pull request (not your own) |
+| `prs close <pr>` | Close a pull request |
+| `prs merge <pr>` | Merge (`--resolve <key>=source\|target\|delete`, `--take`, `--resolutions-file`, `--match-heads`, `--admin`) |
 | `components list` | List workflow components (`--full`) |
 | `components get <id>` | Get component (`--version-number`) |
 | `components versions <id>` | List component versions (`--limit`) |
@@ -142,7 +153,7 @@ cloudcruise snapshot test '//input[@name="email"]' --file ./snapshots/page.html
 | `error-codes get <id>` | Get one workspace error code by id |
 | `error-codes create` | Find-or-create an error code by name (`--code`, `--description`, `--enriched-description`, `--action`, or one JSON object via `--file`/`--stdin`) |
 | `error-codes update <id>` | Update an error code (same flags as create) |
-| `run start <id>` | Start a run, returns session_id immediately (`--debug`, `--input`, `--version`, `--branch`) |
+| `run start <id>` | Start a run, returns session_id immediately (`--debug`, `--input`, `--version`, `--branch <name\|id>`) |
 | `run get <id>` | Get run status and results (poll until terminal) |
 | `run list` | List runs (`--workflow`, `--status`, `--limit`, `--since`) |
 | `run interrupt <id>` | Stop a running session |
