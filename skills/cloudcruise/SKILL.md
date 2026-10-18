@@ -174,7 +174,7 @@ cloudcruise prs merge 12 --workflow <workflow_id>
 cloudcruise prs close 12 --workflow <workflow_id>
 ```
 
-**Merging with conflicts.** `prs merge` fails with exit 1 and the conflicts in the stderr envelope when the branches changed the same item differently. Run `prs diff`: each conflict has a `key`, a one-line `summary` and the `base`/`source`/`target` values (`source` = the PR's branch, `target` = the branch it merges into). Then merge with the diff's `match_heads` and an answer for every conflict:
+**Merging with conflicts.** When the branches changed the same item differently, `prs merge` exits 14 (`MERGE_CONFLICTS`); the stderr envelope's `message` names each conflict and `conflicts` lists their keys and summaries. Run `prs diff`: each conflict has a `key`, a one-line `summary` and the `base`/`source`/`target` values (`source` = the PR's branch, `target` = the branch it merges into). Then merge with the diff's `match_heads` and an answer for every conflict:
 
 ```bash
 cloudcruise prs merge 12 --workflow <workflow_id> --match-heads <match_heads> \
@@ -386,7 +386,7 @@ cloudcruise builder end         # End the conversation and clean up
 
 **Status codes** (`builder status` — exit code in parens): `completed` (0) → proceed to next step. `awaiting-human-input` (7) → respond then re-check. `agent-errored` (8) → inspect messages, send corrective instruction. `processing` (9) → wait and re-check. `idle` (0) → no pending work. `ended` (0) → session is over. `terminal: true` means the current turn has settled and needs no more polling (`completed`, `awaiting-human-input`, `agent-errored`, or `ended`); it does not mean the conversation has ended. A driver can branch on the exit code alone without parsing stdout — note that a non-zero `status` exit (7/8/9) is the *state*, not a command failure.
 
-**409 exit codes:** `builder send` on a busy session → `SESSION_BUSY` (exit 6). `builder respond` after the input was already answered → `ALREADY_ANSWERED` (exit 7). `workflows update` on a stale body → `WORKFLOW_VERSION_CONFLICT` (exit 13). The code is printed to stderr.
+**409 exit codes:** `builder send` on a busy session → `SESSION_BUSY` (exit 6). `builder respond` after the input was already answered → `ALREADY_ANSWERED` (exit 7). `workflows update` on a stale body → `WORKFLOW_VERSION_CONFLICT` (exit 13). `prs merge` with a branch that moved since `prs diff` → `STALE_MERGE_PREVIEW` (exit 13); with unanswered conflicts → `MERGE_CONFLICTS` (exit 14). The code is printed to stderr.
 
 `builder screenshot`/`html` with no attached browser → `NO_BROWSER_ATTACHED` (exit 10); provision/warm a browser, then retry.
 

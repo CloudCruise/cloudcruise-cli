@@ -21,6 +21,7 @@ import {
   parseMatchHeads,
   parsePullRequestRef,
   parseResolveFlag,
+  toMergeConflictsError,
   withBranchHint
 } from "../dist/src/core/workflow-branches.js"
 import {
@@ -350,23 +351,54 @@ test("buildResolutionsTemplate pre-fills the source side and leaves out referent
   })
 })
 
-test("withBranchHint explains self-approval and unresolved conflicts, and the envelope carries the hint and conflicts", () => {
+test("withBranchHint explains self-approval, and the envelope carries the hint", () => {
   const own = withBranchHint(
     new ApiError("forbidden", 403, JSON.stringify({ message: "You can't approve your own pull request" }))
   ) as ApiError
   assert.match(own.hint ?? "", /Another workspace member/)
+  assert.match(String(buildErrorEnvelope(own).envelope.hint), /Another workspace member/)
+})
 
-  const unresolved = withBranchHint(
-    new ApiError(
-      "conflict",
-      409,
-      JSON.stringify({ message: "Unresolved merge conflicts", conflicts: [`nodes:${NODE_A}`] })
-    ),
-    "12"
-  ) as ApiError
-  const { envelope } = buildErrorEnvelope(unresolved)
-  assert.match(String(envelope.hint), /prs diff 12/)
-  assert.deepEqual(envelope.conflicts, [`nodes:${NODE_A}`])
+const unresolvedConflictsError = () =>
+  new ApiError(
+    "conflict",
+    409,
+    JSON.stringify({ message: "Unresolved merge conflicts", conflicts: [modifyModify, maxRetries] })
+  )
+
+// A bare "Unresolved merge conflicts" (exit 1) told an agent neither what
+// conflicts nor what to run; the restated error names both and exits 14 so a
+// driver can branch on "decide on conflicts" without parsing text.
+test("toMergeConflictsError restates an unresolved-conflicts 409 with the PR, each conflict and the commands to run, and exits 14", () => {
+  const err = toMergeConflictsError(unresolvedConflictsError(), { number: 12 }, WORKFLOW_ID)
+  assert.ok(err)
+  assert.match(err.message, /^Pull request #12 can't be merged: 2 conflicts need a decision\./)
+  assert.match(err.message, /\| max_retries: source set 3; target set 5$/)
+  const { exitCode, envelope } = buildErrorEnvelope(err)
+  assert.equal(exitCode, ExitCode.MERGE_CONFLICTS)
+  assert.equal(exitCode, 14)
+  assert.equal(envelope.code, "MERGE_CONFLICTS")
+  assert.deepEqual(
+    (envelope.conflicts as { key: string }[]).map((c) => c.key),
+    [`nodes:${NODE_A}`, "max_retries:$value"]
+  )
+  assert.match(String(envelope.hint), new RegExp(`prs diff 12 --workflow ${WORKFLOW_ID}`))
+  assert.match(String(envelope.hint), /--match-heads <match_heads>/)
+})
+
+test("toMergeConflictsError says '1 conflict needs' for a single conflict", () => {
+  const single = new ApiError(
+    "conflict",
+    409,
+    JSON.stringify({ message: "Unresolved merge conflicts", conflicts: [maxRetries] })
+  )
+  assert.match(toMergeConflictsError(single, { number: 3 }, WORKFLOW_ID)?.message ?? "", /1 conflict needs a decision/)
+})
+
+test("toMergeConflictsError leaves every other error alone, including other 409s", () => {
+  const moved = new ApiError("conflict", 409, JSON.stringify({ message: "Pull request is not open" }))
+  assert.equal(toMergeConflictsError(moved, { number: 12 }, WORKFLOW_ID), undefined)
+  assert.equal(toMergeConflictsError(new Error("boom"), { number: 12 }, WORKFLOW_ID), undefined)
 })
 
 test("withBranchHint tells API-key users they cannot bypass review", () => {

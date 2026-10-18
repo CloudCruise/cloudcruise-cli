@@ -13,6 +13,7 @@ Git-style workflow versioning (ADR-0027). The marked options need a backend with
 - `branches list|create|delete|set-default` manage a workflow's branches. Need the new backend.
 - `prs list|view|create|diff|approve|close|merge` work like `gh pr` for pull requests between branches. `prs diff` lists each conflict with a `--resolve` key, a one-line summary and the base/source/target values, plus the `match_heads` to merge against. `prs merge` resolves conflicts with `--resolve <key>=source|target|delete`, `--take source|target` or `--resolutions-file`, fills in the values from a fresh preview, and refuses (exit 13, `STALE_MERGE_PREVIEW`) when a branch moved since the diff. `--admin` skips required approvals for users allowed to bypass them. Need the new backend.
 - `builder edit --branch <branch>` edits a branch and saves to it; `--version <version|range>` starts from a version. Need the new backend.
+- `prs merge` with unanswered conflicts exits 14 (`MERGE_CONFLICTS`) with a message naming the pull request and each conflict, `conflicts` (key, reason, summary) in the envelope, and a hint with the `prs diff` / `prs merge` commands to run.
 - Branch and pull request errors carry a `hint` with the next step, and a merge's `conflicts` or validation `errors` reach the stderr envelope.
 
 ### Changed

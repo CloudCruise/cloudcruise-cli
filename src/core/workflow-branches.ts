@@ -1,5 +1,5 @@
 import { ApiClient, ApiError } from "./api-client.js"
-import { UsageError } from "./exit.js"
+import { MergeConflictsError, UsageError } from "./exit.js"
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -486,8 +486,6 @@ export function withBranchHint(err: unknown, pr?: string): unknown {
   } else if (message.includes("is protected")) {
     err.hint =
       "Save to another branch (`branches create`, then `workflows update --branch`) and open a pull request with `prs create`."
-  } else if (message === "Unresolved merge conflicts") {
-    err.hint = `Run \`prs diff ${ref}\`, then merge with --match-heads plus --resolve <key>=source|target|delete, --take source|target or --resolutions-file.`
   } else if (
     message.includes("since this merge was previewed") ||
     message.includes("Missing preview head versions")
@@ -500,4 +498,41 @@ export function withBranchHint(err: unknown, pr?: string): unknown {
     err.hint = "Retry in a few seconds."
   }
   return err
+}
+
+/**
+ * The API's 409 for a merge with unanswered conflicts, restated so it says
+ * which pull request, how many conflicts and what each one is, and gives the
+ * exact commands that answer them. Returns undefined for any other error.
+ */
+export function toMergeConflictsError(
+  err: unknown,
+  pr: { number: number },
+  workflowId: string
+): MergeConflictsError | undefined {
+  if (!(err instanceof ApiError) || err.status !== 409) return undefined
+  let body: unknown
+  try {
+    body = JSON.parse(err.body)
+  } catch {
+    return undefined
+  }
+  if (
+    !isPlainObject(body) ||
+    body.message !== "Unresolved merge conflicts" ||
+    !Array.isArray(body.conflicts)
+  ) {
+    return undefined
+  }
+  const conflicts = (body.conflicts as MergeConflict[]).map((c) => ({
+    key: conflictKey(c),
+    reason: c.reason,
+    summary: describeConflict(c)
+  }))
+  const count = conflicts.length === 1 ? "1 conflict needs" : `${conflicts.length} conflicts need`
+  const message = `Pull request #${pr.number} can't be merged: ${count} a decision. ${conflicts
+    .map((c) => c.summary)
+    .join(" | ")}`
+  const hint = `Run \`cloudcruise prs diff ${pr.number} --workflow ${workflowId}\` to see both sides and the match_heads, then \`cloudcruise prs merge ${pr.number} --workflow ${workflowId} --match-heads <match_heads>\` with --resolve <key>=source|target|delete for each conflict, or --take source|target for all of them.`
+  return new MergeConflictsError(message, conflicts, hint)
 }

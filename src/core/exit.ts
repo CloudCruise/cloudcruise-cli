@@ -20,7 +20,8 @@ export const ExitCode = {
   NO_BROWSER_ATTACHED: 10,
   SKILLS_INCOMPATIBLE: 11,
   USAGE_LIMIT: 12,
-  VERSION_CONFLICT: 13
+  VERSION_CONFLICT: 13,
+  MERGE_CONFLICTS: 14
 } as const
 
 export type ExitCodeValue = (typeof ExitCode)[keyof typeof ExitCode]
@@ -31,6 +32,22 @@ export type ExitCodeValue = (typeof ExitCode)[keyof typeof ExitCode]
  */
 export class UsageError extends Error {
   readonly name = "UsageError"
+}
+
+/**
+ * A pull request can't merge until its conflicts are answered. Maps to exit 14
+ * so a driver can tell "decide on these conflicts" apart from other failures.
+ * Carries each conflict's key and summary for the stderr envelope.
+ */
+export class MergeConflictsError extends Error {
+  readonly name = "MergeConflictsError"
+  constructor(
+    message: string,
+    readonly conflicts: { key: string; reason: string; summary: string }[],
+    readonly hint: string
+  ) {
+    super(message)
+  }
 }
 
 /**
@@ -215,6 +232,12 @@ export function buildErrorEnvelope(err: unknown): {
       envelope.hint = VERSION_CONFLICT_HINT
     }
     if (err.hint) envelope.hint = err.hint
+  } else if (err instanceof MergeConflictsError) {
+    exitCode = ExitCode.MERGE_CONFLICTS
+    envelope.code = "MERGE_CONFLICTS"
+    envelope.message = err.message
+    envelope.conflicts = err.conflicts
+    envelope.hint = err.hint
   } else if (err instanceof StalePreviewError) {
     exitCode = ExitCode.VERSION_CONFLICT
     envelope.code = "STALE_MERGE_PREVIEW"

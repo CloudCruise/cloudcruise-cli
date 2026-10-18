@@ -18,6 +18,7 @@ import {
   parseResolveFlag,
   PR_STATES,
   pullRequestsPath,
+  toMergeConflictsError,
   withBranchHint,
   type MergePreview,
   type PullRequest,
@@ -361,7 +362,8 @@ Example:
     .addHelpText(
       "after",
       `
-Without conflicts, \`prs merge <pr>\` is enough. With conflicts, run \`prs diff\`
+Without conflicts, \`prs merge <pr>\` is enough. If the pull request has
+unanswered conflicts it exits 14 (MERGE_CONFLICTS) and lists them. Run \`prs diff\`
 first, then answer each conflict (or let --take answer the rest) and pass the
 diff's match_heads. If either branch moved since that diff, nothing is merged
 (exit 13); diff again. Precedence: --resolutions-file, then --resolve, then
@@ -388,7 +390,11 @@ Examples:
           ? await client.get<MergePreview>(prPath(opts.workflow, pr, "preview"))
           : undefined
         const body = buildMergeBody(preview, opts, custom)
-        outputJson(await client.post(prPath(opts.workflow, pr, "merge"), body))
+        try {
+          outputJson(await client.post(prPath(opts.workflow, pr, "merge"), body))
+        } catch (err: unknown) {
+          throw toMergeConflictsError(err, pr, opts.workflow) ?? err
+        }
       } catch (err: unknown) {
         fail(withBranchHint(err, ref))
       }
