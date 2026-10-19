@@ -1,38 +1,39 @@
 # Captchas
 
-Which captchas the platform solves, when to switch to manual solving, and the
+Which captchas the platform solves, where the `CAPTCHA` node goes, and the
 pattern for text captchas. The builder agent builds all of these; delegate by
 naming the captcha and where it appears. The node shapes below are for authoring
 directly or checking what the builder built. Node semantics are in the
 `cloudcruise-workflow-dsl` skill.
 
+## Solving at a CAPTCHA node
+
+The platform solves Cloudflare Turnstile, reCAPTCHA v2, hCaptcha and AWS WAF
+CAPTCHA at a `CAPTCHA` node. New workflows start with `manual_captcha_solve: true`,
+so captchas are solved only at these nodes.
+
+When a page shows one of these captchas, add a `CAPTCHA` node with the matching
+`captcha_type` immediately before the action that needs it cleared, usually the
+submit or the next navigation. Do not author a `CLICK` on a captcha widget:
+clicking into a half-solved widget breaks the solver.
+
+Some sites open an invisible hCaptcha or an AWS WAF CAPTCHA puzzle from their own
+checkbox ("I am not a robot", "Let's confirm you are human"), a site element rather
+than the captcha's widget, and the challenge appears a few seconds after the click.
+Click the site's checkbox with a `CLICK` node and put a `CAPTCHA` node with
+`captcha_type: "hcaptcha"` or `"aws_waf"` right after it. That node waits up to 15
+seconds for the challenge to open, then solves it. AWS WAF CAPTCHA can also show as
+AWS's full-page "Human Verification" page; don't click its Begin button, because the
+`CAPTCHA` node presses it.
+
 ## Automatic solving
 
-The platform solves Cloudflare Turnstile, reCAPTCHA v2 and hCaptcha. By default
-the solver runs before every action, in builder sessions and in runs. Do not author
-a `CLICK` on a captcha widget: clicking into a half-solved widget breaks the solver.
-
-Some sites open an invisible hCaptcha from their own "I am not a robot" checkbox, a
-site element rather than hCaptcha's widget, and the challenge appears a few seconds
-after the click. Automatic solving does not wait for a challenge that has not
-appeared, so the workflow clicks the site's checkbox with a `CLICK` node and has a
-`CAPTCHA` node with `captcha_type: "hcaptcha"` right after it. That node waits up
-to 15 seconds for the challenge, solves it, and runs whether or not automatic
-solving is on.
-
-## Manual solving
-
-Keep automatic solving on unless asked, or unless one of these problems appears:
-
-- A submit refreshes the widget on the same page, and the solver solves it again
-  for no reason.
-- A long page fill lets the token expire before the action that needs it.
-
-To solve explicitly, in the same update set `manual_captcha_solve: true` and add a
-`CAPTCHA` node immediately before each action that needs the captcha cleared. Set
-`captcha_type` to the captcha shown on the page. With the flag on, the platform
-solves captchas only at `CAPTCHA` nodes, so the flag without the nodes leaves every
-captcha unsolved.
+With `manual_captcha_solve: false` the solver runs before each step that acts on the
+page, in builder sessions and in runs. Existing workflows keep their setting; most
+created before manual solving became the default have `false`. `CAPTCHA` nodes work
+in those workflows too. To move one to manual solving, in the same update set
+`manual_captcha_solve: true` and add the `CAPTCHA` nodes: the flag without the nodes
+leaves every captcha unsolved.
 
 ## Text captchas
 
@@ -78,8 +79,8 @@ whose `description` tells the model to transcribe the challenge image:
 
 ## In a task message
 
-State the captcha type and the page or step where it appears. For manual solving,
-state which problem above calls for it.
+State the captcha type and the page or step where it appears, and the action
+that needs it cleared.
 
 ## In testing
 
@@ -88,8 +89,10 @@ These failures have known fixes:
 - A `CAPTCHA` node fails with `CAPTCHA-E0001`: a captcha was present and not
   solved.
 - A submit is rejected after a long fill on an auto-solved captcha: the token
-  expired. Switch to manual solving.
+  expired. Switch the workflow to manual solving.
 - A text captcha is rejected and the run does not retry: the retry loop is
   missing. Add it.
-- An hCaptcha challenge opens after a click on the site's own checkbox and stays
-  unsolved: the `CAPTCHA` node after that click is missing. Add it.
+- A captcha stays unsolved on a workflow with `manual_captcha_solve: true`: the
+  `CAPTCHA` node before the action that needs it is missing. Add it.
+- An hCaptcha or AWS WAF challenge opens after a click on the site's own checkbox
+  and stays unsolved: the `CAPTCHA` node after that click is missing. Add it.
