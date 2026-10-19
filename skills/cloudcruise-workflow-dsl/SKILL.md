@@ -36,7 +36,7 @@ Leave them in the body from `workflows get`; `workflows update` sends it as-is. 
 
 **Optional:** `description`, `version_note` (on `workflows update`, set via `--version-note` only), `extract_network_urls`, `popup_xpaths`, `vault_schema`, `enable_popup_handling`, `enable_action_timing_recovery`, `enable_xpath_recovery`, `enable_error_code_generation`, `enable_service_unavailable_recovery`, `enable_incorrect_form_input_recovery`, `enable_password_update_recovery`, `enable_tfa_setup_recovery`, `enable_node_description_enrichment`, `allow_requeue`, `deny_requeue_past_dry_run_marker`, `proxy_setting`, `proxy_value`, `enable_network_listener`, `manual_captcha_solve`
 
-`manual_captcha_solve` is `true` on new workflows: captchas are solved only at `CAPTCHA` nodes. `false` runs the automatic solver before every action; workflows created before manual solving became the default keep `false`, and so does an import whose bundle has no `manual_captcha_solve`. On `workflows update`, omitting the field keeps the current value.
+`manual_captcha_solve` is `true` on new workflows: captchas are solved only at `CAPTCHA` nodes. `false` runs the automatic solver before every action; workflows created before manual solving became the default keep `false`. On `workflows update`, omitting the field keeps the current value.
 
 Run video is always recorded and cannot be disabled, and input actions always use native OS input; there are no settings for either.
 

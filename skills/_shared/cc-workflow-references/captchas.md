@@ -30,8 +30,7 @@ AWS's full-page "Human Verification" page; don't click its Begin button, because
 
 With `manual_captcha_solve: false` the solver runs before every action, in builder
 sessions and in runs. Workflows created before manual solving became the default
-keep `false`, and so does an import whose bundle has no `manual_captcha_solve`.
-`CAPTCHA` nodes work in those workflows too. To move one to manual solving, in the
+keep `false`. `CAPTCHA` nodes work in those workflows too. To move one to manual solving, in the
 same update set `manual_captcha_solve: true` and add the `CAPTCHA` nodes: the flag
 without the nodes leaves every captcha unsolved.
 
