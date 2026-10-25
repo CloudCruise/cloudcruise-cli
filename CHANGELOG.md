@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- `cloudcruise` skill lists the run statuses `run get` returns and which of them are terminal (`execution.success`, `execution.failed`, `execution.stopped`), with a poll loop example. It said "poll until terminal" without naming them, so agents waited on builder statuses like `completed` that runs never report and polled until their loop ran out.
+- `cloudcruise` skill names the `run get` fields `data` and `errors`; it said `output_data` and `workflow_errors`, which the response does not contain.
+
 ## 1.15.1
 
 ### Changed
