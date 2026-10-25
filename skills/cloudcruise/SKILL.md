@@ -208,16 +208,8 @@ cloudcruise run network <session_id>                         # All recorded netw
 
 **Run statuses.** `run get` and `run list` report `status` as one of these exact strings:
 
-| Status | Terminal | Meaning |
-|---|---|---|
-| `execution.success` | yes | Run finished |
-| `execution.failed` | yes | Run failed; see `errors` |
-| `execution.stopped` | yes | Run was interrupted or force-ended |
-| `execution.queued` | no | Waiting for a browser |
-| `execution.requeued` | no | Retrying after an error under the same `session_id`; keep polling |
-| `execution.start` | no | Browser started |
-| `execution.step` | no | Executing nodes (also while waiting on a USER_INTERACTION node for `run respond`) |
-| `execution.paused` | no | Held because its workflow or credential is paused; it will not progress on its own, so stop polling and tell the user |
+- Terminal: `execution.success`, `execution.failed`, `execution.stopped`
+- Not terminal: `execution.queued`, `execution.requeued` (retrying, same `session_id`), `execution.start`, `execution.step`, `execution.paused` (workflow or credential paused; won't progress on its own, so stop polling and tell the user)
 
 Only those three statuses end a run. They are not the builder's statuses: `completed`, `error`, `interrupted`, `cancelled`, `ended` and `execution.running` never come back from `run get`, so a loop waiting on them polls until it times out. `run get` exits 0 whatever the state, so branch on `status`, not on the exit code:
 
