@@ -257,6 +257,13 @@ test("run start with both --version and --branch exits 2 without credentials and
   }
 })
 
+test("omittedBodiesWarning uses the singular for one omitted body", () => {
+  assert.equal(
+    omittedBodiesWarning({ ...networkResponse, omitted_bodies: 1 }),
+    "1 body is null: the 100 MB body budget per call was used up.\n"
+  )
+})
+
 test("omittedBodiesWarning stays silent when the body budget cut no bodies", () => {
   assert.equal(omittedBodiesWarning({ ...networkResponse, omitted_bodies: 0 }), undefined)
 })

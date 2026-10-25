@@ -94,7 +94,8 @@ export function summarizeRunNetwork(
 export function omittedBodiesWarning(data: RunNetworkResponse): string | undefined {
   const omitted = data.omitted_bodies ?? 0
   if (omitted === 0) return undefined
-  return `${omitted} bodies are null: the 100 MB body budget per call was used up.\n`
+  const subject = omitted === 1 ? "1 body is" : `${omitted} bodies are`
+  return `${subject} null: the 100 MB body budget per call was used up.\n`
 }
 
 export function registerRunCommands(program: Command): void {
