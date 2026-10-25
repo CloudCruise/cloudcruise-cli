@@ -5,7 +5,7 @@ description: CloudCruise CLI reference for building, editing, and debugging Clou
 
 # CloudCruise CLI
 
-Command-line tool for managing CloudCruise workflows and runs. All output is JSON to stdout; errors go to stderr — consume stdout only, never merge with `2>&1` when parsing, and branch `builder status` poll loops on exit codes rather than matching strings in the JSON (`run get` always exits 0, so run polls match `status` against the Run statuses table).
+Command-line tool for managing CloudCruise workflows and runs. All output is JSON to stdout; errors go to stderr — consume stdout only, never merge with `2>&1` when parsing, and branch `builder status` poll loops on exit codes rather than matching strings in the JSON (`run get` exits 0 for every run state, so run polls match `status` against the Run statuses table).
 
 ## Setup
 
@@ -214,9 +214,9 @@ cloudcruise run network <session_id>                         # All recorded netw
 These differ from `builder status` values: runs never report `completed`, `error` or `interrupted`.
 
 ```bash
-S=$(cloudcruise run start <workflow_id> --input '{}' | jq -r .session_id)
+S=$(cloudcruise run start <workflow_id> --input '{}' | jq -er .session_id) || exit 1
 for i in $(seq 1 60); do
-  st=$(cloudcruise run get "$S" 2>/dev/null | jq -r .status)
+  st=$(cloudcruise run get "$S" | jq -er .status) || break
   case "$st" in
     execution.success|execution.failed|execution.stopped) break ;;
     execution.paused) echo "run paused"; break ;;
