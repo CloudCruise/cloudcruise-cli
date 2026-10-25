@@ -29,11 +29,12 @@ AWS's full-page "Human Verification" page; don't click its Begin button, because
 ## Automatic solving
 
 With `manual_captcha_solve: false` the solver runs before each step that acts on the
-page, in builder sessions and in runs. Existing workflows keep their setting; most
+page, in builder sessions and in runs. Automatic solving is deprecated and will be
+removed; until then it is opt-in. Existing workflows keep their setting; most
 created before manual solving became the default have `false`. `CAPTCHA` nodes work
-in those workflows too. To move one to manual solving, in the same update set
-`manual_captcha_solve: true` and add the `CAPTCHA` nodes: the flag without the nodes
-leaves every captcha unsolved.
+in those workflows too. Move them to manual solving: in the same update set
+`manual_captcha_solve: true` and add the `CAPTCHA` nodes, because the flag without
+the nodes leaves every captcha unsolved.
 
 ## Text captchas
 

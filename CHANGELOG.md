@@ -4,7 +4,7 @@
 
 ### Changed
 
-- Skills describe manual captcha solving as the default for new workflows, matching the builder agent. The `cc-workflow` captcha reference and `cloudcruise-workflow-dsl` say the platform solves Turnstile, reCAPTCHA v2, hCaptcha and AWS WAF CAPTCHA at a `CAPTCHA` node placed before the action that needs it cleared. For a site's own checkbox, `CLICK` it, then a `CAPTCHA` node. On AWS's full-page Human Verification page, the `aws_waf` node presses Begin. `manual_captcha_solve: false` (automatic solving) is opt-in; workflows created earlier keep their stored value.
+- Skills describe manual captcha solving as the default for new workflows, matching the builder agent. The `cc-workflow` captcha reference and `cloudcruise-workflow-dsl` say the platform solves Turnstile, reCAPTCHA v2, hCaptcha and AWS WAF CAPTCHA at a `CAPTCHA` node placed before the action that needs it cleared. For a site's own checkbox, `CLICK` it, then a `CAPTCHA` node. On AWS's full-page Human Verification page, the `aws_waf` node presses Begin. `manual_captcha_solve: false` (automatic solving) is opt-in and deprecated: it will be removed, so use `CAPTCHA` nodes. Workflows created earlier keep their stored value.
 
 ## 1.15.1
 
