@@ -65,16 +65,36 @@ export function buildRunNetworkPath(
   return opts.includeNoise ? `${path}?include_noise=true` : path
 }
 
+type RunNetworkResponse = {
+  session_id: string
+  complete: boolean
+  omitted_bodies?: number
+  events: unknown[]
+}
+
 export function summarizeRunNetwork(
-  data: { session_id: string; complete: boolean; events: unknown[] },
+  data: RunNetworkResponse,
   file: string
-): { session_id: string; complete: boolean; event_count: number; file: string } {
+): {
+  session_id: string
+  complete: boolean
+  event_count: number
+  omitted_bodies: number
+  file: string
+} {
   return {
     session_id: data.session_id,
     complete: data.complete,
     event_count: data.events.length,
+    omitted_bodies: data.omitted_bodies ?? 0,
     file
   }
+}
+
+export function omittedBodiesWarning(data: RunNetworkResponse): string | undefined {
+  const omitted = data.omitted_bodies ?? 0
+  if (omitted === 0) return undefined
+  return `${omitted} bodies are null: the 100 MB body budget per call was used up.\n`
 }
 
 export function registerRunCommands(program: Command): void {
@@ -391,12 +411,16 @@ Examples:
       .option("--include-noise", "Include every captured event (preflights, analytics, assets, ...)")
       .option("--output <path>", "Write the traffic JSON to a file instead of stdout")
   ).addHelpText("after", `
-Returns { session_id, complete, events[] }, oldest first. Each event has id, retry,
-timestamp, method, status, url, category, content_type, request/response headers
-and bodies, and request/response_truncated. complete is false until the run ends.
-Traffic is recorded for --debug runs on workers with network capture.
+Returns { session_id, complete, omitted_bodies, events[] }, oldest first. Each event
+has id, retry, timestamp, method, status, url, category, content_type,
+request/response headers and bodies, and request/response_truncated. complete is
+false until the run ends. Traffic is recorded for --debug runs on workers with
+network capture.
 
-With --output, stdout gets { session_id, complete, event_count, file }.
+One call returns at most 100 MB of bodies. Bodies beyond that are null with
+*_truncated set; omitted_bodies counts them, and a warning goes to stderr.
+
+With --output, stdout gets { session_id, complete, event_count, omitted_bodies, file }.
 
 Examples:
   $ cloudcruise run network sess_abc123 | jq '.events[] | {method, status, url}'
@@ -410,11 +434,11 @@ Examples:
       try {
         const auth = await resolveAuth(opts)
         const client = new ApiClient(auth)
-        const data = await client.get<{
-          session_id: string
-          complete: boolean
-          events: unknown[]
-        }>(buildRunNetworkPath(sessionId, opts))
+        const data = await client.get<RunNetworkResponse>(
+          buildRunNetworkPath(sessionId, opts)
+        )
+        const warning = omittedBodiesWarning(data)
+        if (warning) process.stderr.write(warning)
         if (opts.output) {
           writeFileSync(opts.output, JSON.stringify(data, null, 2) + "\n")
           outputJson(summarizeRunNetwork(data, opts.output))

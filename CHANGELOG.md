@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- `run network` reports `omitted_bodies`: the number of request and response bodies returned as `null` because the call's 100 MB body budget was used up. The `--output` summary includes it, and a non-zero count is reported on stderr.
+
 ## 1.16.1
 
 ### Changed
