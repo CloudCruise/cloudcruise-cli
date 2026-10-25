@@ -211,7 +211,7 @@ cloudcruise run network <session_id>                         # All recorded netw
 - Terminal: `execution.success`, `execution.failed`, `execution.stopped`
 - Not terminal: `execution.queued`, `execution.requeued` (retrying, same `session_id`), `execution.start`, `execution.step`, `execution.paused` (workflow or credential paused; won't progress on its own, so stop polling and tell the user)
 
-Only those three statuses end a run. They are not the builder's statuses: `completed`, `error`, `interrupted`, `cancelled`, `ended` and `execution.running` never come back from `run get`, so a loop waiting on them polls until it times out. `run get` exits 0 whatever the state, so branch on `status`, not on the exit code:
+These differ from `builder status` values: runs never report `completed`, `error` or `interrupted`.
 
 ```bash
 S=$(cloudcruise run start <workflow_id> --input '{}' | jq -r .session_id)
