@@ -23,6 +23,7 @@ Git-style workflow versioning (ADR-0027). The marked options need a backend with
 - Every `--branch` takes a branch name or id; names are looked up in the workflow's branch list.
 - Root options are positional: `--version`/`-V` print the CLI version only before a subcommand, so a subcommand's own `--version` reaches it.
 - `cloudcruise` and `cloudcruise-workflow-dsl` describe workflow versions by `version_id` and `version` instead of `version_number`, and document branches, release versions and protected branches.
+- `cloudcruise-workflow-dsl` documents API_FLOW's `save_response_as_file`, which stores a target step's PDF response as a run file.
 
 ## 1.15.2
 
