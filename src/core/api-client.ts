@@ -10,6 +10,8 @@ export class ApiError extends Error {
   readonly status: number
   readonly code?: string
   readonly body: string
+  /** What to do next, set by a command that knows the context of the failure. */
+  hint?: string
 
   constructor(message: string, status: number, body: string, code?: string) {
     super(message)

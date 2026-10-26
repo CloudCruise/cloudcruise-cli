@@ -1,5 +1,29 @@
 # Changelog
 
+## 1.16.0
+
+Git-style workflow versioning (ADR-0027). The marked options need a backend with it; the rest works against older backends too.
+
+### Added
+
+- `workflows get --version <version|range>` fetches an exact version (`2.1.0`), the highest match of a semver range (`"^2.1.0"`, `"~2.1.3"`, `"2.x"`, `">=1.2.3 <2.0.0"`) or, for a bare `N`, the latest `N.x.x`. Ranges need the new backend.
+- `workflows get --branch <branch_id>` fetches that branch's head instead of the default branch's. Needs the new backend.
+- `run start --version <version|range>` runs the highest tagged release that matches, and `run start --branch <branch_id>` runs that branch's head. Mutually exclusive; sent as `workflow_version` / `workflow_branch_id` only when given. Need the new backend.
+- `workflows update --branch <branch_id>` saves to that branch instead of the body's `branch_id`, `--release-version <x.y.z>` sets the new version instead of the automatic bump, and `--bypass-protection` saves to a protected branch. Each field is sent only when its flag is given. Need the new backend.
+- `branches list|create|delete|set-default` manage a workflow's branches. Need the new backend.
+- `prs list|view|create|diff|approve|close|merge` work like `gh pr` for pull requests between branches. `prs diff` lists each conflict with a `--resolve` key, a one-line summary and the base/source/target values, plus the `match_heads` to merge against. `prs merge` resolves conflicts with `--resolve <key>=source|target|delete`, `--take source|target` or `--resolutions-file`, fills in the values from a fresh preview, and refuses (exit 13, `STALE_MERGE_PREVIEW`) when a branch moved since the diff; `--match-heads` also guards a merge without conflicts. A `--resolutions-file` value equal to one side counts as that side, so conflicts that depend on it follow. `--admin` skips required approvals for users allowed to bypass them. Need the new backend.
+- `builder edit --branch <branch>` edits a branch and saves to it; `--version <version|range>` starts from a version. Need the new backend.
+- `prs merge` with unanswered conflicts exits 14 (`MERGE_CONFLICTS`) with a message naming the pull request and each conflict, `conflicts` (key, reason, summary) in the envelope, and a hint with the `prs diff` / `prs merge` commands to run.
+- Branch and pull request errors carry a `hint` with the next step, and a merge's `conflicts` or validation `errors` reach the stderr envelope.
+
+### Changed
+
+- `workflows get --version-number <n>` is legacy. It still sends the integer, which the new backend reads as the latest `n.x.x`. `--version`, `--version-number` and `--branch` are mutually exclusive (exit 2).
+- The `WORKFLOW_VERSION_CONFLICT` envelope's `latestVersion` adds `version` (e.g. `"2.1.0"`) and `branchId`. `number` appears only when an older backend sends `latestVersionNumber`.
+- Every `--branch` takes a branch name or id; names are looked up in the workflow's branch list.
+- Root options are positional: `--version`/`-V` print the CLI version only before a subcommand, so a subcommand's own `--version` reaches it.
+- `cloudcruise` and `cloudcruise-workflow-dsl` describe workflow versions by `version_id` and `version` instead of `version_number`, and document branches, release versions and protected branches.
+
 ## 1.15.2
 
 ### Changed

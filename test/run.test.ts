@@ -38,6 +38,35 @@ test("buildRunStartBody carries workflow_id and run_input_variables", () => {
   assert.deepEqual(body.run_input_variables, { USER: "abc" })
 })
 
+// The old production backend rejects unknown body fields, so a run without
+// --version or --branch must not carry workflow_version or workflow_branch_id.
+test("buildRunStartBody without --version or --branch sends neither workflow_version nor workflow_branch_id", () => {
+  const body = buildRunStartBody("wf_1", {}, {})
+  assert.equal("workflow_version" in body, false)
+  assert.equal("workflow_branch_id" in body, false)
+})
+
+test("buildRunStartBody sends --version as workflow_version", () => {
+  const body = buildRunStartBody("wf_1", {}, { version: "^2.1.0" })
+  assert.equal(body.workflow_version, "^2.1.0")
+  assert.equal("workflow_branch_id" in body, false)
+})
+
+test("buildRunStartBody sends --branch as workflow_branch_id", () => {
+  const body = buildRunStartBody("wf_1", {}, { branch: "b_1" })
+  assert.equal(body.workflow_branch_id, "b_1")
+  assert.equal("workflow_version" in body, false)
+})
+
+// The backend accepts at most one way to pick the version to run, so the
+// combination is refused locally as a usage error.
+test("buildRunStartBody refuses --version together with --branch", () => {
+  assert.throws(
+    () => buildRunStartBody("wf_1", {}, { version: "2.1.0", branch: "b_1" }),
+    { name: "UsageError", message: /Pass only one of --version, --branch/ }
+  )
+})
+
 test("buildRunNetworkPath targets the run network endpoint and filters noise by default", () => {
   assert.equal(buildRunNetworkPath("sess_1", {}), "/run/sess_1/network")
 })
@@ -109,6 +138,112 @@ test("run network --output writes the full traffic to the file and prints only a
       event_count: 2,
       file
     })
+  } finally {
+    backend.server.close()
+  }
+})
+
+const BRANCH_ID = "22222222-2222-4222-8222-222222222222"
+
+async function startRunBackend() {
+  const requests: { method?: string; url?: string; body: unknown }[] = []
+  const server = createServer((req, res) => {
+    let raw = ""
+    req.on("data", (chunk) => (raw += chunk))
+    req.on("end", () => {
+      requests.push({ method: req.method, url: req.url, body: raw ? JSON.parse(raw) : undefined })
+      res.writeHead(200, { "content-type": "application/json" })
+      if (req.url === "/workflows/wf_1/branches") {
+        res.end(JSON.stringify([{ id: BRANCH_ID, name: "fix-login", is_default: false }]))
+      } else {
+        res.end(JSON.stringify({ session_id: "sess_1" }))
+      }
+    })
+  })
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
+  const { port } = server.address() as AddressInfo
+  return { baseUrl: `http://127.0.0.1:${port}`, requests, server }
+}
+
+function runCliWithEnv(args: string[], env: Record<string, string | undefined>) {
+  const home = mkdtempSync(join(tmpdir(), "cloudcruise-test-"))
+  const child = spawn(process.execPath, ["dist/bin/cloudcruise.js", ...args], {
+    env: { ...process.env, HOME: home, ...env }
+  })
+  let stdout = ""
+  let stderr = ""
+  child.stdout.on("data", (chunk) => (stdout += chunk))
+  child.stderr.on("data", (chunk) => (stderr += chunk))
+  return new Promise<{ code: number | null; stdout: string; stderr: string }>((resolve) =>
+    child.on("close", (code) => resolve({ code, stdout, stderr }))
+  )
+}
+
+// Unit tests of buildRunStartBody can't see whether Commander hands --version
+// to the subcommand (the root --version used to swallow it), so this runs the
+// real command against a local backend and inspects what reached POST /run.
+test("run start --version sends workflow_version to POST /run through the real command", async () => {
+  const backend = await startRunBackend()
+  try {
+    const result = await runCliWithEnv(
+      ["run", "start", "wf_1", "--version", "^2.1.0", "--base-url", backend.baseUrl],
+      { CLOUDCRUISE_API_KEY: "test_key" }
+    )
+    assert.equal(result.code, 0)
+    assert.deepEqual(backend.requests.map((r) => `${r.method} ${r.url}`), ["POST /run"])
+    assert.equal((backend.requests[0].body as Record<string, unknown>).workflow_version, "^2.1.0")
+  } finally {
+    backend.server.close()
+  }
+})
+
+// A branch name is looked up in the workflow's branch list and sent as its id;
+// the API only accepts ids.
+test("run start --branch with a name looks the branch up and sends its id as workflow_branch_id", async () => {
+  const backend = await startRunBackend()
+  try {
+    const result = await runCliWithEnv(
+      ["run", "start", "wf_1", "--branch", "fix-login", "--base-url", backend.baseUrl],
+      { CLOUDCRUISE_API_KEY: "test_key" }
+    )
+    assert.equal(result.code, 0)
+    assert.deepEqual(backend.requests.map((r) => `${r.method} ${r.url}`), [
+      "GET /workflows/wf_1/branches",
+      "POST /run"
+    ])
+    assert.equal((backend.requests[1].body as Record<string, unknown>).workflow_branch_id, BRANCH_ID)
+  } finally {
+    backend.server.close()
+  }
+})
+
+test("run start --branch with an id sends it as-is without a lookup", async () => {
+  const backend = await startRunBackend()
+  try {
+    const result = await runCliWithEnv(
+      ["run", "start", "wf_1", "--branch", BRANCH_ID, "--base-url", backend.baseUrl],
+      { CLOUDCRUISE_API_KEY: "test_key" }
+    )
+    assert.equal(result.code, 0)
+    assert.deepEqual(backend.requests.map((r) => `${r.method} ${r.url}`), ["POST /run"])
+    assert.equal((backend.requests[0].body as Record<string, unknown>).workflow_branch_id, BRANCH_ID)
+  } finally {
+    backend.server.close()
+  }
+})
+
+// Conflicting flags are a usage error the caller can fix without credentials,
+// so they must exit 2 before auth is resolved and before any request.
+test("run start with both --version and --branch exits 2 without credentials and sends no request", async () => {
+  const backend = await startRunBackend()
+  try {
+    const result = await runCliWithEnv(
+      ["run", "start", "wf_1", "--version", "2.1.0", "--branch", "fix-login", "--base-url", backend.baseUrl],
+      { CLOUDCRUISE_API_KEY: undefined }
+    )
+    assert.equal(result.code, 2)
+    assert.match(result.stderr, /Pass only one of --version, --branch/)
+    assert.deepEqual(backend.requests, [])
   } finally {
     backend.server.close()
   }

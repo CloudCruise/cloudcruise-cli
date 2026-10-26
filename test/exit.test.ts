@@ -87,7 +87,8 @@ const conflictBody = {
   message:
     "This workflow was updated by another session. Your changes are based on an older version.",
   latestVersionId: "7b0f1e2a-0000-4000-8000-000000000018",
-  latestVersionNumber: 18,
+  latestVersion: "1.18.0",
+  latestBranchId: "b7c1d2e3-0000-4000-8000-0000000000b1",
   latestCreatedBy: "user_2",
   latestCreatedAt: "2026-09-30T08:15:00Z",
   latestVersionNote: "Healed submit XPath",
@@ -120,13 +121,37 @@ test("the error envelope of a stale workflow update shows the latest version and
   assert.equal(envelope.exitCode, 13)
   assert.deepEqual(envelope.latestVersion, {
     id: conflictBody.latestVersionId,
-    number: 18,
+    version: "1.18.0",
+    branchId: conflictBody.latestBranchId,
     createdBy: "user_2",
     createdAt: "2026-09-30T08:15:00Z",
     note: "Healed submit XPath"
   })
   assert.match(String(envelope.hint), /workflows get/)
   assert.match(String(envelope.hint), /--force/)
+})
+
+// Production still runs the backend from before git-style versioning, which
+// sends latestVersionNumber and no latestVersion or latestBranchId. The
+// envelope must keep that number so the conflict stays explainable.
+test("the error envelope of a stale workflow update from an older backend keeps latestVersionNumber as number", () => {
+  const {
+    latestVersion: _version,
+    latestBranchId: _branchId,
+    ...legacyBody
+  } = conflictBody
+  const { envelope } = buildErrorEnvelope(
+    apiError(409, { ...legacyBody, latestVersionNumber: 18 })
+  )
+  assert.deepEqual(envelope.latestVersion, {
+    id: conflictBody.latestVersionId,
+    version: undefined,
+    branchId: undefined,
+    number: 18,
+    createdBy: "user_2",
+    createdAt: "2026-09-30T08:15:00Z",
+    note: "Healed submit XPath"
+  })
 })
 
 test("other 409 errors keep the generic envelope and exit code", () => {
