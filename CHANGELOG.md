@@ -24,6 +24,14 @@ Git-style workflow versioning (ADR-0027). The marked options need a backend with
 - Root options are positional: `--version`/`-V` print the CLI version only before a subcommand, so a subcommand's own `--version` reaches it.
 - `cloudcruise` and `cloudcruise-workflow-dsl` describe workflow versions by `version_id` and `version` instead of `version_number`, and document branches, release versions and protected branches.
 
+## 1.15.2
+
+### Changed
+
+- `cloudcruise` skill lists the run statuses `run get` returns and which of them are terminal (`execution.success`, `execution.failed`, `execution.stopped`), with a poll loop example. It said "poll until terminal" without naming them, so agents waited on builder statuses like `completed` that runs never report and polled until their loop ran out.
+- `cloudcruise` skill names the `run get` fields `data` and `errors`; it said `output_data` and `workflow_errors`, which the response does not contain.
+- Skills describe manual captcha solving as the default for new workflows, matching the builder agent. The `cc-workflow` captcha reference and `cloudcruise-workflow-dsl` say the platform solves Turnstile, reCAPTCHA v2, hCaptcha and AWS WAF CAPTCHA at a `CAPTCHA` node placed before the action that needs it cleared. For a site's own checkbox, `CLICK` it, then a `CAPTCHA` node. On AWS's full-page Human Verification page, the `aws_waf` node presses Begin. `manual_captcha_solve: false` (automatic solving) is opt-in and deprecated: it will be removed, so use `CAPTCHA` nodes. Workflows created earlier keep their stored value.
+
 ## 1.15.1
 
 ### Changed

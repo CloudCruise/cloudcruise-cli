@@ -38,6 +38,8 @@ Leave them in the body from `workflows get`; `workflows update` sends it as-is. 
 
 **Optional:** `description`, `version_note` (on `workflows update`, set via `--version-note` only), `extract_network_urls`, `popup_xpaths`, `vault_schema`, `enable_popup_handling`, `enable_action_timing_recovery`, `enable_xpath_recovery`, `enable_error_code_generation`, `enable_service_unavailable_recovery`, `enable_incorrect_form_input_recovery`, `enable_password_update_recovery`, `enable_tfa_setup_recovery`, `enable_node_description_enrichment`, `allow_requeue`, `deny_requeue_past_dry_run_marker`, `proxy_setting`, `proxy_value`, `enable_network_listener`, `manual_captcha_solve`
 
+`manual_captcha_solve` is `true` on new workflows: captchas are solved only at `CAPTCHA` nodes. `false` also runs the automatic solver before each step that acts on the page. Deprecated: automatic solving will be removed, so use `CAPTCHA` nodes. Existing workflows keep their setting; most created before manual solving became the default have `false`. On `workflows update`, omitting the field keeps the current value.
+
 Run video is always recorded and cannot be disabled, and input actions always use native OS input; there are no settings for either.
 
 ### `output_schema` — what the run returns
@@ -681,7 +683,7 @@ To wait after an action, raise the **next** node's `wait_time` (ms; it waits unt
 
 ### CAPTCHA
 
-Solve one captcha at this point in the run. Runs the platform's solver for the named captcha whether or not the workflow's automatic captcha solving is on.
+Solve one captcha at this point in the run. This is how a workflow solves Turnstile, reCAPTCHA v2, hCaptcha and AWS WAF CAPTCHA. Put it immediately before the action that needs the captcha cleared.
 
 ```json
 {
@@ -692,13 +694,13 @@ Solve one captcha at this point in the run. Runs the platform's solver for the n
 }
 ```
 
-| Parameter      | Type   | Required | Description                                                       |
-| -------------- | ------ | -------- | ----------------------------------------------------------------- |
-| `captcha_type` | string | Yes      | `turnstile` (Cloudflare Turnstile), `recaptcha_v2`, or `hcaptcha` |
+| Parameter      | Type   | Required | Description                                                                                    |
+| -------------- | ------ | -------- | ---------------------------------------------------------------------------------------------- |
+| `captcha_type` | string | Yes      | `turnstile` (Cloudflare Turnstile), `recaptcha_v2`, `hcaptcha`, or `aws_waf` (AWS WAF CAPTCHA) |
 
 Outcome: no captcha of that type on the page → the node passes and the run continues. Captcha present and solved → passes. Captcha present and not solved → the node fails with error code `CAPTCHA-E0001`, so the workflow's error-code actions (retry, alert, pause) apply. Detection finds the widget's iframe or container in the top page only. A captcha on a page embedded in another iframe is not detected, and the node passes as if no captcha were present.
 
-For `hcaptcha`, when hCaptcha is on the page but no challenge is showing yet, the node waits up to 15 seconds for one to open, and passes as soon as the widget has a token. That is what makes it work right after a `CLICK` on a site's own "I am not a robot" checkbox that opens an invisible hCaptcha: the challenge appears a few seconds after the click, and automatic solving does not wait for it.
+For `hcaptcha` and `aws_waf`, when that captcha is on the page but no challenge is showing yet, the node waits up to 15 seconds for one to open. That is what makes it work right after a `CLICK` on a site's own checkbox that opens the challenge: the challenge appears a few seconds after the click. An `hcaptcha` node also passes as soon as the widget has a token. For AWS's full-page "Human Verification" page, don't click its Begin button: the `aws_waf` node presses it.
 
 ### SCREENSHOT
 

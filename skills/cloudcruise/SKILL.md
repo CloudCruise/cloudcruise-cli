@@ -5,7 +5,7 @@ description: CloudCruise CLI reference for building, editing, and debugging Clou
 
 # CloudCruise CLI
 
-Command-line tool for managing CloudCruise workflows and runs. All output is JSON to stdout; errors go to stderr — consume stdout only, never merge with `2>&1` when parsing, and branch poll loops on exit codes rather than matching strings in the JSON.
+Command-line tool for managing CloudCruise workflows and runs. All output is JSON to stdout; errors go to stderr — consume stdout only, never merge with `2>&1` when parsing, and branch `builder status` poll loops on exit codes rather than matching strings in the JSON (`run get` exits 0 for every run state, so run polls match `status` against the Run statuses table).
 
 ## Setup
 
@@ -249,14 +249,34 @@ cloudcruise run start <workflow_id> --no-notifications       # Suppress workspac
 cloudcruise run start <workflow_id> --input '{"key":"val"}'  # Start with input variables
 cloudcruise run start <workflow_id> --version "^2.1.0"       # Run the highest tagged release matching a version or range
 cloudcruise run start <workflow_id> --branch <branch_id>     # Run a branch's head (default: the default branch's head)
-cloudcruise run get <session_id>                             # Get run status, errors, screenshots, output (poll until status is terminal)
-cloudcruise run list --workflow <id> --status <s> --since 7d --limit 50 # List runs with filters
+cloudcruise run get <session_id>                             # Get run status, errors, screenshots, output (poll until status is terminal, see Run statuses)
+cloudcruise run list --workflow <id> --status execution.failed --since 7d --limit 50 # List runs with filters (--status takes a run status below)
 cloudcruise run interrupt <session_id>                       # Stop a running session
 cloudcruise run respond <session_id> --data '{"approval_code":"123456"}' # Submit user interaction data to a run paused on a USER_INTERACTION node (--data/--file/--stdin)
 cloudcruise run live-view <session_id>                       # Fresh viewer URL + one-time auth token to watch an active session (re-run to renew after the previous token is used)
 cloudcruise run errors <workflow_id> --since 24h             # Error analytics (24h, 7d, 30m)
 cloudcruise run snapshots <session_id> <node_id>             # Debug snapshots for a specific node
 cloudcruise run network <session_id>                         # All recorded network traffic of a run (--include-noise, --output <path>)
+```
+
+**Run statuses.** `run get` and `run list` report `status` as one of these exact strings:
+
+- Terminal: `execution.success`, `execution.failed`, `execution.stopped`
+- Not terminal: `execution.queued`, `execution.requeued` (retrying, same `session_id`), `execution.start`, `execution.step`, `execution.paused` (workflow or credential paused; won't progress on its own, so stop polling and tell the user)
+
+These differ from `builder status` values: runs never report `completed`, `error` or `interrupted`.
+
+```bash
+S=$(cloudcruise run start <workflow_id> --input '{}' | jq -er .session_id) || exit 1
+for i in $(seq 1 60); do
+  st=$(cloudcruise run get "$S" | jq -er .status) || break
+  case "$st" in
+    execution.success|execution.failed|execution.stopped) break ;;
+    execution.paused) echo "run paused"; break ;;
+  esac
+  sleep 10
+done
+echo "$st"
 ```
 
 ### Snapshots
@@ -550,8 +570,8 @@ Noise (preflights, analytics, assets) is filtered unless `--include-noise`. `com
 
 ## Key Details
 
-- `run get` returns: status, output_data, workflow_errors (with node_id, llm_error_category, llm_error_description), screenshot_urls (with node_id)
-- `run start` returns `{ session_id }` immediately and does not block or stream. Poll `run get <session_id>` until the status is terminal to determine success or failure.
+- `run get` returns: status, data (the output), errors (with node_id, error_code, llm_error_category, llm_error_description), screenshot_urls (with node_id)
+- `run start` returns `{ session_id }` immediately and does not block or stream. Poll `run get <session_id>` until `status` is `execution.success`, `execution.failed` or `execution.stopped` (see Run statuses).
 - `run list --since` accepts duration strings: `24h`, `7d`, `30m`; without `--since`, the API defaults to the last 24 hours
 - `run errors --since` accepts duration strings: `24h`, `7d`, `30m`
 - `workflows update` requires: nodes, edges, name, input_schema, output_schema, max_retries. Keep all other fields from the GET response (e.g., description, enable_xpath_recovery, proxy_setting, version_id).
