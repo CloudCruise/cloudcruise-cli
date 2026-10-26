@@ -1043,11 +1043,11 @@ Replay a chain of HTTP (XHR/fetch) requests as one atomic node — not a UI inte
 | `expected_status`       | object | No       | `{ "range": "2xx" }` (default) or `{ "values": [200, 201] }`                                                                                                                            |
 | `graphql_error_policy`  | string | No       | GraphQL only: `fail_on_any` (default)                                                                                                                                                   |
 | `protocol_hint`         | string | No       | `rest`, `graphql`, or `other`. UI hint only                                                                                                                                             |
-| `save_response_as_file` | object | No       | Store the response as a run file instead of decoding it. PDF only; see below                                                                                                            |
+| `save_response_as_file` | object | No       | Store the PDF response as a run file; see below                                                                                                                                         |
 
 Other per-step fields (`mutation_severity`, `is_auth_refresh`, `response_type`, `retry`, `timeout_ms`, `max_response_bytes`) have method-derived defaults. Leave them out unless needed. A per-step `redirect_policy` overrides the node's. `retry` is not allowed on `POST`/`PATCH`; `retry.max_attempts` ≤ 5.
 
-**Saving the response as a file (`save_response_as_file`).** When an endpoint returns a PDF (a report, statement or EOB the portal serves from an API), set this on the target step to store the response as a run file. Prefer it over clicking through the UI to a FILE_DOWNLOAD node. The file lands in the run's `file_urls` with its `file_name` and `metadata`, like a FILE_DOWNLOAD capture.
+**Saving the response as a file.** `save_response_as_file` stores the target step's PDF response as a run file.
 
 ```json
 "save_response_as_file": {
@@ -1057,13 +1057,11 @@ Other per-step fields (`mutation_severity`, `is_auth_refresh`, `response_type`, 
 }
 ```
 
-| Field                        | Required | Description                                                                                                                                  |
-| ---------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `file_name`                  | Yes      | Must end in `.pdf`. 1-128 letters, digits, spaces, `.`, `_` or `-`, plus `{{ context.* }}` templates. `{{ steps.* }}` refs are not allowed |
-| `metadata`                   | No       | Object stored with the file. Values may use `{{ context.* }}`                                                                                |
-| `continue_on_empty_response` | No       | `true` skips the upload instead of failing when the body is empty (e.g. a 204)                                                               |
+- `file_name` (required): ends in `.pdf`. Letters, digits, spaces, `.`, `_`, `-` and `{{ context.* }}` templates; no `{{ steps.* }}`.
+- `metadata` (optional): object stored with the file.
+- `continue_on_empty_response` (optional): skip the upload instead of failing on an empty body (e.g. a 204).
 
-Rules, enforced on save: only on the `target_step_id` step, not with `extract` or `repeat` on that step, and not with `credentials: "omit"` or `redirect_policy: "manual"`. The executor also checks the bytes start with `%PDF` before uploading. The step publishes only `status` and a `body` of `{ "saved_file": "<name>" }`, or `null` when the upload was skipped, so `field_json_map` can read nothing else from it.
+Target step only, and not with `extract`, `repeat`, `credentials: "omit"` or `redirect_policy: "manual"`. The step then publishes only `status` and `body`: `{ "saved_file": "<name>" }`, or `null` if skipped.
 
 **`extract` entries** (unique `name` per step):
 
