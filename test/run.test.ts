@@ -257,6 +257,21 @@ test("run start with both --version and --branch exits 2 without credentials and
   }
 })
 
+// Without --output the response is piped to jq, so stdout must stay the bare
+// response JSON; the omitted-bodies warning goes to stderr only.
+test("run network without --output prints the full response on stdout and the warning on stderr only", async () => {
+  const backend = await startNetworkBackend()
+  try {
+    const result = await runCli(["run", "network", "sess_1", "--base-url", backend.baseUrl])
+
+    assert.equal(result.code, 0)
+    assert.deepEqual(JSON.parse(result.stdout), networkResponse)
+    assert.match(result.stderr, /2 bodies are null: the 100 MB body budget per call was used up/)
+  } finally {
+    backend.server.close()
+  }
+})
+
 test("omittedBodiesWarning uses the singular for one omitted body", () => {
   assert.equal(
     omittedBodiesWarning({ ...networkResponse, omitted_bodies: 1 }),
