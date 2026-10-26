@@ -8,7 +8,9 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import {
   buildRunNetworkPath,
-  buildRunStartBody
+  buildRunStartBody,
+  omittedBodiesWarning,
+  summarizeRunNetwork
 } from "../dist/src/commands/run.js"
 
 test("buildRunStartBody omits notifications by default", () => {
@@ -81,6 +83,7 @@ test("buildRunNetworkPath passes --include-noise through as include_noise=true",
 const networkResponse = {
   session_id: "sess_1",
   complete: true,
+  omitted_bodies: 2,
   events: [
     { id: "a", method: "POST", status: 200, url: "https://app.example.com/api/a" },
     { id: "b", method: "GET", status: 404, url: "https://app.example.com/api/b" }
@@ -105,15 +108,18 @@ function runCli(args: string[]) {
     env: { ...process.env, HOME: home, CLOUDCRUISE_API_KEY: "test_key" }
   })
   let stdout = ""
+  let stderr = ""
   child.stdout.on("data", (chunk) => (stdout += chunk))
-  return new Promise<{ code: number | null; stdout: string }>((resolve) =>
-    child.on("close", (code) => resolve({ code, stdout }))
+  child.stderr.on("data", (chunk) => (stderr += chunk))
+  return new Promise<{ code: number | null; stdout: string; stderr: string }>((resolve) =>
+    child.on("close", (code) => resolve({ code, stdout, stderr }))
   )
 }
 
 // Agents save traffic with --output and only read the summary: the file must
-// hold the full response, and stdout must carry the event count and path
-// instead of every event.
+// hold the full response, and stdout must carry the event count, the number of
+// bodies cut by the body budget, and the path instead of every event. Bodies
+// cut by the budget are also reported on stderr, so they are not missed.
 test("run network --output writes the full traffic to the file and prints only a summary", async () => {
   const backend = await startNetworkBackend()
   try {
@@ -136,8 +142,10 @@ test("run network --output writes the full traffic to the file and prints only a
       session_id: "sess_1",
       complete: true,
       event_count: 2,
+      omitted_bodies: 2,
       file
     })
+    assert.match(result.stderr, /2 bodies are null: the 100 MB body budget per call was used up/)
   } finally {
     backend.server.close()
   }
@@ -247,4 +255,37 @@ test("run start with both --version and --branch exits 2 without credentials and
   } finally {
     backend.server.close()
   }
+})
+
+// Without --output the response is piped to jq, so stdout must stay the bare
+// response JSON; the omitted-bodies warning goes to stderr only.
+test("run network without --output prints the full response on stdout and the warning on stderr only", async () => {
+  const backend = await startNetworkBackend()
+  try {
+    const result = await runCli(["run", "network", "sess_1", "--base-url", backend.baseUrl])
+
+    assert.equal(result.code, 0)
+    assert.deepEqual(JSON.parse(result.stdout), networkResponse)
+    assert.match(result.stderr, /2 bodies are null: the 100 MB body budget per call was used up/)
+  } finally {
+    backend.server.close()
+  }
+})
+
+test("omittedBodiesWarning uses the singular for one omitted body", () => {
+  assert.equal(
+    omittedBodiesWarning({ ...networkResponse, omitted_bodies: 1 }),
+    "1 body is null: the 100 MB body budget per call was used up.\n"
+  )
+})
+
+test("omittedBodiesWarning stays silent when the body budget cut no bodies", () => {
+  assert.equal(omittedBodiesWarning({ ...networkResponse, omitted_bodies: 0 }), undefined)
+})
+
+// A backend without the body budget does not send omitted_bodies; it cut no bodies.
+test("summarizeRunNetwork reports 0 omitted bodies when the backend does not send omitted_bodies", () => {
+  const { omitted_bodies: _, ...withoutField } = networkResponse
+  assert.equal(summarizeRunNetwork(withoutField, "net.json").omitted_bodies, 0)
+  assert.equal(omittedBodiesWarning(withoutField), undefined)
 })

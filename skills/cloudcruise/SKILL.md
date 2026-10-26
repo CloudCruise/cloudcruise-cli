@@ -558,13 +558,13 @@ cloudcruise snapshot test "//input[@name='email']" <session_id> <node_id>
 
 If `snapshot fetch` reports no HTML, the run was not `--debug`. Re-run with `--debug`.
 
-**Network traffic:** a `--debug` run also records the run's network traffic (on workers with network capture). `run network <session_id>` returns all of it in one JSON document, oldest first: `{ session_id, complete, events[] }`. Each event has `retry`, `method`, `status`, `url`, `category`, `content_type`, headers, bodies and `*_truncated`. Filter locally:
+**Network traffic:** a `--debug` run also records the run's network traffic (on workers with network capture). `run network <session_id>` returns all of it in one JSON document, oldest first: `{ session_id, complete, omitted_bodies, events[] }`. Each event has `retry`, `method`, `status`, `url`, `category`, `content_type`, headers, bodies and `*_truncated`. Filter locally:
 
 ```bash
 cloudcruise run network <session_id> | jq '.events[] | select(.url | test("/api/")) | {method, status, url}'
 ```
 
-Noise (preflights, analytics, assets) is filtered unless `--include-noise`. `complete: false` means the run is still going. Credentials are redacted.
+Noise (preflights, analytics, assets) is filtered unless `--include-noise`. `complete: false` means the run is still going. Credentials are redacted. One call returns at most 100 MB of bodies; `omitted_bodies` counts those returned as `null`.
 
 **Snapshot timing:** Snapshots capture page state _when a node starts executing_ (i.e., post-action state of the _previous_ node). To see what appeared after a node's action, inspect the _next_ node's snapshot. On success, the END node shows final state. On failure, the END node has no snapshot — use the _failed_ node's snapshot instead.
 
