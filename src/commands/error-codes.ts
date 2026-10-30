@@ -76,7 +76,7 @@ function addFieldOptions(cmd: Command): Command {
     )
     .option(
       "--action <action>",
-      "error_action: alert (default), cancel, pause, retry or input_required"
+      "error_action: alert (default), cancel, pause or retry"
     )
     .option(
       "--file <path>",
@@ -216,7 +216,7 @@ ${FIELDS_HELP}
 
 Examples:
   $ cloudcruise error-codes update 7c1e... --description "Claim number not found"
-  $ cloudcruise error-codes update 7c1e... --action input_required`
+  $ cloudcruise error-codes update 7c1e... --action pause`
     )
     .action(
       async (
