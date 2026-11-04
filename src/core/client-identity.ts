@@ -1,10 +1,11 @@
 import { detectAgent } from "std-env"
 import { CLI_VERSION } from "./version.js"
 
-export function clientIdentityHeaders(): Record<string, string> {
+/** How the CLI identifies itself and the coding agent driving it to the API. */
+export function clientIdentity(): { client: string; agent?: string } {
   const agent = detectAgent().name
   return {
-    "X-CloudCruise-Client": `cli/${CLI_VERSION}`,
-    ...(agent ? { "X-CloudCruise-Agent": agent } : {})
+    client: `cli/${CLI_VERSION}`,
+    ...(agent ? { agent } : {})
   }
 }
