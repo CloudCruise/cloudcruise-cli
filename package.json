@@ -29,7 +29,7 @@
   },
   "scripts": {
     "build": "npm run build -w @cloudcruise/strata && tsc",
-    "dev": "npm run build -w @cloudcruise/strata && tsc --watch",
+    "dev": "npm run build -w @cloudcruise/strata && (npm run dev -w @cloudcruise/strata & tsc --watch)",
     "typecheck": "npm run build -w @cloudcruise/strata && tsc --noEmit",
     "prepublishOnly": "npm run build",
     "test": "npm run build && npm test -w @cloudcruise/strata && node --test test/*.test.ts",

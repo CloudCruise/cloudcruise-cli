@@ -21,6 +21,7 @@
   ],
   "scripts": {
     "build": "tsc",
+    "dev": "tsc --watch --preserveWatchOutput",
     "prepack": "npm run build",
     "test": "node --test test/*.test.ts"
   },
