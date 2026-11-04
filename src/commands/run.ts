@@ -319,6 +319,7 @@ Examples:
   ).addHelpText("after", `
 Prints the pending decision in the shape of the agent.decision_requested webhook: decision_id, answer_by, question, context, fields with their ids and options, free_text and respond_url.
 When nothing is pending, decision is null; answered_decision_id is set if a decision on this run was already answered.
+When a remembered, approved answer is applied automatically, no question is asked, so decision stays null; the webhook sends agent.decision_applied instead (CloudCruise/monorepo#12122).
 
 Examples:
   $ cloudcruise run decision sess_abc123
