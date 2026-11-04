@@ -386,3 +386,24 @@ test("run answer-decision posts the answer to the run's decision respond endpoin
     server.close()
   }
 })
+
+// Field ids come from the webhook, so a name such as constructor or toString
+// must be an ordinary key: it is neither a duplicate nor dropped.
+test("buildDecisionAnswerBody accepts field ids that are also built-in object names", () => {
+  const body = buildDecisionAnswerBody("dec_1", {
+    value: ["constructor=a", "toString=b", "__proto__=c"]
+  })
+  const values = body.values as Record<string, string>
+  assert.deepEqual(Object.keys(values), ["constructor", "toString", "__proto__"])
+  assert.equal(
+    JSON.stringify(body),
+    '{"decision_id":"dec_1","values":{"constructor":"a","toString":"b","__proto__":"c"}}'
+  )
+})
+
+test("buildDecisionAnswerBody still refuses a repeated built-in name", () => {
+  assert.throws(
+    () => buildDecisionAnswerBody("dec_1", { value: ["constructor=a", "constructor=b"] }),
+    { name: "UsageError", message: /--value constructor was given more than once/ }
+  )
+})

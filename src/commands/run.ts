@@ -78,19 +78,19 @@ export function buildDecisionAnswerBody(
   }
   const body: Record<string, unknown> = { decision_id: decisionId }
   if (opts.value && opts.value.length > 0) {
-    const values: Record<string, string> = {}
+    const values = new Map<string, string>()
     for (const entry of opts.value) {
       const at = entry.indexOf("=")
       if (at < 1) {
         throw new UsageError(`Invalid --value "${entry}". Use <field_id>=<value>`)
       }
       const field = entry.slice(0, at)
-      if (field in values) {
+      if (values.has(field)) {
         throw new UsageError(`--value ${field} was given more than once`)
       }
-      values[field] = entry.slice(at + 1)
+      values.set(field, entry.slice(at + 1))
     }
-    body.values = values
+    body.values = Object.fromEntries(values)
   }
   if (opts.text !== undefined) {
     if (opts.text.trim() === "") {
