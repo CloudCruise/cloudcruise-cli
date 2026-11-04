@@ -23,9 +23,9 @@ Stateless streamable HTTP: every request builds a fresh server, so any replica c
 | Variable | |
 |---|---|
 | `PORT` | Listen port, default `8080` |
-| `CLOUDCRUISE_API_BASE_URL` | e.g. `https://staging-api.cloudcruise.app` |
+| `CLOUDCRUISE_API_BASE_URL` | e.g. `https://api.cloudcruise.com` |
 | `CLOUDCRUISE_OAUTH_ISSUER` | Supabase Auth issuer, e.g. `https://<project>.supabase.co/auth/v1` |
-| `MCP_PUBLIC_URL` | Public origin, e.g. `https://staging-mcp.cloudcruise.app`. Requests to `/mcp` must carry this host. |
+| `MCP_PUBLIC_URL` | Public origin, e.g. `https://mcp.example.com`. Requests to `/mcp` must carry this host. |
 
 All three URLs are required, with no trailing slash. The server exits at startup if one is missing.
 
@@ -34,8 +34,8 @@ All three URLs are required, with no trailing slash. The server exits at startup
 ```bash
 npm run build
 PORT=8080 \
-CLOUDCRUISE_API_BASE_URL=https://staging-api.cloudcruise.app \
-CLOUDCRUISE_OAUTH_ISSUER=https://pzxtgorsekxsydltstsb.supabase.co/auth/v1 \
+CLOUDCRUISE_API_BASE_URL=https://api.cloudcruise.com \
+CLOUDCRUISE_OAUTH_ISSUER=https://<project>.supabase.co/auth/v1 \
 MCP_PUBLIC_URL=http://localhost:8080 \
 npm start -w @cloudcruise/mcp
 ```
