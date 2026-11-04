@@ -28,6 +28,12 @@ on:
 permissions:
   contents: read
 
+# Queue, don't cancel: every SHA tag still gets pushed, and `latest` can't be
+# overwritten by an older commit whose build finished later.
+concurrency:
+  group: mcp-image-${{ github.ref }}
+  cancel-in-progress: false
+
 env:
   IMAGE: ghcr.io/cloudcruise/cloudcruise-mcp
 
