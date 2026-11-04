@@ -1,0 +1,66 @@
+# Scenarios in the 2026-07-28 requirement set this tools-only server cannot pass.
+# Each calls a fixture tool that exists only in the SDK's reference server, or a
+# feature this server does not offer. They test the SDK, not this server's
+# wiring. Everything not listed must pass: tools-list, dns-rebinding-protection,
+# http-header-validation, server-sse-multiple-streams,
+# input-required-result-unsupported-methods, input-required-result-validate-input.
+# The runner rejects entries that pass, so the list stays exact.
+server:
+  # Partly applicable. Every _meta, discovery and version check passes; the four
+  # failing checks are "not testable" without the diagnostic tools
+  # test_missing_capability, test_streaming_elicitation and test_logging_tool.
+  # test/server.test.ts asserts the _meta and version checks directly.
+  - server-stateless
+  # Partly applicable. tools/list carries ttlMs and cacheScope (also asserted in
+  # test/server.test.ts); prompts/list and resources/list don't exist here.
+  - caching
+  # No completions, prompts or resources. sep-2164 fails on WARNINGs (resources/read
+  # is -32601 here).
+  - completion-complete
+  - prompts-list
+  - prompts-get-simple
+  - prompts-get-with-args
+  - prompts-get-embedded-resource
+  - prompts-get-with-image
+  - resources-list
+  - resources-read-text
+  - resources-read-binary
+  - resources-templates-read
+  - sep-2164-resource-not-found
+  # Fixture tools test_simple_text, test_image_content, test_audio_content,
+  # test_embedded_resource, test_multiple_content_types, test_error_handling,
+  # test_tool_with_progress, json_schema_2020_12_tool.
+  - tools-call-simple-text
+  - tools-call-image
+  - tools-call-audio
+  - tools-call-embedded-resource
+  - tools-call-mixed-content
+  - tools-call-error
+  - tools-call-with-progress
+  - json-schema-2020-12
+  # Fixture tools test_input_required_result_* (multi-round-trip input requests).
+  # missing-input-response and ignore-extra-params fail on WARNINGs from the same.
+  - input-required-result-basic-elicitation
+  - input-required-result-basic-sampling
+  - input-required-result-basic-list-roots
+  - input-required-result-request-state
+  - input-required-result-multiple-input-requests
+  - input-required-result-multi-round
+  - input-required-result-missing-input-response
+  - input-required-result-non-tool-request
+  - input-required-result-result-type
+  - input-required-result-tampered-state
+  - input-required-result-capability-check
+  - input-required-result-ignore-extra-params
+  # Not scored by the requirement set (extensions); fixture tools slow_compute,
+  # failing_job, greet, and tools annotated with x-mcp-header.
+  - tasks-lifecycle
+  - tasks-capability-negotiation
+  - tasks-wire-fields
+  - tasks-request-state-removal
+  - tasks-mrtr-input
+  - tasks-request-headers
+  - tasks-dispatch-and-envelope
+  - tasks-required-task-error
+  - tasks-mrtr-composition
+  - http-custom-header-server-validation

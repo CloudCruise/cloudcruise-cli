@@ -28,11 +28,11 @@
     "cloudcruise": "./dist/bin/cloudcruise.js"
   },
   "scripts": {
-    "build": "npm run build -w @cloudcruise/strata && tsc",
+    "build": "npm run build -w @cloudcruise/strata && npm run build -w @cloudcruise/mcp && tsc",
     "dev": "npm run build -w @cloudcruise/strata && (npm run dev -w @cloudcruise/strata & tsc --watch)",
-    "typecheck": "npm run build -w @cloudcruise/strata && tsc --noEmit",
+    "typecheck": "npm run build -w @cloudcruise/strata && npm run build -w @cloudcruise/mcp && tsc --noEmit",
     "prepublishOnly": "npm run build",
-    "test": "npm run build && npm test -w @cloudcruise/strata && node --test test/*.test.ts",
+    "test": "npm run build && npm test -w @cloudcruise/strata && npm test -w @cloudcruise/mcp && node --test test/*.test.ts",
     "build:openai-plugin": "node scripts/build-openai-plugin.mjs"
   },
   "files": [

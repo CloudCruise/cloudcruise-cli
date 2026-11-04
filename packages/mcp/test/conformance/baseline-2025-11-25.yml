@@ -1,0 +1,40 @@
+# Scenarios in the 2025-11-25 requirement set this tools-only server cannot pass.
+# Each calls a fixture tool that exists only in the SDK's reference server, or a
+# feature this server does not offer. They test the SDK, not this server's
+# wiring. Everything not listed must pass: server-initialize, ping, tools-list,
+# dns-rebinding-protection. The runner rejects entries that pass, so the list
+# stays exact.
+server:
+  # WARNING (counted as a failure): no session id. The server is stateless by design.
+  - server-sse-multiple-streams
+  # No logging capability.
+  - logging-set-level
+  - tools-call-with-logging
+  # No completions, prompts or resources.
+  - completion-complete
+  - prompts-list
+  - prompts-get-simple
+  - prompts-get-with-args
+  - prompts-get-embedded-resource
+  - prompts-get-with-image
+  - resources-list
+  - resources-read-text
+  - resources-read-binary
+  - resources-templates-read
+  - resources-subscribe
+  - resources-unsubscribe
+  # Fixture tools test_simple_text, test_image_content, test_audio_content,
+  # test_embedded_resource, test_multiple_content_types, test_error_handling,
+  # test_tool_with_progress, test_sampling, test_elicitation*, json_schema_2020_12_tool.
+  - tools-call-simple-text
+  - tools-call-image
+  - tools-call-audio
+  - tools-call-embedded-resource
+  - tools-call-mixed-content
+  - tools-call-error
+  - tools-call-with-progress
+  - tools-call-sampling
+  - tools-call-elicitation
+  - elicitation-sep1034-defaults
+  - elicitation-sep1330-enums
+  - json-schema-2020-12
