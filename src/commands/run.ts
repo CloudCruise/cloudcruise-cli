@@ -69,6 +69,10 @@ export function buildRunDecisionPath(sessionId: string): string {
   return `/run/${encodeURIComponent(sessionId)}/decision/respond`
 }
 
+export function buildPendingDecisionPath(sessionId: string): string {
+  return `/run/${encodeURIComponent(sessionId)}/decision/pending`
+}
+
 export function buildDecisionAnswerBody(
   decisionId: string,
   opts: { value?: string[]; text?: string; directive?: string }
@@ -310,9 +314,31 @@ Examples:
 
   addAuthOptions(
     run
+      .command("decision <session_id>")
+      .description("Show the decision the recovery agent is waiting on for a run (Decision Required)")
+  ).addHelpText("after", `
+Prints the pending decision in the shape of the agent.decision_requested webhook: decision_id, answer_by, question, context, fields with their ids and options, free_text and respond_url.
+When nothing is pending, decision is null; answered_decision_id is set if a decision on this run was already answered.
+
+Examples:
+  $ cloudcruise run decision sess_abc123
+  $ cloudcruise run decision sess_abc123 | jq -r .decision.decision_id
+`).action(async (sessionId: string, opts: AuthOptions) => {
+    try {
+      const auth = await resolveAuth(opts)
+      const client = new ApiClient(auth)
+      const data = await client.get(buildPendingDecisionPath(sessionId))
+      outputJson(data)
+    } catch (err: unknown) {
+      fail(err)
+    }
+  })
+
+  addAuthOptions(
+    run
       .command("answer-decision <session_id>")
       .description("Answer a decision the recovery agent asked during a run (Decision Required)")
-      .requiredOption("--decision-id <id>", "decision_id from the agent.decision_requested webhook")
+      .requiredOption("--decision-id <id>", "decision_id from run decision or the agent.decision_requested webhook")
       .option(
         "--value <field=value>",
         "Answer for one field, repeatable; for a choice field the value is the option id",
@@ -321,7 +347,7 @@ Examples:
       .option("--text <text>", "Free-text instruction for the agent")
       .option("--directive <directive>", "requeue, add_error_code or fail")
   ).addHelpText("after", `
-Send at least one of --value, --text or --directive. The decision id, the field ids and the option ids come from the agent.decision_requested webhook.
+Send at least one of --value, --text or --directive. The decision id, the field ids and the option ids come from cloudcruise run decision <session_id> or the agent.decision_requested webhook.
 The first accepted answer from the API, Slack or the dashboard resolves the decision; once it is answered, expired or cancelled the API returns 404.
 
 Examples:

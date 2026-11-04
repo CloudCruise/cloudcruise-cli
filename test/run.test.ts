@@ -8,6 +8,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import {
   buildDecisionAnswerBody,
+  buildPendingDecisionPath,
   buildRunDecisionPath,
   buildRunNetworkPath,
   buildRunStartBody,
@@ -294,6 +295,41 @@ test("summarizeRunNetwork reports 0 omitted bodies when the backend does not sen
 
 test("buildRunDecisionPath targets the decision respond endpoint of the run", () => {
   assert.equal(buildRunDecisionPath("sess_1"), "/run/sess_1/decision/respond")
+})
+
+test("buildPendingDecisionPath targets the pending decision endpoint of the run", () => {
+  assert.equal(buildPendingDecisionPath("sess 1"), "/run/sess%201/decision/pending")
+})
+
+test("run decision reads the pending decision from the run's pending endpoint and prints it unchanged", async () => {
+  const seen: { method?: string; url?: string }[] = []
+  const pending = {
+    decision: {
+      decision_id: "dec_1",
+      answer_by: "2026-11-04T20:00:00.000Z",
+      question: "Which record should be kept?",
+      context: "Two matching records",
+      fields: [{ id: "choice", label: "Record", type: "single_choice", options: [{ id: "keep", label: "Keep" }] }],
+      free_text: true,
+      respond_url: "https://api.example.test/run/sess_1/decision/respond"
+    },
+    answered_decision_id: null
+  }
+  const server = createServer((req, res) => {
+    seen.push({ method: req.method, url: req.url })
+    res.writeHead(200, { "content-type": "application/json" })
+    res.end(JSON.stringify(pending))
+  })
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
+  const { port } = server.address() as AddressInfo
+  try {
+    const result = await runCli(["run", "decision", "sess_1", "--base-url", `http://127.0.0.1:${port}`])
+    assert.equal(result.code, 0)
+    assert.deepEqual(seen, [{ method: "GET", url: "/run/sess_1/decision/pending" }])
+    assert.deepEqual(JSON.parse(result.stdout), pending)
+  } finally {
+    server.close()
+  }
 })
 
 test("buildDecisionAnswerBody sends the decision id with values keyed by field id", () => {
