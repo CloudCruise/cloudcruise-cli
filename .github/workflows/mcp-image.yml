@@ -28,11 +28,13 @@ on:
 permissions:
   contents: read
 
-# Queue, don't cancel: every SHA tag still gets pushed, and `latest` can't be
-# overwritten by an older commit whose build finished later.
+# On main and dispatches, runs queue in order, so `latest` always ends on the
+# newest commit. GitHub keeps one pending run per group, so a SHA whose pending
+# run was replaced gets no image; rebuild it with a dispatch. A newer push to a
+# PR cancels the older run.
 concurrency:
   group: mcp-image-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   IMAGE: ghcr.io/cloudcruise/cloudcruise-mcp
