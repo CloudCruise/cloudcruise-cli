@@ -1,0 +1,67 @@
+name: MCP server image
+
+# Builds packages/mcp into ghcr.io/cloudcruise/cloudcruise-mcp. Pull requests
+# build and smoke-test only. Pushes to main and manual dispatches also push
+# the image tagged with the full commit SHA; only main moves `latest`.
+#
+# Plain docker commands, no third-party actions. The only credential is the
+# workflow's own GITHUB_TOKEN. A dispatch on a non-main ref publishes only its
+# SHA tag, which nothing deploys unless someone pins it on purpose.
+#
+# The workflow file itself is not in `paths`, so landing it on a branch without
+# packages/mcp does not trigger a build that can only fail.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "packages/**"
+      - "package.json"
+      - "package-lock.json"
+  pull_request:
+    paths:
+      - "packages/**"
+      - "package.json"
+      - "package-lock.json"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  IMAGE: ghcr.io/cloudcruise/cloudcruise-mcp
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Build
+        run: |
+          docker build \
+            --platform linux/amd64 \
+            --label org.opencontainers.image.source=https://github.com/${{ github.repository }} \
+            --label org.opencontainers.image.revision=$GITHUB_SHA \
+            -f packages/mcp/Dockerfile \
+            -t "$IMAGE:$GITHUB_SHA" \
+            .
+
+      - name: Smoke test
+        run: packages/mcp/scripts/smoke-image.sh "$IMAGE:$GITHUB_SHA"
+
+      - name: Push
+        if: github.event_name != 'pull_request'
+        run: |
+          echo "$GH_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          docker push "$IMAGE:$GITHUB_SHA"
+          if [ "$GITHUB_REF" = "refs/heads/main" ]; then
+            docker tag "$IMAGE:$GITHUB_SHA" "$IMAGE:latest"
+            docker push "$IMAGE:latest"
+          fi
+          echo "Pushed \`$IMAGE:$GITHUB_SHA\`" >> "$GITHUB_STEP_SUMMARY"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
