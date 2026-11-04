@@ -33,6 +33,12 @@ function url(env: NodeJS.ProcessEnv, name: string): string {
   } catch {
     throw new Error(`${name} must be an absolute URL, got "${value}"`)
   }
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+    throw new Error(`${name} must be an http or https URL, got "${value}"`)
+  }
+  if (parsed.username || parsed.password) {
+    throw new Error(`${name} must not contain credentials`)
+  }
   if (value.endsWith("/") || parsed.search || parsed.hash) {
     throw new Error(`${name} must have no trailing slash, query or fragment, got "${value}"`)
   }

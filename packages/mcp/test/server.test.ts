@@ -303,22 +303,45 @@ test("probe_poll stops waiting when the client cancels", async () => {
   const { handle } = structured(
     await client.callTool({ name: "probe_long", arguments: { duration_seconds: 600 } })
   )
-  const controller = new AbortController()
-  const t0 = Date.now()
-  const poll = client.callTool(
-    { name: "probe_poll", arguments: { handle, timeout_seconds: 600 } },
-    { signal: controller.signal }
-  )
-  setTimeout(() => controller.abort(), 300)
-  await assert.rejects(poll)
-  assert.ok(Date.now() - t0 < 5000)
+  // The server's wait is a timer in this process, and only probe_poll sets one
+  // this long. Spy on it so the check sees the server side, not only the client
+  // giving up.
+  const realSetTimeout = globalThis.setTimeout
+  const realClearTimeout = globalThis.clearTimeout
+  const longTimers = new Set<unknown>()
+  const cleared = new Set<unknown>()
+  globalThis.setTimeout = ((fn: () => void, ms?: number, ...rest: unknown[]) => {
+    const timer = realSetTimeout(fn, ms, ...rest)
+    if ((ms ?? 0) > 500_000) longTimers.add(timer)
+    return timer
+  }) as typeof setTimeout
+  globalThis.clearTimeout = ((timer: Parameters<typeof clearTimeout>[0]) => {
+    cleared.add(timer)
+    realClearTimeout(timer)
+  }) as typeof clearTimeout
+  try {
+    const controller = new AbortController()
+    const t0 = Date.now()
+    const poll = client.callTool(
+      { name: "probe_poll", arguments: { handle, timeout_seconds: 600 } },
+      { signal: controller.signal }
+    )
+    await new Promise((resolve) => realSetTimeout(resolve, 300))
+    assert.equal(longTimers.size, 1, "server is waiting")
+    controller.abort()
+    await assert.rejects(poll)
+    assert.ok(Date.now() - t0 < 5000)
+    await new Promise((resolve) => realSetTimeout(resolve, 300))
+    // Checked before any shutdown, so only the client's cancel can have released it.
+    assert.ok([...longTimers].every((t) => cleared.has(t)), "server wait released by cancel")
+  } finally {
+    globalThis.setTimeout = realSetTimeout
+    globalThis.clearTimeout = realClearTimeout
+  }
   await client.close()
-  // The server side must release the wait too, or shutdown would hang on it.
-  const t1 = Date.now()
   await own.instance.closeMcp()
   own.instance.server.closeAllConnections()
   await new Promise((resolve) => own.instance.server.close(resolve))
-  assert.ok(Date.now() - t1 < 1000, `server released in ${Date.now() - t1} ms`)
 })
 
 test("probe_poll rejects a malformed handle", async () => {
@@ -338,6 +361,21 @@ test("startup fails naming a missing variable", () => {
   })
   assert.equal(run.status, 1)
   assert.match(run.stderr, /CLOUDCRUISE_OAUTH_ISSUER is required/)
+})
+
+test("config rejects URLs fetch can't use", () => {
+  const env = {
+    CLOUDCRUISE_OAUTH_ISSUER: "https://issuer.example.test",
+    MCP_PUBLIC_URL: "https://mcp.example.test"
+  }
+  assert.throws(
+    () => loadConfig({ ...env, CLOUDCRUISE_API_BASE_URL: "ftp://api.example.test" }),
+    /must be an http or https URL/
+  )
+  assert.throws(
+    () => loadConfig({ ...env, CLOUDCRUISE_API_BASE_URL: "https://u:p@api.example.test" }),
+    /must not contain credentials/
+  )
 })
 
 test("config rejects a trailing slash", () => {
