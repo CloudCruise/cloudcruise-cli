@@ -7,6 +7,8 @@ import type { AddressInfo } from "node:net"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import {
+  buildDecisionAnswerBody,
+  buildRunDecisionPath,
   buildRunNetworkPath,
   buildRunStartBody,
   omittedBodiesWarning,
@@ -288,4 +290,99 @@ test("summarizeRunNetwork reports 0 omitted bodies when the backend does not sen
   const { omitted_bodies: _, ...withoutField } = networkResponse
   assert.equal(summarizeRunNetwork(withoutField, "net.json").omitted_bodies, 0)
   assert.equal(omittedBodiesWarning(withoutField), undefined)
+})
+
+test("buildRunDecisionPath targets the decision respond endpoint of the run", () => {
+  assert.equal(buildRunDecisionPath("sess_1"), "/run/sess_1/decision/respond")
+})
+
+test("buildDecisionAnswerBody sends the decision id with values keyed by field id", () => {
+  const body = buildDecisionAnswerBody("dec_1", { value: ["choice=keep", "note=a=b"] })
+  assert.deepEqual(body, {
+    decision_id: "dec_1",
+    values: { choice: "keep", note: "a=b" }
+  })
+})
+
+test("buildDecisionAnswerBody sends text and directive only when given", () => {
+  assert.deepEqual(buildDecisionAnswerBody("dec_1", { text: "Use the newest" }), {
+    decision_id: "dec_1",
+    text: "Use the newest"
+  })
+  assert.deepEqual(buildDecisionAnswerBody("dec_1", { directive: "requeue" }), {
+    decision_id: "dec_1",
+    directive: "requeue"
+  })
+})
+
+// The API answers 400 when the body carries no answer, so the CLI refuses it
+// locally with a usage error instead of making the call.
+test("buildDecisionAnswerBody refuses an answer with no value, text or directive", () => {
+  assert.throws(() => buildDecisionAnswerBody("dec_1", {}), {
+    name: "UsageError",
+    message: /Provide at least one of --value, --text or --directive/
+  })
+})
+
+test("buildDecisionAnswerBody refuses a --value without a field id and an empty decision id", () => {
+  assert.throws(() => buildDecisionAnswerBody("dec_1", { value: ["keep"] }), {
+    name: "UsageError",
+    message: /Use <field_id>=<value>/
+  })
+  assert.throws(() => buildDecisionAnswerBody("dec_1", { value: ["=keep"] }), {
+    name: "UsageError"
+  })
+  assert.throws(() => buildDecisionAnswerBody(" ", { text: "x" }), {
+    name: "UsageError",
+    message: /--decision-id must not be empty/
+  })
+})
+
+test("buildDecisionAnswerBody refuses the same field twice", () => {
+  assert.throws(
+    () => buildDecisionAnswerBody("dec_1", { value: ["choice=a", "choice=b"] }),
+    { name: "UsageError", message: /--value choice was given more than once/ }
+  )
+})
+
+test("run answer-decision posts the answer to the run's decision respond endpoint", async () => {
+  const seen: { method?: string; url?: string; body?: string }[] = []
+  const server = createServer((req, res) => {
+    let body = ""
+    req.on("data", (chunk) => (body += chunk))
+    req.on("end", () => {
+      seen.push({ method: req.method, url: req.url, body })
+      res.writeHead(200, { "content-type": "application/json" })
+      res.end(JSON.stringify({ status: "accepted", decision_id: "dec_1" }))
+    })
+  })
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
+  const { port } = server.address() as AddressInfo
+  try {
+    const result = await runCli([
+      "run",
+      "answer-decision",
+      "sess_1",
+      "--decision-id",
+      "dec_1",
+      "--value",
+      "choice=keep",
+      "--text",
+      "Use the newest",
+      "--base-url",
+      `http://127.0.0.1:${port}`
+    ])
+    assert.equal(result.code, 0)
+    assert.equal(seen.length, 1)
+    assert.equal(seen[0].method, "POST")
+    assert.equal(seen[0].url, "/run/sess_1/decision/respond")
+    assert.deepEqual(JSON.parse(seen[0].body ?? ""), {
+      decision_id: "dec_1",
+      values: { choice: "keep" },
+      text: "Use the newest"
+    })
+    assert.equal(JSON.parse(result.stdout).status, "accepted")
+  } finally {
+    server.close()
+  }
 })

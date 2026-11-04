@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- `run answer-decision <session_id> --decision-id <id>` answers a question the recovery agent asked during a run (Decision Required), with `--value <field=value>` (repeatable), `--text` or `--directive`. It calls `POST /run/{session_id}/decision/respond`; the decision id, field ids and option ids come from the `agent.decision_requested` webhook.
+
 ### Changed
 
 - `run network` reports `omitted_bodies`: the number of request and response bodies returned as `null` because the call's 100 MB body budget was used up. The `--output` summary includes it, and a non-zero count is reported on stderr.
