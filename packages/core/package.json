@@ -21,6 +21,7 @@
   ],
   "scripts": {
     "build": "tsc",
+    "prepublishOnly": "npm run build",
     "test": "node --test test/*.test.ts"
   },
   "engines": {
