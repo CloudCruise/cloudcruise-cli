@@ -6,7 +6,7 @@ import type { AddressInfo } from "node:net"
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client"
 import { loadConfig, type Config } from "../dist/config.js"
 import { createHttpServer, type McpHttpServer } from "../dist/http.js"
-import { VERSION } from "../dist/tools.js"
+import { MAX_POLL_SECONDS, VERSION } from "../dist/tools.js"
 
 const ERAS = [
   { era: "2025-11-25", negotiation: { mode: "legacy" as const } },
@@ -304,15 +304,15 @@ test("probe_poll stops waiting when the client cancels", async () => {
     await client.callTool({ name: "probe_long", arguments: { duration_seconds: 600 } })
   )
   // The server's wait is a timer in this process, and only probe_poll sets one
-  // this long. Spy on it so the check sees the server side, not only the client
-  // giving up.
+  // of exactly the cap. Spy on it so the check sees the server side, not only
+  // the client giving up.
   const realSetTimeout = globalThis.setTimeout
   const realClearTimeout = globalThis.clearTimeout
   const longTimers = new Set<unknown>()
   const cleared = new Set<unknown>()
   globalThis.setTimeout = ((fn: () => void, ms?: number, ...rest: unknown[]) => {
     const timer = realSetTimeout(fn, ms, ...rest)
-    if ((ms ?? 0) > 500_000) longTimers.add(timer)
+    if (ms === MAX_POLL_SECONDS * 1000) longTimers.add(timer)
     return timer
   }) as typeof setTimeout
   globalThis.clearTimeout = ((timer: Parameters<typeof clearTimeout>[0]) => {
@@ -342,6 +342,102 @@ test("probe_poll stops waiting when the client cancels", async () => {
   await own.instance.closeMcp()
   own.instance.server.closeAllConnections()
   await new Promise((resolve) => own.instance.server.close(resolve))
+})
+
+test("probe_poll clamps a longer timeout_seconds to the cap and reports running", async () => {
+  const client = await connect(mcpUrl, ERAS[1].negotiation)
+  const { handle } = structured(
+    await client.callTool({ name: "probe_long", arguments: { duration_seconds: 600 } })
+  )
+  // Record the server's wait and fire it at once, so the test doesn't sit out the cap.
+  const realSetTimeout = globalThis.setTimeout
+  const waits: number[] = []
+  globalThis.setTimeout = ((fn: () => void, ms?: number, ...rest: unknown[]) => {
+    if ((ms ?? 0) >= 30_000 && ms !== 60_000) {
+      waits.push(ms as number)
+      return realSetTimeout(fn, 0, ...rest)
+    }
+    return realSetTimeout(fn, ms, ...rest)
+  }) as typeof setTimeout
+  let polled: Record<string, unknown>
+  try {
+    polled = structured(
+      await client.callTool({ name: "probe_poll", arguments: { handle, timeout_seconds: 300 } })
+    )
+  } finally {
+    globalThis.setTimeout = realSetTimeout
+  }
+  assert.deepEqual(waits, [MAX_POLL_SECONDS * 1000])
+  assert.equal(polled.status, "running")
+  assert.ok(Number(polled.remaining_seconds) > 500)
+  await client.close()
+})
+
+test("a request the client aborts is still logged, as unfinished", async () => {
+  const own = await startMcp()
+  const handle =
+    "probe1." + Buffer.from(JSON.stringify({ s: Date.now(), d: 600_000 })).toString("base64url")
+  const logged: string[] = []
+  const realLog = console.log
+  console.log = (...args: unknown[]) => logged.push(args.join(" "))
+  try {
+    const controller = new AbortController()
+    const call = fetch(own.url, {
+      method: "POST",
+      signal: controller.signal,
+      headers: {
+        Authorization: "Bearer good",
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+        "MCP-Protocol-Version": "2026-07-28",
+        "Mcp-Method": "tools/call",
+        "Mcp-Name": "probe_poll"
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: {
+          name: "probe_poll",
+          arguments: { handle, timeout_seconds: 30 },
+          _meta: {
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientCapabilities": {}
+          }
+        }
+      })
+    })
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    assert.equal(logged.length, 0, "nothing logged while the poll waits")
+    controller.abort()
+    await assert.rejects(call)
+    await new Promise((resolve) => setTimeout(resolve, 300))
+  } finally {
+    console.log = realLog
+  }
+  const lines = logged.map((line) => JSON.parse(line) as Record<string, unknown>)
+  assert.equal(lines.length, 1, "logged once")
+  assert.equal(lines[0].path, "/mcp")
+  assert.equal(lines[0].finished, false)
+  await own.instance.closeMcp()
+  own.instance.server.closeAllConnections()
+  await new Promise((resolve) => own.instance.server.close(resolve))
+})
+
+test("a normal request is logged once, as finished", async () => {
+  const logged: string[] = []
+  const realLog = console.log
+  console.log = (...args: unknown[]) => logged.push(args.join(" "))
+  try {
+    await fetch(`${config.publicUrl}/healthz`).then((res) => res.text())
+    await new Promise((resolve) => setTimeout(resolve, 100))
+  } finally {
+    console.log = realLog
+  }
+  const lines = logged.map((line) => JSON.parse(line) as Record<string, unknown>)
+  assert.equal(lines.length, 1)
+  assert.equal(lines[0].status, 200)
+  assert.equal(lines[0].finished, true)
 })
 
 test("probe_poll rejects a malformed handle", async () => {

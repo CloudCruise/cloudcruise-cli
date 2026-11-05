@@ -34,7 +34,9 @@ export function createHttpServer(config: Config): McpHttpServer {
 
   const server = createServer((req, res) => {
     const started = Date.now()
-    res.on("finish", () => logRequest(req, res, started))
+    // "close" fires once per response, also when the client drops the request
+    // before it finishes; "finish" alone would leave aborted calls unlogged.
+    res.on("close", () => logRequest(req, res, started))
 
     const path = (req.url ?? "/").split("?")[0]
     if (path === "/healthz" && req.method === "GET") {
@@ -84,6 +86,7 @@ function logRequest(req: IncomingMessage, res: ServerResponse, started: number):
       method: req.method,
       path: (req.url ?? "/").split("?")[0],
       status: res.statusCode,
+      finished: res.writableFinished,
       ms: Date.now() - started
     })
   )

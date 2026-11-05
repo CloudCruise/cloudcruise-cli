@@ -15,7 +15,9 @@ export const VERSION = (
   }
 ).version
 
-const MAX_POLL_SECONDS = 600
+// Longer waits outlive client request timeouts: the MCP TS SDK gives up after
+// 60 s, and Claude Code reports that as "The operation timed out".
+export const MAX_POLL_SECONDS = 45
 const HANDLE_PREFIX = "probe1."
 
 interface Me {
@@ -81,10 +83,10 @@ export function createServer(config: Config, token: string): McpServer {
     {
       title: "Wait for a test job",
       description:
-        "Check a job started by probe_long. Pass timeout_seconds (30-60 for a normal poll) to wait up to that long for it to finish; omit it to check once and return at once. If the result says running, call probe_poll again with the same handle.",
+        "Check a job started by probe_long. Pass timeout_seconds (30-45 for a normal poll) to wait up to that long, at most 45 s, for it to finish; omit it to check once and return at once. If the result says running, call probe_poll again with the same handle.",
       inputSchema: z.object({
         handle: z.string(),
-        timeout_seconds: z.number().int().min(1).max(MAX_POLL_SECONDS).optional()
+        timeout_seconds: z.number().int().min(1).optional()
       }),
       annotations: { readOnlyHint: true, openWorldHint: false }
     },
@@ -95,7 +97,8 @@ export function createServer(config: Config, token: string): McpServer {
       }
       const doneAt = job.s + job.d
       if (timeout_seconds !== undefined) {
-        const waitMs = Math.min(doneAt - Date.now(), timeout_seconds * 1000)
+        const waitSeconds = Math.min(timeout_seconds, MAX_POLL_SECONDS)
+        const waitMs = Math.min(doneAt - Date.now(), waitSeconds * 1000)
         if (waitMs > 0) {
           await sleep(waitMs, ctx.mcpReq.signal)
         }
