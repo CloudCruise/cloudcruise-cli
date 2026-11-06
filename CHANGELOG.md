@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Added
+
+- `run answer-decision <session_id> --decision-id <id>` answers a question the recovery agent asked during a run (Decision Required), with `--value <field=value>` (repeatable), `--text` or `--directive`. It calls `POST /run/{session_id}/decision/respond`; the decision id, field ids and option ids come from `run decision` or the `agent.decision_requested` webhook.
+- `run decision <session_id>` shows the decision the recovery agent is waiting on, in the shape of the `agent.decision_requested` webhook, so a terminal-only user can see the question, field ids and option ids. It calls `GET /run/{session_id}/decision/pending`, which ships with the backend change in CloudCruise/monorepo#12130; until that is deployed the command answers 404. When a remembered, approved answer is applied automatically no question is asked, so `decision` stays `null` and the webhook sends `agent.decision_applied` (CloudCruise/monorepo#12122, not yet in production).
+
 ### Changed
 
 - `error-codes create` and `error-codes update` no longer list `input_required` as an `--action`. The API retired that action and rejects it with a 400; the remaining actions are `alert`, `cancel`, `pause` and `retry`. The `cloudcruise` skill lists the same four.

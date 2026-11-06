@@ -252,6 +252,8 @@ cloudcruise run start <workflow_id> --branch <branch_id>     # Run a branch's he
 cloudcruise run get <session_id>                             # Get run status, errors, screenshots, output (poll until status is terminal, see Run statuses)
 cloudcruise run list --workflow <id> --status execution.failed --since 7d --limit 50 # List runs with filters (--status takes a run status below)
 cloudcruise run interrupt <session_id>                       # Stop a running session
+cloudcruise run decision <session_id> # Show the pending Decision Required question (decision_id, fields, options, answer_by) in the agent.decision_requested shape (null when nothing is pending, including when a remembered answer was applied automatically, which sends agent.decision_applied)
+cloudcruise run answer-decision <session_id> --decision-id <id> --value choice=keep # Answer a Decision Required question (ids from run decision or the agent.decision_requested webhook) (--value <field=value> repeatable, --text, --directive requeue|add_error_code|fail)
 cloudcruise run respond <session_id> --data '{"approval_code":"123456"}' # Submit user interaction data to a run paused on a USER_INTERACTION node (--data/--file/--stdin)
 cloudcruise run live-view <session_id>                       # Fresh viewer URL + one-time auth token to watch an active session (re-run to renew after the previous token is used)
 cloudcruise run errors <workflow_id> --since 24h             # Error analytics (24h, 7d, 30m)

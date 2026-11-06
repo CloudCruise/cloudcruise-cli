@@ -65,6 +65,50 @@ export function buildRunNetworkPath(
   return opts.includeNoise ? `${path}?include_noise=true` : path
 }
 
+export function buildRunDecisionPath(sessionId: string): string {
+  return `/run/${encodeURIComponent(sessionId)}/decision/respond`
+}
+
+export function buildPendingDecisionPath(sessionId: string): string {
+  return `/run/${encodeURIComponent(sessionId)}/decision/pending`
+}
+
+export function buildDecisionAnswerBody(
+  decisionId: string,
+  opts: { value?: string[]; text?: string; directive?: string }
+): Record<string, unknown> {
+  if (decisionId.trim() === "") {
+    throw new UsageError("--decision-id must not be empty")
+  }
+  const body: Record<string, unknown> = { decision_id: decisionId }
+  if (opts.value && opts.value.length > 0) {
+    const values = new Map<string, string>()
+    for (const entry of opts.value) {
+      const at = entry.indexOf("=")
+      if (at < 1) {
+        throw new UsageError(`Invalid --value "${entry}". Use <field_id>=<value>`)
+      }
+      const field = entry.slice(0, at)
+      if (values.has(field)) {
+        throw new UsageError(`--value ${field} was given more than once`)
+      }
+      values.set(field, entry.slice(at + 1))
+    }
+    body.values = Object.fromEntries(values)
+  }
+  if (opts.text !== undefined) {
+    if (opts.text.trim() === "") {
+      throw new UsageError("--text must not be empty")
+    }
+    body.text = opts.text
+  }
+  if (opts.directive !== undefined) body.directive = opts.directive
+  if (!("values" in body) && !("text" in body) && !("directive" in body)) {
+    throw new UsageError("Provide at least one of --value, --text or --directive")
+  }
+  return body
+}
+
 type RunNetworkResponse = {
   session_id: string
   complete: boolean
@@ -261,6 +305,71 @@ Examples:
         const auth = await resolveAuth(opts)
         const client = new ApiClient(auth)
         const data = await client.post(`/run/${sessionId}/interrupt`)
+        outputJson(data)
+      } catch (err: unknown) {
+        fail(err)
+      }
+    }
+  )
+
+  addAuthOptions(
+    run
+      .command("decision <session_id>")
+      .description("Show the decision the recovery agent is waiting on for a run (Decision Required)")
+  ).addHelpText("after", `
+Prints the pending decision in the shape of the agent.decision_requested webhook: decision_id, answer_by, question, context, fields with their ids and options, free_text and respond_url.
+When nothing is pending, decision is null; answered_decision_id is set if a decision on this run was already answered.
+When a remembered, approved answer is applied automatically, no question is asked, so decision stays null; the webhook sends agent.decision_applied instead (CloudCruise/monorepo#12122).
+
+Examples:
+  $ cloudcruise run decision sess_abc123
+  $ cloudcruise run decision sess_abc123 | jq -r .decision.decision_id
+`).action(async (sessionId: string, opts: AuthOptions) => {
+    try {
+      const auth = await resolveAuth(opts)
+      const client = new ApiClient(auth)
+      const data = await client.get(buildPendingDecisionPath(sessionId))
+      outputJson(data)
+    } catch (err: unknown) {
+      fail(err)
+    }
+  })
+
+  addAuthOptions(
+    run
+      .command("answer-decision <session_id>")
+      .description("Answer a decision the recovery agent asked during a run (Decision Required)")
+      .requiredOption("--decision-id <id>", "decision_id from run decision or the agent.decision_requested webhook")
+      .option(
+        "--value <field=value>",
+        "Answer for one field, repeatable; for a choice field the value is the option id",
+        (value: string, previous: string[] = []) => [...previous, value]
+      )
+      .option("--text <text>", "Free-text instruction for the agent")
+      .option("--directive <directive>", "requeue, add_error_code or fail")
+  ).addHelpText("after", `
+Send at least one of --value, --text or --directive. The decision id, the field ids and the option ids come from cloudcruise run decision <session_id> or the agent.decision_requested webhook.
+The first accepted answer from the API, Slack or the dashboard resolves the decision; once it is answered, expired or cancelled the API returns 404.
+
+Examples:
+  $ cloudcruise run answer-decision sess_abc123 --decision-id dec_1 --value choice=keep
+  $ cloudcruise run answer-decision sess_abc123 --decision-id dec_1 --text "Use the most recent record"
+  $ cloudcruise run answer-decision sess_abc123 --decision-id dec_1 --directive requeue
+`).action(
+    async (
+      sessionId: string,
+      opts: {
+        decisionId: string
+        value?: string[]
+        text?: string
+        directive?: string
+      } & AuthOptions
+    ) => {
+      try {
+        const body = buildDecisionAnswerBody(opts.decisionId, opts)
+        const auth = await resolveAuth(opts)
+        const client = new ApiClient(auth)
+        const data = await client.post(buildRunDecisionPath(sessionId), body)
         outputJson(data)
       } catch (err: unknown) {
         fail(err)

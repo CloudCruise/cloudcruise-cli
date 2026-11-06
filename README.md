@@ -157,6 +157,8 @@ cloudcruise snapshot test '//input[@name="email"]' --file ./snapshots/page.html
 | `run get <id>` | Get run status and results (poll until terminal) |
 | `run list` | List runs (`--workflow`, `--status`, `--limit`, `--since`) |
 | `run interrupt <id>` | Stop a running session |
+| `run decision <id>` | Show the decision the recovery agent is waiting on for a run (Decision Required): question, fields and options, `answer_by`, in the `agent.decision_requested` shape |
+| `run answer-decision <id>` | Answer a Decision Required question the recovery agent asked during a run (`--decision-id`, `--value <field=value>`, `--text`, `--directive`) |
 | `run respond <id>` | Submit user interaction data to a run waiting on a `USER_INTERACTION` node (`--data`, `--file`, `--stdin`) |
 | `run live-view <id>` | Get a fresh live-view connection (viewer URL + one-time auth token) for an active session |
 | `run errors <id>` | Error analytics (`--since`, `--limit`) |
