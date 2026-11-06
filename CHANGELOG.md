@@ -9,6 +9,7 @@
 
 ### Changed
 
+- `cloudcruise-workflow-dsl` documents CLICK `click_type: "drag"` and `drag_direction`. A drag holds the mouse down and moves a slider or handle along the target in a straight line, from just inside one edge to the far edge, for example a slide-to-verify slider. Target the element the handle moves along, such as the slider's whole track.
 - `error-codes create` and `error-codes update` no longer list `input_required` as an `--action`. The API retired that action and rejects it with a 400; the remaining actions are `alert`, `cancel`, `pause` and `retry`. The `cloudcruise` skill lists the same four.
 - `run network` reports `omitted_bodies`: the number of request and response bodies returned as `null` because the call's 100 MB body budget was used up. The `--output` summary includes it, and a non-zero count is reported on stderr.
 
