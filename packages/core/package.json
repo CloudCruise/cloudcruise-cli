@@ -1,0 +1,31 @@
+{
+  "name": "@cloudcruise/strata",
+  "version": "1.16.1",
+  "description": "Shared CloudCruise API runtime for the CLI and MCP server",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/CloudCruise/cloudcruise-cli.git",
+    "directory": "packages/core"
+  },
+  "homepage": "https://github.com/CloudCruise/cloudcruise-cli",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch --preserveWatchOutput",
+    "prepack": "npm run build",
+    "test": "node --test test/*.test.ts"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

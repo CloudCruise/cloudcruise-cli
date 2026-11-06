@@ -27,28 +27,40 @@ jobs:
 
       - run: npm test
 
-      - name: Check if version already published
+      # Each package is checked on its own so a re-run after a partial publish
+      # picks up where it stopped. strata publishes first: the CLI pins it.
+      - name: Check which versions are already published
         id: check
         run: |
-          PKG=$(node -p "require('./package.json').name")
-          VERSION=$(node -p "require('./package.json').version")
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          set +e
-          OUT=$(npm view "$PKG@$VERSION" version 2>&1)
-          CODE=$?
-          set -e
-          if [ $CODE -eq 0 ] && [ -n "$OUT" ]; then
-            echo "publish=false" >> "$GITHUB_OUTPUT"
-            echo "$PKG@$VERSION already on npm, skipping publish"
-          elif [ $CODE -eq 0 ] || echo "$OUT" | grep -q "E404"; then
-            echo "publish=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "npm view failed unexpectedly:"
-            echo "$OUT"
-            exit 1
-          fi
+          check() {
+            local dir=$1 output=$2
+            local pkg version out code
+            pkg=$(node -p "require('./$dir/package.json').name")
+            version=$(node -p "require('./$dir/package.json').version")
+            set +e
+            out=$(npm view "$pkg@$version" version 2>&1)
+            code=$?
+            set -e
+            if [ $code -eq 0 ] && [ -n "$out" ]; then
+              echo "$output=false" >> "$GITHUB_OUTPUT"
+              echo "$pkg@$version already on npm, skipping publish"
+            elif [ $code -eq 0 ] || echo "$out" | grep -q "E404"; then
+              echo "$output=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "npm view $pkg@$version failed unexpectedly:"
+              echo "$out"
+              exit 1
+            fi
+          }
+          check packages/core publish_strata
+          check . publish
+          echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
 
-      - name: Publish
+      - name: Publish @cloudcruise/strata
+        if: steps.check.outputs.publish_strata == 'true'
+        run: npm publish -w @cloudcruise/strata --access public
+
+      - name: Publish @cloudcruise/cli
         if: steps.check.outputs.publish == 'true'
         run: npm publish --access public
 
