@@ -68,6 +68,10 @@ export class StrataClient {
     this.options = Object.freeze({ ...options })
   }
 
+  get baseUrl(): string {
+    return this.options.baseUrl
+  }
+
   private url(path: string): string {
     return `${this.options.baseUrl}${path}`
   }
@@ -153,6 +157,33 @@ export class StrataClient {
     }
     const body = await res.text()
     return (body ? JSON.parse(body) : undefined) as T
+  }
+
+  /**
+   * Any method, returning the status with the body: parsed JSON, text when the
+   * body is not JSON, or undefined when it is empty.
+   */
+  async request(
+    method: string,
+    path: string,
+    body?: unknown
+  ): Promise<{ status: number; data: unknown }> {
+    const hasBody = body !== undefined
+    const res = await fetch(this.url(path), {
+      method,
+      headers: hasBody ? this.headers() : this.authHeaders(),
+      body: hasBody ? JSON.stringify(body) : undefined
+    })
+    if (!res.ok) {
+      throw await ApiError.from(method, path, res)
+    }
+    const text = await res.text()
+    if (!text) return { status: res.status, data: undefined }
+    try {
+      return { status: res.status, data: JSON.parse(text) as unknown }
+    } catch {
+      return { status: res.status, data: text }
+    }
   }
 
   authHeaders(extra?: Record<string, string>): Record<string, string> {

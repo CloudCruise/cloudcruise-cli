@@ -1,2 +1,7 @@
 export { ApiError, StrataClient } from "./client.js"
 export type { StrataClientOptions } from "./client.js"
+export { SpecCache } from "./cache.js"
+export type { SpecCacheOptions } from "./cache.js"
+export { CallError, Strata } from "./strata.js"
+export type { CallErrorKind, CallOptions, CallResult, SearchOptions, StrataOptions } from "./strata.js"
+export type { Hints, JsonSchema, Operation, Surface } from "./spec.js"
