@@ -1,3 +1,34 @@
+export const VAULT_TFA_METHODS = ["AUTHENTICATOR", "EMAIL", "MAGIC_LINK", "SMS"] as const
+
+export type VaultTfaMethod = (typeof VAULT_TFA_METHODS)[number]
+
+export const VAULT_FIELD_TYPES = [
+  "Text",
+  "Email",
+  "Url",
+  "Phone",
+  "Date",
+  "MonthYear",
+  "Address",
+  "Concealed",
+  "Totp",
+] as const
+
+export type VaultFieldType = (typeof VAULT_FIELD_TYPES)[number]
+
+/** `value` is workspace-key ciphertext. */
+export interface VaultAdditionalField {
+  name: string
+  type: VaultFieldType
+  value: string
+}
+
+/** `question` and `answer` are workspace-key ciphertext. */
+export interface VaultSecurityQuestion {
+  question: string
+  answer: string
+}
+
 export interface VaultEntry {
   id: string
   permissioned_user_id: string
@@ -9,7 +40,8 @@ export interface VaultEntry {
   secret_cache_ttl_seconds: number | null
   user_alias: string | null
   tfa_secret: string | null
-  tfa_method: "AUTHENTICATOR" | "EMAIL" | "SMS" | null
+  tfa_method: VaultTfaMethod | null
+  tfa_methods: VaultTfaMethod[]
   tfa_email: string | null
   tfa_phone_number: string | null
   workspace_id: string
@@ -36,6 +68,10 @@ export interface VaultEntry {
   proxy_string: string | null
   proxy_setting: "random" | "static" | "country" | "custom" | null
   proxy_value: string | null
+  additional_fields: VaultAdditionalField[]
+  additional_field_warnings?: { name: string; reason: string }[]
+  security_questions: VaultSecurityQuestion[]
+  security_question_warnings?: { question: string; reason: string }[]
 }
 
 export interface VaultEntryPayload {
@@ -49,7 +85,10 @@ export interface VaultEntryPayload {
   secret_cache_ttl_seconds?: number
   user_alias?: string
   tfa_secret?: string
-  tfa_method?: "AUTHENTICATOR" | "EMAIL" | "SMS"
+  tfa_method?: VaultTfaMethod
+  tfa_methods?: VaultTfaMethod[]
+  additional_fields?: VaultAdditionalField[]
+  security_questions?: VaultSecurityQuestion[]
   cookies?: VaultCookie[]
   session_storage?: Record<string, unknown>
   local_storage?: Record<string, unknown>

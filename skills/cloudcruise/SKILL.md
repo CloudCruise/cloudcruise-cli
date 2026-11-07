@@ -303,13 +303,22 @@ cloudcruise snapshot test "<xpath>" <sid> <nid> --count            # Only return
 ```bash
 cloudcruise vault list                                              # List all vault entries (summary)
 cloudcruise vault list --full                                       # List with all fields
-cloudcruise vault get --user-id <id> --domain <domain>              # Get entry (encrypted fields)
-cloudcruise vault get --user-id <id> --domain <domain> --decrypt    # Get entry (plaintext)
+cloudcruise vault get --user-id <id> --domain <domain>              # Get entry (encrypted fields; field names/types only)
+cloudcruise vault get --user-id <id> --domain <domain> --decrypt    # Get entry (plaintext, incl. field values and answers)
 cloudcruise vault create --user-id <id> --domain <domain> \
   --user-name <name> --password <pass>                              # Create with auto-encrypt
+cloudcruise vault create --user-id <id> --domain <domain> \
+  --tfa-method AUTHENTICATOR --tfa-method EMAIL \
+  --additional-fields-file fields.json \
+  --security-questions-file questions.json                          # Several TFA methods, fields, questions
 cloudcruise vault update --user-id <id> --domain <domain> \
   --password <new_pass>                                             # Update specific fields
 cloudcruise vault create --stdin < payload.json                     # Create from pre-encrypted JSON
+cloudcruise vault tfa-code --user-id <id> --domain <domain>         # Current 2FA code
+cloudcruise vault tfa-code --user-id <id> --domain <domain> \
+  --method EMAIL                                                    # Pick the method (entry with several methods)
+cloudcruise vault tfa-code --user-id <id> --domain <domain> \
+  --field "Backup OTP"                                              # Code of a Totp additional field
 cloudcruise vault clear-state --user-id <id> --domain <domain>       # Clear browser state (force fresh login)
 cloudcruise vault encrypt "plaintext"                               # Encrypt a value (no API call)
 cloudcruise vault decrypt "ciphertext"                              # Decrypt a value (no API call)
@@ -584,7 +593,7 @@ Noise (preflights, analytics, assets) is filtered unless `--include-noise`. `com
 
 ## Working with Vault Credentials
 
-The vault stores encrypted credentials to be used in workflows. Three fields are encrypted client-side: `user_name`, `password`, `tfa_secret`. The CLI handles encryption/decryption automatically.
+The vault stores encrypted credentials to be used in workflows. Encrypted client-side: `user_name`, `password`, `tfa_secret`, every additional field `value`, and every security question `question` and `answer`. The CLI handles encryption/decryption automatically.
 
 **Encryption key setup** -- required for vault create, update, get --decrypt, encrypt, and decrypt. `cloudcruise login` does NOT fetch the key automatically (it is a client-side key the server never hands out); you must supply it yourself:
 
@@ -613,12 +622,37 @@ Raw `--encryption-key <hex>` and `--api-key <key>` flags are **rejected by defau
 
 - The API field is `user_name` (not `username`). Use the `--user-name` flag.
 - Vault entries are looked up by `--user-id` + `--domain`, not by UUID.
-- `vault list` returns summary fields only. Use `--full` for all fields.
+- `vault list` returns summary fields only. Use `--full` for all fields (additional fields and security questions as in `vault get`).
 - `vault get` returns encrypted fields by default. Add `--decrypt` for plaintext.
 - The `--domain` must be a valid URL. `localhost` domains are rejected -- use `http://127.0.0.1:<port>` instead.
 - The vault_schema `domain` and the vault entry `domain` must match exactly.
-- Session/persistence fields (`cookies`, `local_storage`, `persist_*`, concurrency, expiry) have no dedicated flags -- use `--file`/`--stdin` with full JSON.
+- Session/persistence fields (`cookies`, `local_storage`, `persist_*`, concurrency, expiry) have no dedicated flags -- use `--file`/`--stdin` with full JSON. `vault get` output lacks field values and answers: drop `additional_fields` and `security_questions` from it before sending, or the API answers 400.
 - Secret flags (`--password`, `--user-name`, `--tfa-secret`) are visible in `ps` output. Use `--stdin` or `--file` for sensitive values.
+
+**TFA methods.** Repeat `--tfa-method` for several methods: `AUTHENTICATOR`, `EMAIL`, `MAGIC_LINK`, `SMS`. The entry stores them as `tfa_methods`; on update the given methods replace the stored set. `AUTHENTICATOR` uses the built-in `--tfa-secret`.
+
+**Additional fields** are typed values on an entry, set with `--additional-fields-file <path>` or `--additional-fields-stdin`: a plaintext JSON array the CLI encrypts value by value.
+
+```json
+[
+  { "name": "Member ID", "type": "Text", "value": "M-123" },
+  { "name": "Home", "type": "Address", "value": { "street": "1 Main St", "city": "Springfield", "state": "IL", "zip": "62701", "country": "US" } },
+  { "name": "Backup OTP", "type": "Totp", "value": "JBSWY3DPEHPK3PXP" }
+]
+```
+
+- Types: `Text`, `Email`, `Url`, `Phone`, `Date` (`YYYY-MM-DD`), `MonthYear` (`MM/YYYY`), `Address` (object), `Concealed`, `Totp` (base32 seed or `otpauth://` URI).
+- Limits: 50 fields, 100-char names unique per entry, 2 KB per value. The API checks formats and limits.
+- Workflows read them as `{{context.inputs.<ALIAS>.FIELDS.<name>}}`. A `Totp` field is used as `tfa_field` of an `AUTHENTICATOR` TFA node instead.
+
+**Security questions** are question/answer pairs that a `SECURITY_QUESTION` TFA node answers at run time. Set them with `--security-questions-file <path>` or `--security-questions-stdin`: `[{"question": "What is your mother's maiden name?", "answer": "Smith"}]`. Order is kept. Limits: 20 questions, 500 characters per question, 1 KB per answer, questions unique per entry. Answers are never workflow variables.
+
+- On update, each list replaces the stored list; `[]` clears it (no encryption key needed); omitting the flag keeps it.
+- Only one flag per command can read stdin.
+- Entries bound to a secret provider take fields and questions from the provider item; the API rejects a non-empty list for them.
+- `vault get` shows fields as `{name, type}` and questions as their ciphertext, without answers. `--decrypt` shows values, questions and answers.
+
+**2FA codes.** `vault tfa-code` prints the entry's current code: `{type, code, expires_in_seconds}` for `AUTHENTICATOR`, `{type, code, received_at}` for the latest `EMAIL` code (404 if none arrived recently). An entry with several methods needs `--method` (400 otherwise). `--field <name>` generates the code of a `Totp` additional field. `SMS` and `MAGIC_LINK` codes cannot be read (409).
 
 ## Credential Setup for Workflows
 
@@ -644,7 +678,7 @@ cloudcruise run start <workflow_id> --input '{"USER": "f47ac10b-58cc-4372-a567-0
 
 **Workflow node template syntax for vault credentials:**
 
-Nodes reference vault credentials via `{{context.inputs.ALIAS.FIELD}}` where `ALIAS` is the vault_schema key and `FIELD` is `USER_NAME`, `PASSWORD`, or `TFA_SECRET` (uppercase).
+Nodes reference vault credentials via `{{context.inputs.ALIAS.FIELD}}` where `ALIAS` is the vault_schema key and `FIELD` is `USER_NAME`, `PASSWORD`, or `TFA_SECRET` (uppercase). Additional fields: `{{context.inputs.ALIAS.FIELDS.<name>}}`.
 
 Example INPUT_TEXT node using vault credentials:
 

@@ -4,11 +4,17 @@
 
 ### Added
 
+- `vault create` and `vault update` set additional fields with `--additional-fields-file <path>` or `--additional-fields-stdin`: a plaintext JSON array of `{name, type, value}`; the CLI encrypts each value. Types: `Text`, `Email`, `Url`, `Phone`, `Date`, `MonthYear`, `Address` (object value), `Concealed`, `Totp`.
+- `vault create` and `vault update` set security questions with `--security-questions-file <path>` or `--security-questions-stdin`: a plaintext JSON array of `{question, answer}`; the CLI encrypts both. Needs the backend change in CloudCruise/monorepo#12158; until it is deployed the API rejects the field.
+- `vault tfa-code --user-id <id> --domain <domain>` prints the entry's current 2FA code. `--method` picks the method on an entry with several; `--field` generates the code of a `Totp` additional field.
 - `run answer-decision <session_id> --decision-id <id>` answers a question the recovery agent asked during a run (Decision Required), with `--value <field=value>` (repeatable), `--text` or `--directive`. It calls `POST /run/{session_id}/decision/respond`; the decision id, field ids and option ids come from `run decision` or the `agent.decision_requested` webhook.
 - `run decision <session_id>` shows the decision the recovery agent is waiting on, in the shape of the `agent.decision_requested` webhook, so a terminal-only user can see the question, field ids and option ids. It calls `GET /run/{session_id}/decision/pending`, which ships with the backend change in CloudCruise/monorepo#12130; until that is deployed the command answers 404. When a remembered, approved answer is applied automatically no question is asked, so `decision` stays `null` and the webhook sends `agent.decision_applied` (CloudCruise/monorepo#12122, not yet in production).
 
 ### Changed
 
+- `--tfa-method` on `vault create` and `vault update` is repeatable and sends `tfa_methods`, so an entry can have several TFA methods. `MAGIC_LINK` is accepted. Unknown or repeated methods are usage errors.
+- `vault get` and `vault list --full` show additional fields as `{name, type}` and security questions without answers. `vault get --decrypt` shows field values, questions and answers in plaintext.
+- `cloudcruise-workflow-dsl` documents vault additional fields as `{{context.inputs.<ALIAS>.FIELDS.<name>}}`, the TFA node's `tfa_field`, and the `SECURITY_QUESTION` TFA type with `question_selector` and `fuzzy_match`.
 - `error-codes create` and `error-codes update` no longer list `input_required` as an `--action`. The API retired that action and rejects it with a 400; the remaining actions are `alert`, `cancel`, `pause` and `retry`. The `cloudcruise` skill lists the same four.
 - `run network` reports `omitted_bodies`: the number of request and response bodies returned as `null` because the call's 100 MB body budget was used up. The `--output` summary includes it, and a non-zero count is reported on stderr.
 
