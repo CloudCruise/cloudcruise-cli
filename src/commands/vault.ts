@@ -1,3 +1,4 @@
+import { readFileSync } from "fs"
 import { Command } from "commander"
 import { resolveAuth, requireEncryptionKey } from "../core/auth.js"
 import { ApiClient } from "../core/api-client.js"
@@ -16,6 +17,25 @@ import type { VaultEntry, VaultEntryPayload } from "../types/vault.js"
 
 const ENCRYPTED_FIELDS = ["user_name", "password", "tfa_secret"] as const
 const PROXY_SETTINGS = ["random", "static", "country", "custom"] as const
+const TFA_METHODS = ["AUTHENTICATOR", "EMAIL", "MAGIC_LINK", "SMS"] as const
+
+function collect(value: string, previous: string[] = []): string[] {
+  return [...previous, value]
+}
+
+function parseTfaMethods(methods: string[]): string[] {
+  for (const method of methods) {
+    if (!TFA_METHODS.includes(method as (typeof TFA_METHODS)[number])) {
+      throw new UsageError(
+        `Invalid --tfa-method value "${method}". Must be one of: ${TFA_METHODS.join(", ")}.`
+      )
+    }
+  }
+  if (new Set(methods).size !== methods.length) {
+    throw new UsageError("Each --tfa-method may be given only once")
+  }
+  return methods
+}
 
 function isCustomProxy(setting?: string): boolean {
   return typeof setting === "string" && setting.toLowerCase() === "custom"
@@ -31,6 +51,19 @@ function encryptFields(
     if (typeof value === "string" && value.length > 0) {
       result[field] = encrypt(JSON.stringify(value), hexKey)
     }
+  }
+  if (Array.isArray(result.additional_fields)) {
+    result.additional_fields = (result.additional_fields as AdditionalField[]).map(
+      (field) => ({ ...field, value: encrypt(JSON.stringify(field.value), hexKey) })
+    )
+  }
+  if (Array.isArray(result.security_questions)) {
+    result.security_questions = (result.security_questions as SecurityQuestion[]).map(
+      ({ question, answer }) => ({
+        question: encrypt(JSON.stringify(question), hexKey),
+        answer: encrypt(JSON.stringify(answer), hexKey),
+      })
+    )
   }
   // proxy_value is meaningless to the backend without proxy_setting, which is
   // also the discriminator that decides whether to encrypt. Fail closed so a
@@ -84,25 +117,159 @@ function decryptFields(
       }
     }
   }
+  const decryptValue = (value: unknown): unknown => {
+    if (typeof value !== "string" || value.length === 0) return value
+    try {
+      return JSON.parse(decrypt(value, hexKey))
+    } catch {
+      return value
+    }
+  }
+  if (Array.isArray(result.additional_fields)) {
+    result.additional_fields = (result.additional_fields as AdditionalField[]).map(
+      (field) => ({ ...field, value: decryptValue(field.value) })
+    )
+  }
+  if (Array.isArray(result.security_questions)) {
+    result.security_questions = (result.security_questions as SecurityQuestion[]).map(
+      ({ question, answer }) => ({
+        question: decryptValue(question),
+        answer: decryptValue(answer),
+      })
+    )
+  }
   return result
 }
 
-function buildPayloadFromFlags(opts: {
-  userId: string
-  domain: string
+function withoutListValues(entry: Record<string, unknown>): Record<string, unknown> {
+  const result = { ...entry }
+  if (Array.isArray(result.additional_fields)) {
+    result.additional_fields = (result.additional_fields as AdditionalField[]).map(
+      ({ name, type }) => ({ name, type })
+    )
+  }
+  if (Array.isArray(result.security_questions)) {
+    result.security_questions = (result.security_questions as SecurityQuestion[]).map(
+      ({ question }) => ({ question })
+    )
+  }
+  return result
+}
+
+const FIELD_TYPES = [
+  "Text",
+  "Email",
+  "Url",
+  "Phone",
+  "Date",
+  "MonthYear",
+  "Address",
+  "Concealed",
+  "Totp",
+] as const
+
+type AdditionalField = { name: string; type: string; value: unknown }
+type SecurityQuestion = { question: string; answer: string }
+
+type EntryFlags = {
+  userId?: string
+  domain?: string
   userName?: string
   password?: string
+  passwordStdin?: boolean
   userAlias?: string
   tfaSecret?: string
-  tfaMethod?: string
+  tfaSecretStdin?: boolean
+  tfaMethod?: string[]
+  secretProviderId?: string
+  secretRef?: string
+  secretCacheTtlSeconds?: string
   proxyEnable?: boolean
   proxyIp?: string
   proxy?: string
   proxyValue?: string
-  secretProviderId?: string
-  secretRef?: string
-  secretCacheTtlSeconds?: string
-}): Record<string, unknown> {
+  proxyValueStdin?: boolean
+  additionalFieldsFile?: string
+  additionalFieldsStdin?: boolean
+  securityQuestionsFile?: string
+  securityQuestionsStdin?: boolean
+  additionalFields?: AdditionalField[]
+  securityQuestions?: SecurityQuestion[]
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+async function readJsonArray(
+  flag: string,
+  source: { file?: string; stdin?: boolean }
+): Promise<unknown[] | undefined> {
+  let raw: string
+  if (source.stdin) {
+    raw = await readStdin()
+  } else if (source.file !== undefined) {
+    try {
+      raw = readFileSync(source.file, "utf-8")
+    } catch (err: unknown) {
+      const reason = err instanceof Error ? err.message : String(err)
+      throw new UsageError(`Cannot read ${flag} ${source.file}: ${reason}`)
+    }
+  } else {
+    return undefined
+  }
+  let value: unknown
+  try {
+    value = JSON.parse(raw)
+  } catch (err: unknown) {
+    const reason = err instanceof Error ? err.message : String(err)
+    throw new UsageError(`${flag} must contain valid JSON: ${reason}`)
+  }
+  if (!Array.isArray(value)) {
+    throw new UsageError(`${flag} must contain a JSON array`)
+  }
+  return value
+}
+
+function parseAdditionalFields(flag: string, items: unknown[]): AdditionalField[] {
+  return items.map((item, index) => {
+    const at = `${flag} item ${index + 1}`
+    if (!isObject(item)) throw new UsageError(`${at} must be an object {name, type, value}`)
+    const { name, type, value } = item
+    if (typeof name !== "string" || name.length === 0) {
+      throw new UsageError(`${at}: name must be a non-empty string`)
+    }
+    if (!FIELD_TYPES.includes(type as (typeof FIELD_TYPES)[number])) {
+      throw new UsageError(
+        `${at} (${name}): type must be one of: ${FIELD_TYPES.join(", ")}`
+      )
+    }
+    if (type === "Address" ? !isObject(value) : typeof value !== "string") {
+      throw new UsageError(
+        `${at} (${name}): value must be ${type === "Address" ? "an object {street, city, state, zip, country}" : "a string"}`
+      )
+    }
+    return { name, type: type as string, value }
+  })
+}
+
+function parseSecurityQuestions(flag: string, items: unknown[]): SecurityQuestion[] {
+  return items.map((item, index) => {
+    const at = `${flag} item ${index + 1}`
+    if (
+      !isObject(item) ||
+      typeof item.question !== "string" ||
+      typeof item.answer !== "string"
+    ) {
+      throw new UsageError(`${at} must be an object {question, answer} of strings`)
+    }
+    return { question: item.question, answer: item.answer }
+  })
+}
+
+function buildPayloadFromFlags(
+  opts: EntryFlags & { userId: string; domain: string }
+): Record<string, unknown> {
   const payload: Record<string, unknown> = {
     permissioned_user_id: opts.userId,
     domain: opts.domain,
@@ -111,7 +278,9 @@ function buildPayloadFromFlags(opts: {
   if (opts.password !== undefined) payload.password = opts.password
   if (opts.userAlias !== undefined) payload.user_alias = opts.userAlias
   if (opts.tfaSecret !== undefined) payload.tfa_secret = opts.tfaSecret
-  if (opts.tfaMethod !== undefined) payload.tfa_method = opts.tfaMethod
+  if (opts.tfaMethod !== undefined) payload.tfa_methods = parseTfaMethods(opts.tfaMethod)
+  if (opts.additionalFields !== undefined) payload.additional_fields = opts.additionalFields
+  if (opts.securityQuestions !== undefined) payload.security_questions = opts.securityQuestions
   if (opts.secretProviderId !== undefined) {
     if (!opts.secretRef) {
       throw new UsageError("--secret-provider-id requires --secret-ref")
@@ -154,36 +323,23 @@ function buildPayloadFromFlags(opts: {
   return payload
 }
 
-function requiresEncryptionKeyForFlags(opts: {
-  userName?: string
-  password?: string
-  passwordStdin?: boolean
-  tfaSecret?: string
-  tfaSecretStdin?: boolean
-  proxy?: string
-  proxyValue?: string
-  proxyValueStdin?: boolean
-}): boolean {
+function requiresEncryptionKeyForFlags(opts: EntryFlags): boolean {
   return Boolean(
     opts.userName !== undefined ||
       opts.password !== undefined ||
       opts.passwordStdin ||
       opts.tfaSecret !== undefined ||
       opts.tfaSecretStdin ||
+      opts.additionalFieldsFile !== undefined ||
+      opts.additionalFieldsStdin ||
+      opts.securityQuestionsFile !== undefined ||
+      opts.securityQuestionsStdin ||
       (isCustomProxy(opts.proxy) &&
         (opts.proxyValue !== undefined || opts.proxyValueStdin))
   )
 }
 
-async function applySecretStdinOptions(opts: {
-  password?: string
-  passwordStdin?: boolean
-  tfaSecret?: string
-  tfaSecretStdin?: boolean
-  proxy?: string
-  proxyValue?: string
-  proxyValueStdin?: boolean
-}): Promise<void> {
+async function applyFlagInputs(opts: EntryFlags): Promise<void> {
   const secrets: Record<string, unknown> = {
     "--password": opts.password,
     "--tfa-secret": opts.tfaSecret,
@@ -197,14 +353,22 @@ async function applySecretStdinOptions(opts: {
   enforceNoArgSecrets(secrets, "vault credential fields")
 
   const stdinFlags = [
-    opts.passwordStdin,
-    opts.tfaSecretStdin,
-    opts.proxyValueStdin,
+    opts.passwordStdin && "--password-stdin",
+    opts.tfaSecretStdin && "--tfa-secret-stdin",
+    opts.proxyValueStdin && "--proxy-value-stdin",
+    opts.additionalFieldsStdin && "--additional-fields-stdin",
+    opts.securityQuestionsStdin && "--security-questions-stdin",
   ].filter(Boolean)
   if (stdinFlags.length > 1) {
     throw new UsageError(
-      "Use only one of --password-stdin, --tfa-secret-stdin, or --proxy-value-stdin"
+      `Only one flag can read stdin (got ${stdinFlags.join(", ")})`
     )
+  }
+  if (opts.additionalFieldsFile !== undefined && opts.additionalFieldsStdin) {
+    throw new UsageError("Pass only one of --additional-fields-file, --additional-fields-stdin")
+  }
+  if (opts.securityQuestionsFile !== undefined && opts.securityQuestionsStdin) {
+    throw new UsageError("Pass only one of --security-questions-file, --security-questions-stdin")
   }
   if (opts.passwordStdin) {
     opts.password = (await readStdin()).trimEnd()
@@ -215,6 +379,22 @@ async function applySecretStdinOptions(opts: {
   if (opts.proxyValueStdin) {
     opts.proxyValue = (await readStdin()).trimEnd()
   }
+  const fieldsFlag = opts.additionalFieldsStdin
+    ? "--additional-fields-stdin"
+    : "--additional-fields-file"
+  const fields = await readJsonArray(fieldsFlag, {
+    file: opts.additionalFieldsFile,
+    stdin: opts.additionalFieldsStdin,
+  })
+  if (fields) opts.additionalFields = parseAdditionalFields(fieldsFlag, fields)
+  const questionsFlag = opts.securityQuestionsStdin
+    ? "--security-questions-stdin"
+    : "--security-questions-file"
+  const questions = await readJsonArray(questionsFlag, {
+    file: opts.securityQuestionsFile,
+    stdin: opts.securityQuestionsStdin,
+  })
+  if (questions) opts.securityQuestions = parseSecurityQuestions(questionsFlag, questions)
 }
 
 const FIELD_FLAGS = {
@@ -235,6 +415,10 @@ const FIELD_FLAGS = {
   proxy: "--proxy",
   proxyValue: "--proxy-value",
   proxyValueStdin: "--proxy-value-stdin",
+  additionalFieldsFile: "--additional-fields-file",
+  additionalFieldsStdin: "--additional-fields-stdin",
+  securityQuestionsFile: "--security-questions-file",
+  securityQuestionsStdin: "--security-questions-stdin",
 } as const
 
 /**
@@ -253,6 +437,86 @@ export function assertFlagsOrPayload(
       `Pass the entry as flags or as a JSON object via --file/--stdin, not both (got ${passed.join(", ")})`
     )
   }
+}
+
+function addEntryOptions(command: Command, domainHelp: string): Command {
+  return command
+    .option("--user-id <id>", "Permissioned user ID")
+    .option("--domain <domain>", domainHelp)
+    .option("--user-name <name>", "Username (plaintext, will be encrypted)")
+    .option("--password <pass>", "Password (plaintext, will be encrypted). Visible in ps output; prefer --password-stdin")
+    .option("--password-stdin", "Read plaintext password from stdin")
+    .option("--user-alias <alias>", "Human-readable alias")
+    .option("--tfa-secret <secret>", "TOTP secret in base32 (plaintext, will be encrypted). Visible in ps output; prefer --tfa-secret-stdin")
+    .option("--tfa-secret-stdin", "Read plaintext TOTP secret from stdin")
+    .option("--tfa-method <method>", "TFA method: AUTHENTICATOR, EMAIL, MAGIC_LINK, or SMS. Repeat for several methods", collect)
+    .option("--additional-fields-file <path>", "JSON array of plaintext additional fields [{name, type, value}] (values will be encrypted). Replaces the entry's list")
+    .option("--additional-fields-stdin", "Read the additional fields JSON array from stdin")
+    .option("--security-questions-file <path>", "JSON array of plaintext security questions [{question, answer}] (will be encrypted). Replaces the entry's list")
+    .option("--security-questions-stdin", "Read the security questions JSON array from stdin")
+    .option("--secret-provider-id <id>", "Secret-provider connection ID for provider-backed credentials")
+    .option("--secret-ref <ref>", "Secret-provider item reference, for example op://vaultId/itemId")
+    .option("--secret-cache-ttl-seconds <seconds>", "Override provider cache TTL for this credential")
+    .option("--proxy-enable", "Enable proxy for this entry")
+    .option("--proxy-ip <ip>", "Target IP for proxy assignment")
+    .option("--proxy <setting>", "Proxy setting: random, static, country, or custom")
+    .option("--proxy-value <value>", "For static: target IP. For country: country code. For custom: proxy URL — may contain credentials; prefer --proxy-value-stdin")
+    .option("--proxy-value-stdin", "Read the custom proxy URL from stdin (avoids leaking credentials into shell history)")
+    .option("--file <path>", "Path to JSON payload (assumed pre-encrypted)")
+    .option("--stdin", "Read JSON payload from stdin (assumed pre-encrypted)")
+}
+
+const ENTRY_LISTS_HELP = `
+Additional fields (--additional-fields-file/-stdin), plaintext; the CLI encrypts each value:
+  [{"name": "Member ID", "type": "Text", "value": "M-123"},
+   {"name": "Home", "type": "Address", "value": {"street": "1 Main St", "city": "Springfield", "state": "IL", "zip": "62701", "country": "US"}},
+   {"name": "Backup OTP", "type": "Totp", "value": "JBSWY3DPEHPK3PXP..."}]
+  Types: ${FIELD_TYPES.join(", ")}. Address values are objects, all others strings.
+
+Security questions (--security-questions-file/-stdin), plaintext; the CLI encrypts question and answer:
+  [{"question": "What is your mother's maiden name?", "answer": "Smith"}]
+
+A list replaces the entry's stored list; [] clears it; omit the flag to keep it.
+Only one flag can read stdin.
+Pass the entry as flags or as a JSON object via --file/--stdin, not both.
+`
+
+async function writeEntry(
+  method: "post" | "put",
+  opts: EntryFlags & JsonObjectSource & AuthOptions
+): Promise<void> {
+  assertFlagsOrPayload(opts)
+  if (!opts.stdin && !opts.file) {
+    await applyFlagInputs(opts)
+  }
+  const needsEncryptionKey =
+    !opts.stdin && !opts.file && requiresEncryptionKeyForFlags(opts)
+  const auth = await resolveAuth({
+    ...opts,
+    requireEncryptionKey: needsEncryptionKey,
+  })
+  const client = new ApiClient(auth)
+  let payload: Record<string, unknown>
+
+  const input = await readJsonObject(opts)
+  if (input) {
+    payload = input
+  } else {
+    if (!opts.userId || !opts.domain) {
+      throw new UsageError(
+        "Provide --user-id and --domain, or use --file/--stdin"
+      )
+    }
+    payload = buildPayloadFromFlags({ ...opts, userId: opts.userId, domain: opts.domain })
+    if (needsEncryptionKey) {
+      const key = requireEncryptionKey(auth)
+      validateHexKey(key)
+      payload = encryptFields(payload, key)
+    }
+  }
+
+  const data = await client[method]<VaultEntry>("/vault", payload)
+  outputJson(data)
 }
 
 export function registerVaultCommands(program: Command): void {
@@ -298,11 +562,15 @@ Examples:
       .description("Get a vault entry by user ID and domain")
       .requiredOption("--user-id <id>", "Permissioned user ID")
       .requiredOption("--domain <domain>", "Target domain")
-      .option("--decrypt", "Decrypt credential fields client-side")
+      .option("--decrypt", "Decrypt credential fields client-side, including additional field values and security question answers")
   ).addHelpText("after", `
 Examples:
   $ cloudcruise vault get --user-id f47ac10b-58cc-4372-a567-0e02b2c3d479 --domain "https://app.example.com"
   $ cloudcruise vault get --user-id f47ac10b-58cc-4372-a567-0e02b2c3d479 --domain "https://app.example.com" --decrypt
+
+Without --decrypt, additional fields show name and type only, and security
+questions show the encrypted question only. --decrypt adds field values and
+decrypts questions and answers.
 `).action(
     async (
       opts: {
@@ -327,7 +595,7 @@ Examples:
           validateHexKey(key)
           outputJson(decryptFields(data as unknown as Record<string, unknown>, key))
         } else {
-          outputJson(data)
+          outputJson(withoutListValues(data as unknown as Record<string, unknown>))
         }
       } catch (err: unknown) {
         fail(err)
@@ -337,194 +605,78 @@ Examples:
 
   // vault create
   addAuthOptions(
-    vault
-      .command("create")
-      .description("Create a new vault entry")
-      .option("--user-id <id>", "Permissioned user ID")
-      .option("--domain <domain>", "Target domain (valid URI)")
-      .option("--user-name <name>", "Username (plaintext, will be encrypted)")
-      .option("--password <pass>", "Password (plaintext, will be encrypted). Visible in ps output; prefer --password-stdin")
-      .option("--password-stdin", "Read plaintext password from stdin")
-      .option("--user-alias <alias>", "Human-readable alias")
-      .option("--tfa-secret <secret>", "TOTP secret in base32 (plaintext, will be encrypted). Visible in ps output; prefer --tfa-secret-stdin")
-      .option("--tfa-secret-stdin", "Read plaintext TOTP secret from stdin")
-      .option("--tfa-method <method>", "TFA method: AUTHENTICATOR, EMAIL, or SMS")
-      .option("--secret-provider-id <id>", "Secret-provider connection ID for provider-backed credentials")
-      .option("--secret-ref <ref>", "Secret-provider item reference, for example op://vaultId/itemId")
-      .option("--secret-cache-ttl-seconds <seconds>", "Override provider cache TTL for this credential")
-      .option("--proxy-enable", "Enable proxy for this entry")
-      .option("--proxy-ip <ip>", "Target IP for proxy assignment")
-      .option("--proxy <setting>", "Proxy setting: random, static, country, or custom")
-      .option("--proxy-value <value>", "For static: target IP. For country: country code. For custom: proxy URL — may contain credentials; prefer --proxy-value-stdin")
-      .option("--proxy-value-stdin", "Read the custom proxy URL from stdin (avoids leaking credentials into shell history)")
-      .option("--file <path>", "Path to JSON payload (assumed pre-encrypted)")
-      .option("--stdin", "Read JSON payload from stdin (assumed pre-encrypted)")
+    addEntryOptions(
+      vault.command("create").description("Create a new vault entry"),
+      "Target domain (valid URI)"
+    )
   ).addHelpText("after", `
 Examples:
   $ cloudcruise vault create --user-id f47ac10b-... --domain "https://app.example.com" --user-name "user@example.com" --password "s3cret"
+  $ cloudcruise vault create --user-id f47ac10b-... --domain "https://app.example.com" --tfa-method AUTHENTICATOR --tfa-method EMAIL --additional-fields-file fields.json --security-questions-file questions.json
   $ cloudcruise vault create --user-id acme-prod --domain "https://acme.com" --secret-provider-id 25290e80-bbd5-41b3-861e-dea30cc26e27 --secret-ref "op://vaultId/itemId"
   $ cloudcruise vault create --file payload.json
   $ cat payload.json | cloudcruise vault create --stdin
-
-Pass the entry as flags or as a JSON object via --file/--stdin, not both.
-`).action(
-    async (
-      opts: {
-        userId?: string
-        domain?: string
-        userName?: string
-        password?: string
-        passwordStdin?: boolean
-        userAlias?: string
-        tfaSecret?: string
-        tfaSecretStdin?: boolean
-        tfaMethod?: string
-        secretProviderId?: string
-        secretRef?: string
-        secretCacheTtlSeconds?: string
-        proxyEnable?: boolean
-        proxyIp?: string
-        proxy?: string
-        proxyValue?: string
-        proxyValueStdin?: boolean
-        file?: string
-        stdin?: boolean
-      } & AuthOptions
-    ) => {
-      try {
-        assertFlagsOrPayload(opts)
-        if (!opts.stdin && !opts.file) {
-          await applySecretStdinOptions(opts)
-        }
-        const needsEncryptionKey =
-          !opts.stdin && !opts.file && requiresEncryptionKeyForFlags(opts)
-        const auth = await resolveAuth({
-          ...opts,
-          requireEncryptionKey: needsEncryptionKey,
-        })
-        const client = new ApiClient(auth)
-        let payload: Record<string, unknown>
-
-        const input = await readJsonObject(opts)
-        if (input) {
-          payload = input
-        } else {
-          if (!opts.userId || !opts.domain) {
-            throw new UsageError(
-              "Provide --user-id and --domain, or use --file/--stdin"
-            )
-          }
-          payload = buildPayloadFromFlags(
-            opts as Required<Pick<typeof opts, "userId" | "domain">> &
-              typeof opts
-          )
-          if (needsEncryptionKey) {
-            const key = requireEncryptionKey(auth)
-            validateHexKey(key)
-            payload = encryptFields(payload, key)
-          }
-        }
-
-        const data = await client.post<VaultEntry>("/vault", payload)
-        outputJson(data)
-      } catch (err: unknown) {
-        fail(err)
-      }
+${ENTRY_LISTS_HELP}`).action(async (opts: EntryFlags & JsonObjectSource & AuthOptions) => {
+    try {
+      await writeEntry("post", opts)
+    } catch (err: unknown) {
+      fail(err)
     }
-  )
+  })
 
   // vault update
   addAuthOptions(
-    vault
-      .command("update")
-      .description("Update an existing vault entry")
-      .option("--user-id <id>", "Permissioned user ID")
-      .option("--domain <domain>", "Target domain")
-      .option("--user-name <name>", "Username (plaintext, will be encrypted)")
-      .option("--password <pass>", "Password (plaintext, will be encrypted). Visible in ps output; prefer --password-stdin")
-      .option("--password-stdin", "Read plaintext password from stdin")
-      .option("--user-alias <alias>", "Human-readable alias")
-      .option("--tfa-secret <secret>", "TOTP secret in base32 (plaintext, will be encrypted). Visible in ps output; prefer --tfa-secret-stdin")
-      .option("--tfa-secret-stdin", "Read plaintext TOTP secret from stdin")
-      .option("--tfa-method <method>", "TFA method: AUTHENTICATOR, EMAIL, or SMS")
-      .option("--secret-provider-id <id>", "Secret-provider connection ID for provider-backed credentials")
-      .option("--secret-ref <ref>", "Secret-provider item reference, for example op://vaultId/itemId")
-      .option("--secret-cache-ttl-seconds <seconds>", "Override provider cache TTL for this credential")
-      .option("--proxy-enable", "Enable proxy for this entry")
-      .option("--proxy-ip <ip>", "Target IP for proxy assignment")
-      .option("--proxy <setting>", "Proxy setting: random, static, country, or custom")
-      .option("--proxy-value <value>", "For static: target IP. For country: country code. For custom: proxy URL — may contain credentials; prefer --proxy-value-stdin")
-      .option("--proxy-value-stdin", "Read the custom proxy URL from stdin (avoids leaking credentials into shell history)")
-      .option("--file <path>", "Path to JSON payload (assumed pre-encrypted)")
-      .option("--stdin", "Read JSON payload from stdin (assumed pre-encrypted)")
+    addEntryOptions(
+      vault.command("update").description("Update an existing vault entry"),
+      "Target domain"
+    )
   ).addHelpText("after", `
 Examples:
   $ cloudcruise vault update --user-id f47ac10b-... --domain "https://app.example.com" --password "new_pass"
+  $ cat fields.json | cloudcruise vault update --user-id f47ac10b-... --domain "https://app.example.com" --additional-fields-stdin
   $ cloudcruise vault update --user-id acme-prod --domain "https://acme.com" --secret-provider-id 25290e80-bbd5-41b3-861e-dea30cc26e27 --secret-ref "op://vaultId/itemId"
   $ cloudcruise vault update --file payload.json
   $ cat payload.json | cloudcruise vault update --stdin
+${ENTRY_LISTS_HELP}`).action(async (opts: EntryFlags & JsonObjectSource & AuthOptions) => {
+    try {
+      await writeEntry("put", opts)
+    } catch (err: unknown) {
+      fail(err)
+    }
+  })
 
-Pass the entry as flags or as a JSON object via --file/--stdin, not both.
+  // vault tfa-code
+  addAuthOptions(
+    vault
+      .command("tfa-code")
+      .description("Get the current 2FA code of a vault entry")
+      .requiredOption("--user-id <id>", "Permissioned user ID")
+      .requiredOption("--domain <domain>", "Target domain")
+      .option("--method <method>", "TFA method to read: AUTHENTICATOR or EMAIL. Required when the entry has several methods")
+      .option("--field <name>", "Name of a Totp additional field to generate the code from instead of the built-in TFA secret")
+  ).addHelpText("after", `
+Examples:
+  $ cloudcruise vault tfa-code --user-id f47ac10b-... --domain "https://app.example.com"
+  $ cloudcruise vault tfa-code --user-id f47ac10b-... --domain "https://app.example.com" --method EMAIL
+  $ cloudcruise vault tfa-code --user-id f47ac10b-... --domain "https://app.example.com" --field "Backup OTP"
+
+AUTHENTICATOR returns a fresh code with expires_in_seconds. EMAIL returns the
+latest received code with received_at, or 404 when none arrived recently.
+SMS and MAGIC_LINK codes cannot be read (409).
 `).action(
     async (
-      opts: {
-        userId?: string
-        domain?: string
-        userName?: string
-        password?: string
-        passwordStdin?: boolean
-        userAlias?: string
-        tfaSecret?: string
-        tfaSecretStdin?: boolean
-        tfaMethod?: string
-        secretProviderId?: string
-        secretRef?: string
-        secretCacheTtlSeconds?: string
-        proxyEnable?: boolean
-        proxyIp?: string
-        proxy?: string
-        proxyValue?: string
-        proxyValueStdin?: boolean
-        file?: string
-        stdin?: boolean
-      } & AuthOptions
+      opts: { userId: string; domain: string; method?: string; field?: string } & AuthOptions
     ) => {
       try {
-        assertFlagsOrPayload(opts)
-        if (!opts.stdin && !opts.file) {
-          await applySecretStdinOptions(opts)
-        }
-        const needsEncryptionKey =
-          !opts.stdin && !opts.file && requiresEncryptionKeyForFlags(opts)
-        const auth = await resolveAuth({
-          ...opts,
-          requireEncryptionKey: needsEncryptionKey,
-        })
+        const auth = await resolveAuth(opts)
         const client = new ApiClient(auth)
-        let payload: Record<string, unknown>
-
-        const input = await readJsonObject(opts)
-        if (input) {
-          payload = input
-        } else {
-          if (!opts.userId || !opts.domain) {
-            throw new UsageError(
-              "Provide --user-id and --domain, or use --file/--stdin"
-            )
-          }
-          payload = buildPayloadFromFlags(
-            opts as Required<Pick<typeof opts, "userId" | "domain">> &
-              typeof opts
-          )
-          if (needsEncryptionKey) {
-            const key = requireEncryptionKey(auth)
-            validateHexKey(key)
-            payload = encryptFields(payload, key)
-          }
-        }
-
-        const data = await client.put<VaultEntry>("/vault", payload)
-        outputJson(data)
+        const params = new URLSearchParams({
+          permissioned_user_id: opts.userId,
+          domain: opts.domain,
+        })
+        if (opts.method !== undefined) params.set("method", opts.method)
+        if (opts.field !== undefined) params.set("field", opts.field)
+        outputJson(await client.get(`/vault/tfa-code?${params}`))
       } catch (err: unknown) {
         fail(err)
       }

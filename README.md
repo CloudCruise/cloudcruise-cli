@@ -168,9 +168,10 @@ cloudcruise snapshot test '//input[@name="email"]' --file ./snapshots/page.html
 | `snapshot suggest [sid] [nid]` | Suggest XPath selectors (`--file`, `--filter`) |
 | `snapshot test <xpath> [sid] [nid]` | Test XPath against snapshot (`--file`, `--count`) |
 | `vault list` | List vault entries (`--full`) |
-| `vault get` | Get vault entry (`--user-id`, `--domain`, `--decrypt`) |
-| `vault create` | Create vault entry (`--user-id`, `--domain`, `--user-name`, `--password`, `--secret-provider-id`, `--secret-ref`) |
+| `vault get` | Get vault entry (`--user-id`, `--domain`, `--decrypt`); additional fields as name and type unless `--decrypt` |
+| `vault create` | Create vault entry (`--user-id`, `--domain`, `--user-name`, `--password`, `--tfa-method` (repeatable), `--additional-fields-file`, `--security-questions-file`, `--secret-provider-id`, `--secret-ref`) |
 | `vault update` | Update vault entry fields, including provider-backed bindings |
+| `vault tfa-code` | Current 2FA code of an entry (`--user-id`, `--domain`, `--method`, `--field`) |
 | `vault clear-state` | Clear browser state for a credential |
 | `vault encrypt` / `decrypt` | Encrypt or decrypt values locally |
 | `secret-providers list` | List secret-provider connections |

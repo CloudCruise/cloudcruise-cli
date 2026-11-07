@@ -67,6 +67,15 @@ Variables use double curly braces: `{{expression}}`.
 
 Variables can be used in: text inputs, XPath selectors, URLs, prompts, data model field names. Prefer variables (`{{context.inputs.*}}`) over hardcoded values.
 
+**Vault credentials** are read through their `vault_schema` alias: `{{context.inputs.<ALIAS>.USER_NAME}}`, `{{context.inputs.<ALIAS>.PASSWORD}}`, and additional fields as `{{context.inputs.<ALIAS>.FIELDS.<name>}}`.
+
+- Names that are not plain identifiers (spaces, dashes, leading digit) need backticks: ``{{context.inputs.BANK.FIELDS.`Member ID`}}``
+- Address parts: `{{context.inputs.BANK.FIELDS.Home.city}}`
+- A `Totp` field is not readable through `FIELDS`. Use it as `tfa_field` of an `AUTHENTICATOR` TFA node
+- Agents (workflow builder, recovery) see field names and types, never values
+- Referencing a field the credential does not have, or a `Totp` field, fails the step
+- Security questions are not readable as variables. Answer them with a `SECURITY_QUESTION` TFA node; agents see question texts, never answers
+
 When creating an `input_schema` property, every leaf input must include:
 
 - `type`
@@ -807,7 +816,7 @@ Leave `wait_time` unset unless you have already run the node once and seen the t
 
 ### TFA (Two-Factor Authentication)
 
-Handle 2FA challenges. Automatically extracts codes from SMS/email or generates TOTP.
+Handle 2FA challenges. Automatically extracts codes from SMS/email, generates TOTP, or answers vault security questions.
 
 ```json
 {
@@ -824,9 +833,12 @@ Handle 2FA challenges. Automatically extracts codes from SMS/email or generates 
 
 | Parameter                | Type    | Required               | Description                                                                                  |
 | ------------------------ | ------- | ---------------------- | -------------------------------------------------------------------------------------------- |
-| `tfa_type`               | string  | Yes                    | `SMS`, `EMAIL`, `AUTHENTICATOR`, or `MAGIC_LINK`                                             |
+| `tfa_type`               | string  | Yes                    | `SMS`, `EMAIL`, `AUTHENTICATOR`, `MAGIC_LINK`, or `SECURITY_QUESTION`                        |
 | `credential`             | string  | Yes                    | Vault credential key for the 2FA receiver                                                    |
-| `selector`               | string  | Yes (non-`MAGIC_LINK`) | XPath for code input. `LLM_VISION` finds the field on a screenshot and ignores it            |
+| `tfa_field`              | string  | No                     | `AUTHENTICATOR` only. Name of a `Totp` additional field on `credential` to use instead of the built-in seed |
+| `selector`               | string  | Yes (non-`MAGIC_LINK`) | XPath for code input (answer input for `SECURITY_QUESTION`). `LLM_VISION` finds the field on a screenshot and ignores it |
+| `question_selector`      | string  | `SECURITY_QUESTION` + `STATIC` | XPath of the element showing the question text. Invalid with other `tfa_type`s      |
+| `fuzzy_match`            | boolean | No                     | `SECURITY_QUESTION` only. Default false. Let a model match a differently worded stored question |
 | `execution`              | string  | No                     | `STATIC` (default) or `LLM_VISION`                                                           |
 | `link_regex_pattern`     | string  | No                     | Regex to extract magic link from email                                                       |
 | `selector_error_message` | string  | No                     | Error code id (UUID) to fail with if the element is not found. See Error Codes               |
@@ -834,6 +846,28 @@ Handle 2FA challenges. Automatically extracts codes from SMS/email or generates 
 | `run_if`                 | object  | No                     | Run this node only if the condition matches; otherwise skip it and continue on the `to` edge |
 
 Codes are automatically entered and submitted (Enter pressed). No subsequent Click node needed.
+
+**`SECURITY_QUESTION`** answers the page's question from the credential's stored security questions.
+
+- `STATIC`: reads `question_selector`'s text and types the answer into `selector`. `LLM_VISION`: reads the question from a screenshot and finds the answer field; no selectors.
+- Matching: exact after normalization (case, punctuation, whitespace ignored). With `fuzzy_match: true`, a model then picks a stored question asking for the same information (high confidence only). Answers never reach a model.
+- No match fails with `AUTHENTICATION-E0001`: `No stored security question of credential BANK matches the page question "..."`. No stored questions: `Credential BANK has no security questions`.
+
+```json
+{
+  "id": "8c4e2a71-5b3d-4f6a-9e1c-2d7b0a9f3e54",
+  "name": "Answer security question",
+  "action": "TFA",
+  "parameters": {
+    "tfa_type": "SECURITY_QUESTION",
+    "credential": "BANK",
+    "execution": "STATIC",
+    "question_selector": "//label[@for='security-answer']",
+    "selector": "//input[@id='security-answer']",
+    "fuzzy_match": true
+  }
+}
+```
 
 ### FILE_DOWNLOAD
 
