@@ -15,9 +15,16 @@ async function names(surface: "cli" | "mcp", query: string, limit = 10): Promise
 }
 
 test("mcp sees only operations tagged mcp that have a name", async () => {
-  const found = await names("mcp", "workflow run steps vault user export credential", 10)
+  const found = await names("mcp", "workflow run steps vault user export credential value", 10)
 
-  assert.deepEqual(found.sort(), ["runs.get", "runs.start", "runs.steps", "workflows.get", "workflows.list"])
+  assert.deepEqual(found.sort(), [
+    "runs.get",
+    "runs.start",
+    "runs.steps",
+    "values.get",
+    "workflows.get",
+    "workflows.list"
+  ])
 })
 
 test("cli sees its own operations, including ones hidden from mcp", async () => {
@@ -42,12 +49,18 @@ test("an empty or unmatched query returns nothing", async () => {
   assert.deepEqual(await names("mcp", "zebra"), [])
 })
 
-test("limit caps results at 10 and defaults to 5", async () => {
-  fakeBackend()
+test("limit defaults to 5 and is capped at 10", async () => {
+  const backend = fakeBackend()
+  for (let i = 0; i < 12; i++) {
+    backend.spec.paths[`/things/${i}`] = {
+      get: { summary: "Read a thing", "x-strata-surfaces": ["mcp"], "x-strata-name": `things.read${i}` }
+    }
+  }
   const { strata } = setup()
 
-  assert.equal((await strata.search("workflow run", { limit: 2 })).length, 2)
-  assert.equal((await strata.search("workflow run steps get list start", { limit: 50 })).length, 5)
+  assert.equal((await strata.search("thing")).length, 5)
+  assert.equal((await strata.search("thing", { limit: 2 })).length, 2)
+  assert.equal((await strata.search("thing", { limit: 50 })).length, 10)
 })
 
 test("results carry hints and full schemas with refs resolved and nullable rewritten", async () => {
@@ -120,5 +133,46 @@ test("an operation without hints gets the most cautious ones", async () => {
     destructiveHint: true,
     idempotentHint: false,
     openWorldHint: true
+  })
+})
+
+test("an operation that needs a header parameter is hidden, since call can't send it", async () => {
+  assert.equal((await names("mcp", "signed export get")).includes("signed.get"), false)
+})
+
+test("a recursive schema stops at its second appearance", async () => {
+  fakeBackend()
+  const { strata } = setup()
+
+  const [op] = await strata.search("values.get")
+
+  assert.deepEqual(op.output, {
+    anyOf: [
+      { type: "string" },
+      { type: "number" },
+      { type: "array", items: {} },
+      { type: "object", additionalProperties: {} }
+    ]
+  })
+})
+
+test("one caller can't change the operations another caller sees", async () => {
+  fakeBackend()
+  const a = setup()
+  const b = setup({ specs: a.specs, token: "other" })
+
+  const [op] = await a.strata.search("workflows.list")
+  assert.throws(() => {
+    ;(op.hints as { readOnlyHint: boolean }).readOnlyHint = false
+  }, TypeError)
+  assert.throws(() => {
+    ;(op.input.properties as Record<string, unknown>).limit = { type: "string" }
+  }, TypeError)
+
+  const [seen] = await b.strata.search("workflows.list")
+  assert.equal(seen.hints.readOnlyHint, true)
+  assert.deepEqual((seen.input.properties as Record<string, unknown>).limit, {
+    type: "integer",
+    description: "Most workflows to return."
   })
 })

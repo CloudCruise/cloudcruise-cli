@@ -1,5 +1,6 @@
 import { afterEach, test } from "node:test"
 import assert from "node:assert/strict"
+import { readFileSync } from "node:fs"
 import { CallError, SpecCache } from "../dist/index.js"
 import { BASE, editOperation, fakeBackend, fixture, setup } from "./helpers.ts"
 
@@ -50,7 +51,7 @@ test("a 304 keeps the spec; a 200 replaces it", async () => {
   assert.deepEqual((await strata.search("runs.get")).map((o) => o.name)[0], "runs.get")
 
   clock.now = 300_000
-  await strata.search("runs.get")
+  assert.equal((await strata.search("runs.get"))[0].name, "runs.get")
   assert.equal(backend.specRequests.length, 2)
 
   backend.spec = editOperation(backend.spec, "/run/{sessionId}", "get", (op) => {
@@ -108,6 +109,13 @@ test("serves the snapshot when there is no spec yet and the fetch fails, then re
   assert.equal((await strata.search("list workflows"))[0].name, "workflows.search")
 })
 
+test("the bundled snapshot ships in dist as an OpenAPI document", () => {
+  const snapshot = JSON.parse(readFileSync(new URL("../dist/openapi.snapshot.json", import.meta.url), "utf8"))
+
+  assert.equal(typeof snapshot.openapi, "string")
+  assert.equal(typeof snapshot.paths, "object")
+})
+
 test("bundled snapshot loads and exposes nothing yet", async () => {
   const backend = fakeBackend()
   backend.specFailure = 404
@@ -131,6 +139,42 @@ test("two callers on one cache send their own tokens and fetch the spec once", a
     backend.apiCalls.map((c) => c.headers.get("authorization")).sort(),
     ["Bearer token-a", "Bearer token-b"]
   )
+})
+
+test("during an outage, revalidation waits out the retry interval too", async () => {
+  const backend = fakeBackend()
+  const { strata, clock } = setup()
+  await strata.search("workflow")
+
+  backend.specFailure = "throw"
+  backend.api = () => Response.json({ message: "Workflow not found" }, { status: 404 })
+  clock.now = 300_000
+  for (let i = 0; i < 5; i++) {
+    assert.equal((await callError(strata.call("workflows.get", { workflowId: "w" }))).kind, "api_error")
+  }
+  assert.equal(backend.specRequests.length, 2)
+
+  clock.now = 330_000
+  await callError(strata.call("workflows.get", { workflowId: "w" }))
+  assert.equal(backend.specRequests.length, 3)
+})
+
+test("a spec fetch that hangs times out and the old spec is kept", { timeout: 2000 }, async () => {
+  const backend = fakeBackend()
+  const clock = { now: 0 }
+  const specs = new SpecCache({ client: "test/1.0.0", now: () => clock.now, timeoutMs: 20 })
+  const { strata } = setup({ specs })
+  await strata.search("workflow")
+
+  const fake = globalThis.fetch
+  globalThis.fetch = ((input: string, init: RequestInit = {}) =>
+    String(input).endsWith("/openapi.json")
+      ? new Promise((_, reject) => init.signal?.addEventListener("abort", () => reject(init.signal?.reason)))
+      : fake(input, init)) as typeof fetch
+  clock.now = 300_000
+
+  assert.equal((await strata.search("list workflows"))[0].name, "workflows.list")
+  assert.equal(backend.specRequests.length, 1)
 })
 
 // Building the request
@@ -186,7 +230,12 @@ test("rejects arguments that don't fit the shape without sending", async () => {
     ["workflows.get", { workflowId: { id: 1 } }, "`workflowId` must be a string or number"],
     ["workflows.list", { tags: [{}] }, "`tags` must be a string, number, boolean or a list of them"],
     ["workflows.list", { body: {} }, "unknown argument `body`"],
-    ["workflows.list", null, "arguments must be an object"]
+    ["workflows.list", null, "arguments must be an object"],
+    ["workflows.get", { workflowId: ".." }, '`workflowId` can\'t be ".."'],
+    ["workflows.get", { workflowId: "." }, '`workflowId` can\'t be "."'],
+    ["workflows.get", { workflowId: "" }, '`workflowId` can\'t be ""'],
+    ["workflows.list", { toString: 1 }, "unknown argument `toString`"],
+    ["workflows.list", { constructor: 1 }, "unknown argument `constructor`"]
   ]
   for (const [name, args, problem] of cases) {
     const err = await callError(strata.call(name, args))
@@ -371,11 +420,26 @@ test("a shape error against a changed operation reports the change, without send
   })
   backend.etag = 'W/"v2"'
 
-  const err = await callError(strata.call("runs.start", { ...START, preview: true }))
+  const err = await callError(strata.call("runs.start", { ...START, dry: true }))
 
   assert.equal(err.kind, "api_changed")
   assert.ok(err.message.includes('"preview"'), err.message)
   assert.equal(backend.apiCalls.length, 0)
+})
+
+test("arguments that fit the operation as it is now are sent", async () => {
+  const backend = fakeBackend()
+  const { strata } = setup()
+  await strata.search("runs.start")
+
+  backend.spec = editOperation(backend.spec, "/run", "post", (op) => {
+    op.parameters = [{ name: "preview", in: "query", required: false, schema: { type: "boolean" } }]
+  })
+  backend.etag = 'W/"v2"'
+  await strata.call("runs.start", { ...START, preview: true })
+
+  assert.equal(backend.apiCalls.length, 1)
+  assert.equal(backend.apiCalls[0].url, `${BASE}/run?preview=true`)
 })
 
 test("a network failure is unavailable, and warns that a write may have run", async () => {

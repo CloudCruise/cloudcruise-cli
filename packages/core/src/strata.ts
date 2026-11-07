@@ -83,25 +83,26 @@ export class Strata {
         throw new CallError("unknown_operation", `No operation named ${name}. Search for it.`)
       }
     }
-    const operation = plan.operation
-    if (options.readOnly && !operation.hints.readOnlyHint) {
-      throw new CallError(
-        "not_read_only",
-        `${name} changes data, so it can't be called here.`,
-        { operation }
-      )
-    }
+    checkReadOnly(plan, options)
 
     const problems = checkShape(plan, args)
     if (problems.length) {
-      await this.throwIfChanged(plan)
-      throw new CallError(
-        "invalid_arguments",
-        `Your arguments for ${name} don't fit: ${problems.join("; ")}. Schema: ${schemaText(operation)}`,
-        { operation }
-      )
+      // The agent may hold a schema from before a change: if the arguments fit the
+      // operation as it is now, send them.
+      const current = await this.current(plan)
+      if (current.inputKey === plan.inputKey) {
+        throw new CallError(
+          "invalid_arguments",
+          `Your arguments for ${name} don't fit: ${problems.join("; ")}. Schema: ${schemaText(plan.operation)}`,
+          { operation: plan.operation }
+        )
+      }
+      if (checkShape(current, args).length) throw changed(current)
+      plan = current
+      checkReadOnly(plan, options)
     }
 
+    const operation = plan.operation
     const { path, body } = buildRequest(plan, args as Record<string, unknown>)
     try {
       return await this.options.client.request(plan.method, path, body)
@@ -112,7 +113,10 @@ export class Strata {
           : " It may have run; check before calling it again."
         throw new CallError("unavailable", `Could not reach the CloudCruise API for ${name}.${warning}`)
       }
-      if (err.status >= 400 && err.status < 500) await this.throwIfChanged(plan)
+      if (err.status >= 400 && err.status < 500) {
+        const current = await this.current(plan)
+        if (current.inputKey !== plan.inputKey) throw changed(current)
+      }
       const detail = apiMessage(err)
       if (err.status === 400 || err.status === 422) {
         throw new CallError(
@@ -130,20 +134,32 @@ export class Strata {
     return force ? specs.revalidate(client.baseUrl, surface) : specs.view(client.baseUrl, surface)
   }
 
-  /** Checks the spec now and throws `api_changed` if this operation is gone or its arguments changed. */
-  private async throwIfChanged(plan: Plan): Promise<void> {
+  /** The operation after checking the spec now; throws `api_changed` if it is gone. */
+  private async current(plan: Plan): Promise<Plan> {
     const name = plan.operation.name
     const current = (await this.view(true)).plans.get(name)
     if (!current) {
       throw new CallError("api_changed", `${name} no longer exists. Search again.`)
     }
-    if (current.inputKey !== plan.inputKey) {
-      throw new CallError(
-        "api_changed",
-        `${name} changed since you looked it up. Current schema: ${schemaText(current.operation)} Fix your arguments and call again.`,
-        { operation: current.operation }
-      )
-    }
+    return current
+  }
+}
+
+function changed(current: Plan): CallError {
+  const { operation } = current
+  return new CallError(
+    "api_changed",
+    `${operation.name} changed since you looked it up. Current schema: ${schemaText(operation)} Fix your arguments and call again.`,
+    { operation }
+  )
+}
+
+function checkReadOnly(plan: Plan, options: CallOptions): void {
+  const { operation } = plan
+  if (options.readOnly && !operation.hints.readOnlyHint) {
+    throw new CallError("not_read_only", `${operation.name} changes data, so it can't be called here.`, {
+      operation
+    })
   }
 }
 
@@ -163,14 +179,19 @@ function checkShape(plan: Plan, args: unknown): string[] {
   const required = (input.required ?? []) as string[]
   const problems: string[] = []
   for (const key of Object.keys(args)) {
-    if (!(key in properties)) problems.push(`unknown argument \`${key}\``)
+    if (!Object.hasOwn(properties, key)) problems.push(`unknown argument \`${key}\``)
   }
   for (const key of required) {
     if (args[key] === undefined) problems.push(`missing \`${key}\``)
   }
   for (const key of plan.pathParams) {
-    if (args[key] !== undefined && !isScalar(args[key])) {
+    const value = args[key]
+    if (value === undefined) continue
+    if (!isScalar(value)) {
       problems.push(`\`${key}\` must be a string or number`)
+    } else if (["", ".", ".."].includes(String(value))) {
+      // fetch would collapse these and send the request to a different path.
+      problems.push(`\`${key}\` can't be "${String(value)}"`)
     }
   }
   for (const key of plan.queryParams) {

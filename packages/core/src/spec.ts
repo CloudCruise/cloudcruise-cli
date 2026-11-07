@@ -46,7 +46,7 @@ type Obj = Record<string, unknown>
 
 const METHODS = ["get", "put", "post", "delete", "patch"] as const
 // Unknown hints get the most cautious reading.
-const SAFE_HINTS: Hints = {
+const SAFE_HINTS: Readonly<Hints> = {
   readOnlyHint: false,
   destructiveHint: true,
   idempotentHint: false,
@@ -86,26 +86,25 @@ function deref(doc: Obj, value: unknown): unknown {
  * Converts an OpenAPI 3.0 schema to plain JSON Schema: `$ref`s are copied in place,
  * `nullable` becomes a `null` type, and OpenAPI-only keys are dropped.
  */
-export function toJsonSchema(doc: Obj, schema: unknown, depth = 0): JsonSchema {
-  if (!isObj(schema) || depth > MAX_REF_DEPTH) return {}
+export function toJsonSchema(doc: Obj, schema: unknown, seen: readonly string[] = []): JsonSchema {
+  if (!isObj(schema)) return {}
   if (typeof schema.$ref === "string") {
-    return toJsonSchema(doc, resolveRef(doc, schema.$ref), depth + 1)
+    // A recursive type stops at its second appearance on the same branch.
+    if (seen.includes(schema.$ref) || seen.length >= MAX_REF_DEPTH) return {}
+    return toJsonSchema(doc, resolveRef(doc, schema.$ref), [...seen, schema.$ref])
   }
+  const convert = (v: unknown) => toJsonSchema(doc, v, seen)
   const out: JsonSchema = {}
   for (const [key, value] of Object.entries(schema)) {
     if (DROPPED_KEYS.has(key) || key.startsWith("x-")) continue
     if (key === "properties" && isObj(value)) {
-      out.properties = Object.fromEntries(
-        Object.entries(value).map(([k, v]) => [k, toJsonSchema(doc, v, depth + 1)])
-      )
-    } else if ((key === "items" || key === "not") && isObj(value)) {
-      out[key] = toJsonSchema(doc, value, depth + 1)
-    } else if (key === "additionalProperties" && isObj(value)) {
-      out[key] = toJsonSchema(doc, value, depth + 1)
+      out.properties = Object.fromEntries(Object.entries(value).map(([k, v]) => [k, convert(v)]))
+    } else if ((key === "items" || key === "not" || key === "additionalProperties") && isObj(value)) {
+      out[key] = convert(value)
     } else if ((key === "allOf" || key === "oneOf" || key === "anyOf") && Array.isArray(value)) {
-      out[key] = value.map((v) => toJsonSchema(doc, v, depth + 1))
+      out[key] = value.map(convert)
     } else {
-      out[key] = value
+      out[key] = structuredClone(value)
     }
   }
   if (schema.nullable === true) {
@@ -120,9 +119,9 @@ export function toJsonSchema(doc: Obj, schema: unknown, depth = 0): JsonSchema {
 }
 
 function readHints(value: unknown): Hints {
-  if (!isObj(value)) return SAFE_HINTS
+  if (!isObj(value)) return { ...SAFE_HINTS }
   const keys = Object.keys(SAFE_HINTS) as (keyof Hints)[]
-  if (!keys.every((k) => typeof value[k] === "boolean")) return SAFE_HINTS
+  if (!keys.every((k) => typeof value[k] === "boolean")) return { ...SAFE_HINTS }
   return Object.fromEntries(keys.map((k) => [k, value[k]])) as unknown as Hints
 }
 
@@ -163,7 +162,11 @@ function buildPlan(doc: Obj, path: string, method: string, item: Obj, op: Obj): 
   const queryParams: string[] = []
   for (const param of params.values()) {
     const paramName = param.name as string
-    if (param.in !== "path" && param.in !== "query") continue
+    if (param.in !== "path" && param.in !== "query") {
+      // call never sends headers or cookies from arguments, so it couldn't send this one.
+      if (param.required === true) return undefined
+      continue
+    }
     if (paramName === "body") return undefined
     const schema = toJsonSchema(doc, param.schema)
     if (typeof param.description === "string" && schema.description === undefined) {
@@ -200,13 +203,22 @@ function buildPlan(doc: Obj, path: string, method: string, item: Obj, op: Obj): 
   if (output) operation.output = output
 
   return {
-    operation,
+    // Views are shared by every caller in the process; no caller may change them.
+    operation: deepFreeze(operation),
     method: method.toUpperCase(),
     path,
     pathParams,
     queryParams,
     inputKey: JSON.stringify(input)
   }
+}
+
+function deepFreeze<T>(value: T): T {
+  if (typeof value === "object" && value !== null && !Object.isFrozen(value)) {
+    Object.freeze(value)
+    for (const v of Object.values(value)) deepFreeze(v)
+  }
+  return value
 }
 
 /** The operations exposed on `surface`, keyed by their Strata name. */

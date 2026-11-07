@@ -1,50 +1,124 @@
 {
   "openapi": "3.0.0",
-  "info": { "title": "Fixture API", "version": "1.0" },
+  "info": {
+    "title": "Fixture API",
+    "version": "1.0"
+  },
   "paths": {
     "/workflows": {
       "get": {
         "operationId": "WorkflowsController_list",
         "summary": "List workflows",
         "description": "List the workflows in the current workspace, newest first.",
-        "x-strata-surfaces": ["cli", "mcp"],
+        "x-strata-surfaces": [
+          "cli",
+          "mcp"
+        ],
         "x-strata-name": "workflows.list",
-        "x-strata-hints": { "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false },
+        "x-strata-hints": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
         "parameters": [
-          { "name": "limit", "in": "query", "required": false, "schema": { "type": "integer" }, "description": "Most workflows to return." },
-          { "name": "tags", "in": "query", "required": false, "schema": { "type": "array", "items": { "type": "string" } } }
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Most workflows to return."
+          },
+          {
+            "name": "tags",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
         ],
         "responses": {
           "200": {
             "description": "",
-            "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Workflow" } } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Workflow"
+                  }
+                }
+              }
+            }
           }
         }
       }
     },
     "/workflows/{workflowId}": {
       "parameters": [
-        { "name": "workflowId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        {
+          "name": "workflowId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
       ],
       "get": {
         "operationId": "WorkflowsController_get",
         "summary": "Get a workflow",
         "description": "Fetch one workflow by id, including its latest version.",
-        "x-strata-surfaces": ["cli", "mcp"],
+        "x-strata-surfaces": [
+          "cli",
+          "mcp"
+        ],
         "x-strata-name": "workflows.get",
-        "x-strata-hints": { "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false },
+        "x-strata-hints": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
         "responses": {
-          "200": { "description": "", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Workflow" } } } }
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Workflow"
+                }
+              }
+            }
+          }
         }
       },
       "delete": {
         "operationId": "WorkflowsController_delete",
         "summary": "Delete a workflow",
         "description": "Delete a workflow and all of its versions.",
-        "x-strata-surfaces": ["cli"],
+        "x-strata-surfaces": [
+          "cli"
+        ],
         "x-strata-name": "workflows.delete",
-        "x-strata-hints": { "readOnlyHint": false, "destructiveHint": true, "idempotentHint": true, "openWorldHint": false },
-        "responses": { "204": { "description": "" } }
+        "x-strata-hints": {
+          "readOnlyHint": false,
+          "destructiveHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        }
       }
     },
     "/run": {
@@ -52,15 +126,38 @@
         "operationId": "RunController_createRun",
         "summary": "Start a workflow run",
         "description": "Start a run of a workflow with the given input variables. The run continues in the background.",
-        "x-strata-surfaces": ["mcp", "cli"],
+        "x-strata-surfaces": [
+          "mcp",
+          "cli"
+        ],
         "x-strata-name": "runs.start",
-        "x-strata-hints": { "readOnlyHint": false, "destructiveHint": false, "idempotentHint": false, "openWorldHint": true },
+        "x-strata-hints": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "idempotentHint": false,
+          "openWorldHint": true
+        },
         "requestBody": {
           "required": true,
-          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/StartRun" } } }
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartRun"
+              }
+            }
+          }
         },
         "responses": {
-          "202": { "description": "", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RunStarted" } } } }
+          "202": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunStarted"
+                }
+              }
+            }
+          }
         }
       }
     },
@@ -69,24 +166,71 @@
         "operationId": "RunController_get",
         "summary": "Get a run",
         "description": "Status and output of one run.",
-        "x-strata-surfaces": ["mcp"],
-        "x-strata-name": "runs.get",
-        "x-strata-hints": { "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false },
-        "parameters": [
-          { "name": "sessionId", "in": "path", "required": true, "schema": { "type": "string" } },
-          { "name": "X-Trace", "in": "header", "required": false, "schema": { "type": "string" } }
+        "x-strata-surfaces": [
+          "mcp"
         ],
-        "responses": { "200": { "description": "", "content": { "application/json": { "schema": { "type": "object" } } } } }
+        "x-strata-name": "runs.get",
+        "x-strata-hints": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "parameters": [
+          {
+            "name": "sessionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Trace",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/run/{sessionId}/steps": {
       "get": {
         "operationId": "RunController_steps",
         "summary": "List the steps of a run",
-        "x-strata-surfaces": ["mcp"],
+        "x-strata-surfaces": [
+          "mcp"
+        ],
         "x-strata-name": "runs.steps",
-        "parameters": [{ "name": "sessionId", "in": "path", "required": true, "schema": { "type": "string" } }],
-        "responses": { "200": { "description": "" } }
+        "parameters": [
+          {
+            "name": "sessionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
       }
     },
     "/vault": {
@@ -94,23 +238,104 @@
         "operationId": "VaultController_create",
         "summary": "Store a credential",
         "x-strata-surfaces": [],
-        "requestBody": { "content": { "application/json": { "schema": { "type": "object" } } } },
-        "responses": { "201": { "description": "" } }
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
       }
     },
     "/users/me": {
       "get": {
         "operationId": "UsersController_me",
         "summary": "The signed-in user",
-        "responses": { "200": { "description": "" } }
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
       }
     },
     "/runs/export": {
       "get": {
         "operationId": "RunController_export",
         "summary": "Export runs",
-        "x-strata-surfaces": ["mcp"],
-        "responses": { "200": { "description": "" } }
+        "x-strata-surfaces": [
+          "mcp"
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/values": {
+      "get": {
+        "operationId": "ValuesController_get",
+        "summary": "Read a stored value",
+        "x-strata-surfaces": [
+          "mcp"
+        ],
+        "x-strata-name": "values.get",
+        "x-strata-hints": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/signed": {
+      "get": {
+        "operationId": "SignedController_get",
+        "summary": "Signed export",
+        "x-strata-surfaces": [
+          "mcp"
+        ],
+        "x-strata-name": "signed.get",
+        "x-strata-hints": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "parameters": [
+          {
+            "name": "X-Signature",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
       }
     }
   },
@@ -118,31 +343,97 @@
     "schemas": {
       "Workflow": {
         "type": "object",
-        "required": ["id", "name"],
+        "required": [
+          "id",
+          "name"
+        ],
         "properties": {
-          "id": { "type": "string", "format": "uuid" },
-          "name": { "type": "string" },
-          "description": { "type": "string", "nullable": true }
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          }
         }
       },
       "StartRun": {
         "type": "object",
-        "required": ["workflow_id", "run_input_variables"],
+        "required": [
+          "workflow_id",
+          "run_input_variables"
+        ],
         "properties": {
-          "workflow_id": { "type": "string" },
-          "run_input_variables": { "type": "object", "additionalProperties": true },
-          "priority_level": { "type": "string", "enum": ["HIGH", "LOW"], "nullable": true, "example": "HIGH" },
-          "webhook": { "allOf": [{ "$ref": "#/components/schemas/Webhook" }], "nullable": true }
+          "workflow_id": {
+            "type": "string"
+          },
+          "run_input_variables": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "priority_level": {
+            "type": "string",
+            "enum": [
+              "HIGH",
+              "LOW"
+            ],
+            "nullable": true,
+            "example": "HIGH"
+          },
+          "webhook": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Webhook"
+              }
+            ],
+            "nullable": true
+          }
         }
       },
       "Webhook": {
         "type": "object",
-        "required": ["url"],
-        "properties": { "url": { "type": "string" } }
+        "required": [
+          "url"
+        ],
+        "properties": {
+          "url": {
+            "type": "string"
+          }
+        }
       },
       "RunStarted": {
         "type": "object",
-        "properties": { "session_id": { "type": "string" } }
+        "properties": {
+          "session_id": {
+            "type": "string"
+          }
+        }
+      },
+      "JsonValue": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "number"
+          },
+          {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/JsonValue"
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            }
+          }
+        ]
       }
     }
   }
