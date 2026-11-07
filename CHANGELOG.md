@@ -13,7 +13,7 @@
 ### Changed
 
 - `--tfa-method` on `vault create` and `vault update` is repeatable and sends `tfa_methods`, so an entry can have several TFA methods. `MAGIC_LINK` is accepted. Unknown or repeated methods are usage errors.
-- `vault get` shows additional fields as `{name, type}` and security questions without answers. `--decrypt` shows field values, questions and answers in plaintext.
+- `vault get` and `vault list --full` show additional fields as `{name, type}` and security questions without answers. `vault get --decrypt` shows field values, questions and answers in plaintext.
 - `cloudcruise-workflow-dsl` documents vault additional fields as `{{context.inputs.<ALIAS>.FIELDS.<name>}}`, the TFA node's `tfa_field`, and the `SECURITY_QUESTION` TFA type with `question_selector` and `fuzzy_match`.
 - `error-codes create` and `error-codes update` no longer list `input_required` as an `--action`. The API retired that action and rejects it with a 400; the remaining actions are `alert`, `cancel`, `pause` and `retry`. The `cloudcruise` skill lists the same four.
 - `run network` reports `omitted_bodies`: the number of request and response bodies returned as `null` because the call's 100 MB body budget was used up. The `--output` summary includes it, and a non-zero count is reported on stderr.

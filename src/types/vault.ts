@@ -1,15 +1,20 @@
-export type VaultTfaMethod = "AUTHENTICATOR" | "EMAIL" | "MAGIC_LINK" | "SMS"
+export const VAULT_TFA_METHODS = ["AUTHENTICATOR", "EMAIL", "MAGIC_LINK", "SMS"] as const
 
-export type VaultFieldType =
-  | "Text"
-  | "Email"
-  | "Url"
-  | "Phone"
-  | "Date"
-  | "MonthYear"
-  | "Address"
-  | "Concealed"
-  | "Totp"
+export type VaultTfaMethod = (typeof VAULT_TFA_METHODS)[number]
+
+export const VAULT_FIELD_TYPES = [
+  "Text",
+  "Email",
+  "Url",
+  "Phone",
+  "Date",
+  "MonthYear",
+  "Address",
+  "Concealed",
+  "Totp",
+] as const
+
+export type VaultFieldType = (typeof VAULT_FIELD_TYPES)[number]
 
 /** `value` is workspace-key ciphertext. */
 export interface VaultAdditionalField {

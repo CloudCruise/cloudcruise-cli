@@ -1,4 +1,3 @@
-import { readFileSync } from "fs"
 import { Command } from "commander"
 import { resolveAuth, requireEncryptionKey } from "../core/auth.js"
 import { ApiClient } from "../core/api-client.js"
@@ -9,32 +8,56 @@ import { addAuthOptions, type AuthOptions } from "../core/auth-options.js"
 import { enforceNoArgSecrets } from "../core/secret-args.js"
 import {
   hasJsonObjectSource,
+  readJsonArray,
   readJsonObject,
   readStdin,
   type JsonObjectSource,
 } from "../core/input.js"
-import type { VaultEntry, VaultEntryPayload } from "../types/vault.js"
+import {
+  VAULT_FIELD_TYPES,
+  VAULT_TFA_METHODS,
+  type VaultAdditionalField,
+  type VaultEntry,
+  type VaultEntryPayload,
+  type VaultSecurityQuestion,
+  type VaultFieldType,
+  type VaultTfaMethod,
+} from "../types/vault.js"
 
 const ENCRYPTED_FIELDS = ["user_name", "password", "tfa_secret"] as const
 const PROXY_SETTINGS = ["random", "static", "country", "custom"] as const
-const TFA_METHODS = ["AUTHENTICATOR", "EMAIL", "MAGIC_LINK", "SMS"] as const
 
 function collect(value: string, previous: string[] = []): string[] {
   return [...previous, value]
 }
 
-function parseTfaMethods(methods: string[]): string[] {
-  for (const method of methods) {
-    if (!TFA_METHODS.includes(method as (typeof TFA_METHODS)[number])) {
-      throw new UsageError(
-        `Invalid --tfa-method value "${method}". Must be one of: ${TFA_METHODS.join(", ")}.`
-      )
-    }
+function assertTfaMethod(flag: string, method: string): asserts method is VaultTfaMethod {
+  if (!VAULT_TFA_METHODS.includes(method as VaultTfaMethod)) {
+    throw new UsageError(
+      `Invalid ${flag} value "${method}". Must be one of: ${VAULT_TFA_METHODS.join(", ")}.`
+    )
   }
+}
+
+function assertTfaMethods(methods: string[]): void {
+  for (const method of methods) assertTfaMethod("--tfa-method", method)
   if (new Set(methods).size !== methods.length) {
     throw new UsageError("Each --tfa-method may be given only once")
   }
-  return methods
+}
+
+function encryptValue(value: unknown, hexKey: string): string {
+  return encrypt(JSON.stringify(value), hexKey)
+}
+
+/** The plaintext of a ciphertext, or the input unchanged when it does not decrypt. */
+function decryptValue(value: unknown, hexKey: string): unknown {
+  if (typeof value !== "string" || value.length === 0) return value
+  try {
+    return JSON.parse(decrypt(value, hexKey))
+  } catch {
+    return value
+  }
 }
 
 function isCustomProxy(setting?: string): boolean {
@@ -49,19 +72,19 @@ function encryptFields(
   for (const field of ENCRYPTED_FIELDS) {
     const value = result[field]
     if (typeof value === "string" && value.length > 0) {
-      result[field] = encrypt(JSON.stringify(value), hexKey)
+      result[field] = encryptValue(value, hexKey)
     }
   }
   if (Array.isArray(result.additional_fields)) {
     result.additional_fields = (result.additional_fields as AdditionalField[]).map(
-      (field) => ({ ...field, value: encrypt(JSON.stringify(field.value), hexKey) })
+      (field) => ({ ...field, value: encryptValue(field.value, hexKey) })
     )
   }
   if (Array.isArray(result.security_questions)) {
     result.security_questions = (result.security_questions as SecurityQuestion[]).map(
       ({ question, answer }) => ({
-        question: encrypt(JSON.stringify(question), hexKey),
-        answer: encrypt(JSON.stringify(answer), hexKey),
+        question: encryptValue(question, hexKey),
+        answer: encryptValue(answer, hexKey),
       })
     )
   }
@@ -85,7 +108,7 @@ function encryptFields(
   if (result.proxy_setting === "custom") {
     const value = result.proxy_value
     if (typeof value === "string" && value.length > 0) {
-      result.proxy_value = encrypt(JSON.stringify(value), hexKey)
+      result.proxy_value = encryptValue(value, hexKey)
     }
   }
   return result
@@ -97,44 +120,21 @@ function decryptFields(
 ): Record<string, unknown> {
   const result = { ...entry }
   for (const field of ENCRYPTED_FIELDS) {
-    const value = result[field]
-    if (typeof value === "string" && value.length > 0) {
-      try {
-        const raw = decrypt(value, hexKey)
-        result[field] = JSON.parse(raw)
-      } catch {
-        // Leave as-is if decryption fails (field may be null/empty)
-      }
-    }
+    result[field] = decryptValue(result[field], hexKey)
   }
   if (result.proxy_setting === "custom") {
-    const value = result.proxy_value
-    if (typeof value === "string" && value.length > 0) {
-      try {
-        result.proxy_value = JSON.parse(decrypt(value, hexKey))
-      } catch {
-        // Leave as-is if decryption fails
-      }
-    }
-  }
-  const decryptValue = (value: unknown): unknown => {
-    if (typeof value !== "string" || value.length === 0) return value
-    try {
-      return JSON.parse(decrypt(value, hexKey))
-    } catch {
-      return value
-    }
+    result.proxy_value = decryptValue(result.proxy_value, hexKey)
   }
   if (Array.isArray(result.additional_fields)) {
     result.additional_fields = (result.additional_fields as AdditionalField[]).map(
-      (field) => ({ ...field, value: decryptValue(field.value) })
+      (field) => ({ ...field, value: decryptValue(field.value, hexKey) })
     )
   }
   if (Array.isArray(result.security_questions)) {
     result.security_questions = (result.security_questions as SecurityQuestion[]).map(
       ({ question, answer }) => ({
-        question: decryptValue(question),
-        answer: decryptValue(answer),
+        question: decryptValue(question, hexKey),
+        answer: decryptValue(answer, hexKey),
       })
     )
   }
@@ -156,20 +156,8 @@ function withoutListValues(entry: Record<string, unknown>): Record<string, unkno
   return result
 }
 
-const FIELD_TYPES = [
-  "Text",
-  "Email",
-  "Url",
-  "Phone",
-  "Date",
-  "MonthYear",
-  "Address",
-  "Concealed",
-  "Totp",
-] as const
-
-type AdditionalField = { name: string; type: string; value: unknown }
-type SecurityQuestion = { question: string; answer: string }
+type AdditionalField = Omit<VaultAdditionalField, "value"> & { value: unknown }
+type SecurityQuestion = VaultSecurityQuestion
 
 type EntryFlags = {
   userId?: string
@@ -201,36 +189,6 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
-async function readJsonArray(
-  flag: string,
-  source: { file?: string; stdin?: boolean }
-): Promise<unknown[] | undefined> {
-  let raw: string
-  if (source.stdin) {
-    raw = await readStdin()
-  } else if (source.file !== undefined) {
-    try {
-      raw = readFileSync(source.file, "utf-8")
-    } catch (err: unknown) {
-      const reason = err instanceof Error ? err.message : String(err)
-      throw new UsageError(`Cannot read ${flag} ${source.file}: ${reason}`)
-    }
-  } else {
-    return undefined
-  }
-  let value: unknown
-  try {
-    value = JSON.parse(raw)
-  } catch (err: unknown) {
-    const reason = err instanceof Error ? err.message : String(err)
-    throw new UsageError(`${flag} must contain valid JSON: ${reason}`)
-  }
-  if (!Array.isArray(value)) {
-    throw new UsageError(`${flag} must contain a JSON array`)
-  }
-  return value
-}
-
 function parseAdditionalFields(flag: string, items: unknown[]): AdditionalField[] {
   return items.map((item, index) => {
     const at = `${flag} item ${index + 1}`
@@ -239,9 +197,9 @@ function parseAdditionalFields(flag: string, items: unknown[]): AdditionalField[
     if (typeof name !== "string" || name.length === 0) {
       throw new UsageError(`${at}: name must be a non-empty string`)
     }
-    if (!FIELD_TYPES.includes(type as (typeof FIELD_TYPES)[number])) {
+    if (!VAULT_FIELD_TYPES.includes(type as VaultFieldType)) {
       throw new UsageError(
-        `${at} (${name}): type must be one of: ${FIELD_TYPES.join(", ")}`
+        `${at} (${name}): type must be one of: ${VAULT_FIELD_TYPES.join(", ")}`
       )
     }
     if (type === "Address" ? !isObject(value) : typeof value !== "string") {
@@ -249,7 +207,7 @@ function parseAdditionalFields(flag: string, items: unknown[]): AdditionalField[
         `${at} (${name}): value must be ${type === "Address" ? "an object {street, city, state, zip, country}" : "a string"}`
       )
     }
-    return { name, type: type as string, value }
+    return { name, type: type as VaultFieldType, value }
   })
 }
 
@@ -278,7 +236,7 @@ function buildPayloadFromFlags(
   if (opts.password !== undefined) payload.password = opts.password
   if (opts.userAlias !== undefined) payload.user_alias = opts.userAlias
   if (opts.tfaSecret !== undefined) payload.tfa_secret = opts.tfaSecret
-  if (opts.tfaMethod !== undefined) payload.tfa_methods = parseTfaMethods(opts.tfaMethod)
+  if (opts.tfaMethod !== undefined) payload.tfa_methods = opts.tfaMethod
   if (opts.additionalFields !== undefined) payload.additional_fields = opts.additionalFields
   if (opts.securityQuestions !== undefined) payload.security_questions = opts.securityQuestions
   if (opts.secretProviderId !== undefined) {
@@ -330,10 +288,8 @@ function requiresEncryptionKeyForFlags(opts: EntryFlags): boolean {
       opts.passwordStdin ||
       opts.tfaSecret !== undefined ||
       opts.tfaSecretStdin ||
-      opts.additionalFieldsFile !== undefined ||
-      opts.additionalFieldsStdin ||
-      opts.securityQuestionsFile !== undefined ||
-      opts.securityQuestionsStdin ||
+      opts.additionalFields?.length ||
+      opts.securityQuestions?.length ||
       (isCustomProxy(opts.proxy) &&
         (opts.proxyValue !== undefined || opts.proxyValueStdin))
   )
@@ -351,6 +307,7 @@ async function applyFlagInputs(opts: EntryFlags): Promise<void> {
     secrets["--proxy-value"] = opts.proxyValue
   }
   enforceNoArgSecrets(secrets, "vault credential fields")
+  if (opts.tfaMethod !== undefined) assertTfaMethods(opts.tfaMethod)
 
   const stdinFlags = [
     opts.passwordStdin && "--password-stdin",
@@ -471,7 +428,7 @@ Additional fields (--additional-fields-file/-stdin), plaintext; the CLI encrypts
   [{"name": "Member ID", "type": "Text", "value": "M-123"},
    {"name": "Home", "type": "Address", "value": {"street": "1 Main St", "city": "Springfield", "state": "IL", "zip": "62701", "country": "US"}},
    {"name": "Backup OTP", "type": "Totp", "value": "JBSWY3DPEHPK3PXP..."}]
-  Types: ${FIELD_TYPES.join(", ")}. Address values are objects, all others strings.
+  Types: ${VAULT_FIELD_TYPES.join(", ")}. Address values are objects, all others strings.
 
 Security questions (--security-questions-file/-stdin), plaintext; the CLI encrypts question and answer:
   [{"question": "What is your mother's maiden name?", "answer": "Smith"}]
@@ -538,7 +495,9 @@ Examples:
       const client = new ApiClient(auth)
       const data = await client.get<VaultEntry[]>("/vault")
       if (opts.full) {
-        outputJson(data)
+        outputJson(
+          data.map((e) => withoutListValues(e as unknown as Record<string, unknown>))
+        )
       } else {
         const summary = data.map((e) => ({
           id: e.id,
@@ -668,6 +627,7 @@ SMS and MAGIC_LINK codes cannot be read (409).
       opts: { userId: string; domain: string; method?: string; field?: string } & AuthOptions
     ) => {
       try {
+        if (opts.method !== undefined) assertTfaMethod("--method", opts.method)
         const auth = await resolveAuth(opts)
         const client = new ApiClient(auth)
         const params = new URLSearchParams({
