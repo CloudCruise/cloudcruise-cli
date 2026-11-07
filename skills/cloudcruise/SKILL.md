@@ -622,14 +622,14 @@ Raw `--encryption-key <hex>` and `--api-key <key>` flags are **rejected by defau
 
 - The API field is `user_name` (not `username`). Use the `--user-name` flag.
 - Vault entries are looked up by `--user-id` + `--domain`, not by UUID.
-- `vault list` returns summary fields only. Use `--full` for all fields.
+- `vault list` returns summary fields only. Use `--full` for all fields (additional fields and security questions as in `vault get`).
 - `vault get` returns encrypted fields by default. Add `--decrypt` for plaintext.
 - The `--domain` must be a valid URL. `localhost` domains are rejected -- use `http://127.0.0.1:<port>` instead.
 - The vault_schema `domain` and the vault entry `domain` must match exactly.
-- Session/persistence fields (`cookies`, `local_storage`, `persist_*`, concurrency, expiry) have no dedicated flags -- use `--file`/`--stdin` with full JSON.
+- Session/persistence fields (`cookies`, `local_storage`, `persist_*`, concurrency, expiry) have no dedicated flags -- use `--file`/`--stdin` with full JSON. `vault get` output lacks field values and answers: drop `additional_fields` and `security_questions` from it before sending, or the API answers 400.
 - Secret flags (`--password`, `--user-name`, `--tfa-secret`) are visible in `ps` output. Use `--stdin` or `--file` for sensitive values.
 
-**TFA methods.** Repeat `--tfa-method` for several methods: `AUTHENTICATOR`, `EMAIL`, `MAGIC_LINK`, `SMS`. The entry stores them as `tfa_methods`. `AUTHENTICATOR` uses the built-in `--tfa-secret`.
+**TFA methods.** Repeat `--tfa-method` for several methods: `AUTHENTICATOR`, `EMAIL`, `MAGIC_LINK`, `SMS`. The entry stores them as `tfa_methods`; on update the given methods replace the stored set. `AUTHENTICATOR` uses the built-in `--tfa-secret`.
 
 **Additional fields** are typed values on an entry, set with `--additional-fields-file <path>` or `--additional-fields-stdin`: a plaintext JSON array the CLI encrypts value by value.
 
@@ -647,7 +647,7 @@ Raw `--encryption-key <hex>` and `--api-key <key>` flags are **rejected by defau
 
 **Security questions** are question/answer pairs that a `SECURITY_QUESTION` TFA node answers at run time. Set them with `--security-questions-file <path>` or `--security-questions-stdin`: `[{"question": "What is your mother's maiden name?", "answer": "Smith"}]`. Order is kept. Limits: 20 questions, 500 characters per question, 1 KB per answer, questions unique per entry. Answers are never workflow variables.
 
-- On update, each list replaces the stored list; `[]` clears it; omitting the flag keeps it.
+- On update, each list replaces the stored list; `[]` clears it (no encryption key needed); omitting the flag keeps it.
 - Only one flag per command can read stdin.
 - Entries bound to a secret provider take fields and questions from the provider item; the API rejects a non-empty list for them.
 - `vault get` shows fields as `{name, type}` and questions as their ciphertext, without answers. `--decrypt` shows values, questions and answers.

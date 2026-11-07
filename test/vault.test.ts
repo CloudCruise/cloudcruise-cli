@@ -46,14 +46,16 @@ async function startVaultBackend(response: unknown = {}) {
   return { baseUrl: `http://127.0.0.1:${port}`, requests, server }
 }
 
-function runCli(args: string[], stdin?: string) {
+function runCli(args: string[], stdin?: string, env: Record<string, string | undefined> = {}) {
   const home = mkdtempSync(join(tmpdir(), "cloudcruise-test-"))
   const child = spawn(process.execPath, ["dist/bin/cloudcruise.js", ...args], {
     env: {
       ...process.env,
       HOME: home,
       CLOUDCRUISE_API_KEY: "test_key",
-      CLOUDCRUISE_ENCRYPTION_KEY: KEY
+      CLOUDCRUISE_ENCRYPTION_KEY: KEY,
+      CLOUDCRUISE_SKILLS_AUTO_UPDATE: "0",
+      ...env
     }
   })
   let stdout = ""
@@ -104,6 +106,23 @@ test("vault create refuses an unknown or repeated --tfa-method without calling t
     assert.equal(unknown.code, 2)
     assert.match(unknown.stderr, /PIGEON/)
     assert.equal(repeated.code, 2)
+    assert.equal(requests.length, 0)
+  })
+})
+
+const NO_KEY = { CLOUDCRUISE_ENCRYPTION_KEY: undefined }
+
+// The method check is a flag check: it must win over stdin and key problems,
+// so a typo is reported as such and stdin is not consumed first.
+test("vault create reports an invalid --tfa-method before reading stdin or requiring the encryption key", async () => {
+  await withBackend({}, async ({ baseUrl, requests }) => {
+    const result = await runCli(
+      ["vault", "create", ...ENTRY, "--tfa-method", "PIGEON", "--password-stdin", "--base-url", baseUrl],
+      "s3cret",
+      NO_KEY
+    )
+    assert.equal(result.code, 2)
+    assert.match(result.stderr, /PIGEON/)
     assert.equal(requests.length, 0)
   })
 })
@@ -174,6 +193,26 @@ test("vault update with an empty additional fields list sends [] to clear the st
     assert.equal(result.code, 0, result.stderr)
     assert.equal(requests[0].method, "PUT")
     assert.deepEqual((requests[0].body as Record<string, unknown>).additional_fields, [])
+  })
+})
+
+// An empty list holds nothing to encrypt, so clearing works with an API key alone.
+test("vault update clears both lists with [] without an encryption key", async () => {
+  await withBackend({}, async ({ baseUrl, requests }) => {
+    const result = await runCli(
+      [
+        "vault", "update", ...ENTRY,
+        "--additional-fields-file", writeJson([]),
+        "--security-questions-stdin",
+        "--base-url", baseUrl
+      ],
+      "[]",
+      NO_KEY
+    )
+    assert.equal(result.code, 0, result.stderr)
+    const body = requests[0].body as Record<string, unknown>
+    assert.deepEqual(body.additional_fields, [])
+    assert.deepEqual(body.security_questions, [])
   })
 })
 
@@ -258,6 +297,21 @@ test("vault get lists additional field names and types and leaves out values and
   })
 })
 
+// vault list --full must not show more than vault get does.
+test("vault list --full leaves out additional field values and answers like vault get", async () => {
+  const entry = storedEntry()
+  await withBackend([entry], async ({ baseUrl }) => {
+    const result = await runCli(["vault", "list", "--full", "--base-url", baseUrl])
+    assert.equal(result.code, 0, result.stderr)
+    const [out] = JSON.parse(result.stdout)
+    assert.deepEqual(out.additional_fields, [
+      { name: "Member ID", type: "Text" },
+      { name: "Home", type: "Address" }
+    ])
+    assert.deepEqual(out.security_questions, [{ question: entry.security_questions[0].question }])
+  })
+})
+
 // --decrypt is the request for values: every field value, question and answer
 // comes back as plaintext, an Address as its object.
 test("vault get --decrypt shows additional field values, questions and answers in plaintext", async () => {
@@ -299,5 +353,15 @@ test("vault tfa-code sends --method and --field as query parameters and prints t
       { ...base, field: "Backup OTP" },
       base
     ])
+  })
+})
+
+// Methods are case-sensitive in the API; a typo is a usage error (exit 2), not a round trip.
+test("vault tfa-code refuses an unknown --method without calling the API", async () => {
+  await withBackend({}, async ({ baseUrl, requests }) => {
+    const result = await runCli(["vault", "tfa-code", ...ENTRY, "--method", "Email", "--base-url", baseUrl])
+    assert.equal(result.code, 2)
+    assert.match(result.stderr, /Invalid --method value \\"Email\\"/)
+    assert.equal(requests.length, 0)
   })
 })
