@@ -629,7 +629,7 @@ Raw `--encryption-key <hex>` and `--api-key <key>` flags are **rejected by defau
 - Session/persistence fields (`cookies`, `local_storage`, `persist_*`, concurrency, expiry) have no dedicated flags -- use `--file`/`--stdin` with full JSON. `vault get` output lacks field values and answers: drop `additional_fields` and `security_questions` from it before sending, or the API answers 400.
 - Secret flags (`--password`, `--user-name`, `--tfa-secret`) are visible in `ps` output. Use `--stdin` or `--file` for sensitive values.
 
-**TFA methods.** Repeat `--tfa-method` for several methods: `AUTHENTICATOR`, `EMAIL`, `MAGIC_LINK`, `SMS`. The entry stores them as `tfa_methods`; on update the given methods replace the stored set. `AUTHENTICATOR` uses the built-in `--tfa-secret`.
+**TFA methods.** Repeat `--tfa-method` for several methods: `AUTHENTICATOR`, `EMAIL`, `MAGIC_LINK`, `SMS`. The entry stores them as `tfa_methods`; on update the given methods replace the stored set, and `--no-tfa-method` removes them all. `AUTHENTICATOR` uses the built-in `--tfa-secret`.
 
 **Additional fields** are typed values on an entry, set with `--additional-fields-file <path>` or `--additional-fields-stdin`: a plaintext JSON array the CLI encrypts value by value.
 

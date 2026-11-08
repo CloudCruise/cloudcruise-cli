@@ -13,7 +13,7 @@
 ### Changed
 
 - `cloudcruise-workflow-dsl` documents CLICK `click_type: "drag"` and `drag_direction`. A drag holds the mouse down and moves a slider or handle along the target in a straight line, from just inside one edge to the far edge, for example a slide-to-verify slider. Target the element the handle moves along, such as the slider's whole track.
-- `--tfa-method` on `vault create` and `vault update` is repeatable and sends `tfa_methods`, so an entry can have several TFA methods. `MAGIC_LINK` is accepted. Unknown or repeated methods are usage errors.
+- `--tfa-method` on `vault create` and `vault update` is repeatable and sends `tfa_methods`, so an entry can have several TFA methods. `MAGIC_LINK` is accepted. Unknown or repeated methods are usage errors. `vault update --no-tfa-method` removes every TFA method.
 - `vault get` and `vault list --full` show additional fields as `{name, type}` and security questions without answers. `vault get --decrypt` shows field values, questions and answers in plaintext.
 - `cloudcruise-workflow-dsl` documents vault additional fields as `{{context.inputs.<ALIAS>.FIELDS.<name>}}`, the TFA node's `tfa_field`, and the `SECURITY_QUESTION` TFA type with `question_selector` and `fuzzy_match`.
 - `error-codes create` and `error-codes update` no longer list `input_required` as an `--action`. The API retired that action and rejects it with a 400; the remaining actions are `alert`, `cancel`, `pause` and `retry`. The `cloudcruise` skill lists the same four.

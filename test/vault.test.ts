@@ -26,6 +26,13 @@ test("assertFlagsOrPayload rejects field flags combined with --file or --stdin",
   )
 })
 
+test("assertFlagsOrPayload names --no-tfa-method when it is combined with --file", () => {
+  assert.throws(
+    () => assertFlagsOrPayload({ file: "entry.json", tfaMethod: false }),
+    { name: "UsageError", message: /\(got --no-tfa-method\)/ }
+  )
+})
+
 const KEY = "11".repeat(32)
 
 type Recorded = { method?: string; url?: string; body: unknown }
@@ -213,6 +220,36 @@ test("vault update clears both lists with [] without an encryption key", async (
     const body = requests[0].body as Record<string, unknown>
     assert.deepEqual(body.additional_fields, [])
     assert.deepEqual(body.security_questions, [])
+  })
+})
+
+test("vault update --no-tfa-method sends an empty tfa_methods list without an encryption key", async () => {
+  await withBackend({}, async ({ baseUrl, requests }) => {
+    const result = await runCli(
+      ["vault", "update", ...ENTRY, "--no-tfa-method", "--base-url", baseUrl],
+      undefined,
+      NO_KEY
+    )
+    assert.equal(result.code, 0, result.stderr)
+    assert.deepEqual((requests[0].body as Record<string, unknown>).tfa_methods, [])
+  })
+})
+
+// Commander lets the later flag win, so either order would silently drop one of
+// them; the CLI refuses the combination instead.
+test("vault update refuses --tfa-method together with --no-tfa-method, in either order, without calling the API", async () => {
+  await withBackend({}, async ({ baseUrl, requests }) => {
+    const clearFirst = await runCli([
+      "vault", "update", ...ENTRY, "--no-tfa-method", "--tfa-method", "EMAIL", "--base-url", baseUrl
+    ])
+    const clearLast = await runCli([
+      "vault", "update", ...ENTRY, "--tfa-method", "EMAIL", "--no-tfa-method", "--base-url", baseUrl
+    ])
+    for (const result of [clearFirst, clearLast]) {
+      assert.equal(result.code, 2, result.stderr)
+      assert.match(result.stderr, /--tfa-method or --no-tfa-method, not both/)
+    }
+    assert.equal(requests.length, 0)
   })
 })
 

@@ -27,8 +27,8 @@ import {
 const ENCRYPTED_FIELDS = ["user_name", "password", "tfa_secret"] as const
 const PROXY_SETTINGS = ["random", "static", "country", "custom"] as const
 
-function collect(value: string, previous: string[] = []): string[] {
-  return [...previous, value]
+function collect(value: string, previous: string[] | false = []): string[] {
+  return [...(previous || []), value]
 }
 
 function assertTfaMethod(flag: string, method: string): asserts method is VaultTfaMethod {
@@ -168,7 +168,7 @@ type EntryFlags = {
   userAlias?: string
   tfaSecret?: string
   tfaSecretStdin?: boolean
-  tfaMethod?: string[]
+  tfaMethod?: string[] | false
   secretProviderId?: string
   secretRef?: string
   secretCacheTtlSeconds?: string
@@ -236,7 +236,7 @@ function buildPayloadFromFlags(
   if (opts.password !== undefined) payload.password = opts.password
   if (opts.userAlias !== undefined) payload.user_alias = opts.userAlias
   if (opts.tfaSecret !== undefined) payload.tfa_secret = opts.tfaSecret
-  if (opts.tfaMethod !== undefined) payload.tfa_methods = opts.tfaMethod
+  if (opts.tfaMethod !== undefined) payload.tfa_methods = opts.tfaMethod || []
   if (opts.additionalFields !== undefined) payload.additional_fields = opts.additionalFields
   if (opts.securityQuestions !== undefined) payload.security_questions = opts.securityQuestions
   if (opts.secretProviderId !== undefined) {
@@ -307,7 +307,7 @@ async function applyFlagInputs(opts: EntryFlags): Promise<void> {
     secrets["--proxy-value"] = opts.proxyValue
   }
   enforceNoArgSecrets(secrets, "vault credential fields")
-  if (opts.tfaMethod !== undefined) assertTfaMethods(opts.tfaMethod)
+  if (opts.tfaMethod) assertTfaMethods(opts.tfaMethod)
 
   const stdinFlags = [
     opts.passwordStdin && "--password-stdin",
@@ -388,7 +388,7 @@ export function assertFlagsOrPayload(
   if (!hasJsonObjectSource(opts)) return
   const passed = (Object.keys(FIELD_FLAGS) as (keyof typeof FIELD_FLAGS)[])
     .filter((key) => opts[key] !== undefined)
-    .map((key) => FIELD_FLAGS[key])
+    .map((key) => (key === "tfaMethod" && opts[key] === false ? "--no-tfa-method" : FIELD_FLAGS[key]))
   if (passed.length > 0) {
     throw new UsageError(
       `Pass the entry as flags or as a JSON object via --file/--stdin, not both (got ${passed.join(", ")})`
@@ -584,20 +584,28 @@ ${ENTRY_LISTS_HELP}`).action(async (opts: EntryFlags & JsonObjectSource & AuthOp
   })
 
   // vault update
-  addAuthOptions(
+  const update = addAuthOptions(
     addEntryOptions(
       vault.command("update").description("Update an existing vault entry"),
       "Target domain"
-    )
-  ).addHelpText("after", `
+    ).option("--no-tfa-method", "Remove every TFA method from the entry")
+  )
+  const tfaMethodFlags = new Set<string>()
+  update.on("option:tfa-method", () => tfaMethodFlags.add("--tfa-method"))
+  update.on("option:no-tfa-method", () => tfaMethodFlags.add("--no-tfa-method"))
+  update.addHelpText("after", `
 Examples:
   $ cloudcruise vault update --user-id f47ac10b-... --domain "https://app.example.com" --password "new_pass"
   $ cat fields.json | cloudcruise vault update --user-id f47ac10b-... --domain "https://app.example.com" --additional-fields-stdin
+  $ cloudcruise vault update --user-id f47ac10b-... --domain "https://app.example.com" --no-tfa-method
   $ cloudcruise vault update --user-id acme-prod --domain "https://acme.com" --secret-provider-id 25290e80-bbd5-41b3-861e-dea30cc26e27 --secret-ref "op://vaultId/itemId"
   $ cloudcruise vault update --file payload.json
   $ cat payload.json | cloudcruise vault update --stdin
 ${ENTRY_LISTS_HELP}`).action(async (opts: EntryFlags & JsonObjectSource & AuthOptions) => {
     try {
+      if (tfaMethodFlags.size > 1) {
+        throw new UsageError("Pass --tfa-method or --no-tfa-method, not both")
+      }
       await writeEntry("put", opts)
     } catch (err: unknown) {
       fail(err)
