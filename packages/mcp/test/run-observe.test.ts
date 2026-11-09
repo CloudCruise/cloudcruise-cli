@@ -160,23 +160,21 @@ test("observe with after returns the same cursor when nothing changes before the
   const t0 = Date.now()
   const second = (await tool("observe", { handle, after: first.after })).structuredContent!
   const elapsed = Date.now() - t0
-  assert.ok(elapsed >= 300 && elapsed < 2000, `waited ${elapsed} ms`)
+  assert.ok(elapsed >= 390 && elapsed < 2000, `waited ${elapsed} ms`)
   assert.ok(reads(id) > 3, "read more than once while waiting")
   assert.equal(second.after, first.after)
   assert.match(String(second.statusMessage), /No change since your last call; still start/)
 })
 
-test("a short timeout_seconds is waited out, not lost to jitter", async () => {
+test("timeout_seconds under the cap sets the wait", async () => {
   const own = createHttpServer(config, { observeTiming: { delaysMs: [20], capMs: () => 200_000 } })
   const url = `${await listen(own.server)}/mcp`
   const { handle } = scripted([{ status: "execution.start" }])
   try {
-    for (let i = 0; i < 3; i++) {
-      const t0 = Date.now()
-      await tool("observe", { handle, after: "r0.start", timeout_seconds: 1 }, url)
-      const elapsed = Date.now() - t0
-      assert.ok(elapsed >= 900 && elapsed < 2000, `waited ${elapsed} ms`)
-    }
+    const t0 = Date.now()
+    await tool("observe", { handle, after: "r0.start", timeout_seconds: 1 }, url)
+    const elapsed = Date.now() - t0
+    assert.ok(elapsed >= 990 && elapsed < 2000, `waited ${elapsed} ms`)
   } finally {
     await stopMcp(own)
   }

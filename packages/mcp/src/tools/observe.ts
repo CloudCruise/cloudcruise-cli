@@ -66,9 +66,7 @@ export function registerObserve(server: McpServer, tool: ToolContext, timing: Ob
       if (!ref) return errorResult("Invalid handle. Pass the handle exactly as run returned it.")
       let cursor = after === undefined ? undefined : parseCursor(after)
       const cap = timing.capMs(clientName(ctx))
-      const limit = timeout_seconds === undefined ? cap : Math.min(timeout_seconds * 1000, cap)
-      // Jitter spreads re-armed calls apart; it only shortens the wait, so the cap holds.
-      const waitMs = limit - Math.random() * (limit / 16)
+      const waitMs = timeout_seconds === undefined ? cap : Math.min(timeout_seconds * 1000, cap)
       let run: Run
       try {
         run = await readRun(client(tool, ctx, ref.workspaceId), ref.id, cursor, waitMs, timing.delaysMs, ctx.mcpReq.signal)
