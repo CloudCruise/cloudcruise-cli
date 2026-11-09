@@ -20,7 +20,7 @@
     "@modelcontextprotocol/conformance": "0.2.0-alpha.12"
   },
   "dependencies": {
-    "@cloudcruise/strata": "1.16.1",
+    "@cloudcruise/strata": "1.17.0",
     "@modelcontextprotocol/node": "2.1.2",
     "@modelcontextprotocol/server": "2.4.0",
     "zod": "4.6.7"
