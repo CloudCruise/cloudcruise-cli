@@ -9,7 +9,7 @@ export function registerCall(server: McpServer, tool: ToolContext): void {
     {
       title: "Call a CloudCruise operation",
       description:
-        "Run a CloudCruise API operation found with `search`, as the signed-in user. Pass its name and arguments that fit its input schema: path and query parameters at the top level, the request body under `body`. Every operation acts in one workspace: pass workspace_id. Some operations change data.",
+        "Run a CloudCruise API operation found with `search`, as the signed-in user. Pass its name and arguments that fit its input schema: path and query parameters at the top level, the request body under `body`.",
       inputSchema: z.object({
         operation: z.string().describe("The operation's name from search, e.g. workflows.list"),
         arguments: z.record(z.string(), z.unknown()).optional().describe("Arguments that fit the operation's input schema"),

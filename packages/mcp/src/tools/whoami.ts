@@ -19,8 +19,7 @@ export function registerWhoami(server: McpServer, tool: ToolContext): void {
     "whoami",
     {
       title: "Who am I",
-      description:
-        "Show the signed-in CloudCruise user and the workspaces they belong to. Other tools take workspace_id from this list.",
+      description: "Show the signed-in CloudCruise user and the workspaces they belong to.",
       annotations: { readOnlyHint: true, openWorldHint: false }
     },
     async (ctx) => {
