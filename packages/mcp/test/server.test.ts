@@ -184,20 +184,27 @@ test("[2026-07-28] an unsupported protocol version is 400 naming the supported o
 })
 
 for (const { era, negotiation } of ERAS) {
-  test(`[${era}] every tool has a title; only call may change data`, async () => {
+  test(`[${era}] every tool has a title; only call and run may change data`, async () => {
     const client = await connect(mcpUrl, negotiation)
     const { tools } = await client.listTools()
-    assert.deepEqual(tools.map((t) => t.name).sort(), ["call", "probe_long", "probe_poll", "search", "whoami"])
+    assert.deepEqual(tools.map((t) => t.name).sort(), ["call", "observe", "probe_long", "probe_poll", "run", "search", "whoami"])
+    const writers = ["call", "run"]
     for (const tool of tools) {
       assert.ok(tool.title, `${tool.name} title`)
-      assert.equal(tool.annotations?.readOnlyHint, tool.name !== "call", `${tool.name} readOnlyHint`)
+      assert.equal(tool.annotations?.readOnlyHint, !writers.includes(tool.name), `${tool.name} readOnlyHint`)
     }
-    const call = tools.find((t) => t.name === "call")!
-    assert.equal(call.annotations?.destructiveHint, true)
-    // Only call reaches workspace data, and it can't run without a workspace.
-    assert.ok(call.inputSchema.required?.includes("workspace_id"))
-    for (const tool of tools.filter((t) => t.name !== "call")) {
+    for (const tool of tools.filter((t) => writers.includes(t.name))) {
+      assert.equal(tool.annotations?.destructiveHint, true, `${tool.name} destructiveHint`)
+      // These reach workspace data, and can't without a workspace.
+      assert.ok(tool.inputSchema.required?.includes("workspace_id"), `${tool.name} requires workspace_id`)
+    }
+    // observe reads the workspace from its handle.
+    for (const tool of tools.filter((t) => !writers.includes(t.name))) {
       assert.ok(!("workspace_id" in (tool.inputSchema.properties ?? {})), `${tool.name} takes no workspace_id`)
+    }
+    for (const tool of tools) {
+      const alwaysLoad = tool._meta?.["anthropic/alwaysLoad"]
+      assert.equal(alwaysLoad, ["run", "observe"].includes(tool.name) ? true : undefined, `${tool.name} alwaysLoad`)
     }
     await client.close()
   })

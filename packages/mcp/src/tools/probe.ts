@@ -1,6 +1,6 @@
 import type { McpServer } from "@modelcontextprotocol/server"
 import * as z from "zod/v4"
-import { errorResult } from "./common.js"
+import { errorResult, sleep } from "./common.js"
 
 // Longer waits outlive client request timeouts: the MCP TS SDK gives up after
 // 60 s, and Claude Code reports that as "The operation timed out".
@@ -91,17 +91,4 @@ function decodeHandle(handle: string): ProbeJob | undefined {
     // Not base64url JSON.
   }
   return undefined
-}
-
-function sleep(ms: number, signal: AbortSignal): Promise<void> {
-  return new Promise((resolve) => {
-    if (signal.aborted) return resolve()
-    const timer = setTimeout(done, ms)
-    signal.addEventListener("abort", done, { once: true })
-    function done() {
-      clearTimeout(timer)
-      signal.removeEventListener("abort", done)
-      resolve()
-    }
-  })
 }

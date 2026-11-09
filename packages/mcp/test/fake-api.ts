@@ -45,15 +45,32 @@ export interface ApiRequest {
   body?: unknown
 }
 
+/** One read of a scripted run: what GET /run/{id} returns. */
+export interface RunRead {
+  status: string
+  session_retries?: number
+  finalized_at?: string | null
+  data?: unknown
+  errors?: { message: string; error_code: string | null }[]
+}
+
 export interface FakeApi {
   server: Server
   requests: ApiRequest[]
   /** How many times /openapi.json was fetched. */
   specFetches: number
+  /** Scripts a run: each GET /run/{id} returns the next read, then the last one forever. */
+  scriptRun(id: string, reads: RunRead[]): void
 }
 
 export function createFakeApi(spec: unknown = JSON.parse(readFileSync(LAUNCH_SPEC, "utf8"))): FakeApi {
-  const api: FakeApi = { server: undefined as unknown as Server, requests: [], specFetches: 0 }
+  const scripts = new Map<string, RunRead[]>()
+  const api: FakeApi = {
+    server: undefined as unknown as Server,
+    requests: [],
+    specFetches: 0,
+    scriptRun: (id, reads) => void scripts.set(id, [...reads])
+  }
   api.server = createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", "http://fake")
     const send = (status: number, value?: unknown) => {
@@ -107,6 +124,8 @@ export function createFakeApi(spec: unknown = JSON.parse(readFileSync(LAUNCH_SPE
       return send(200, runs)
     }
     if ((m = /^GET \/run\/([^/]+)$/.exec(route))) {
+      const script = scripts.get(m[1])
+      if (script) return send(200, { session_id: m[1], ...(script.length > 1 ? script.shift() : script[0]) })
       const run = RUNS.find((r) => r.session_id === m![1])
       return run ? send(200, run) : send(404, { statusCode: 404, message: "Run not found" })
     }
