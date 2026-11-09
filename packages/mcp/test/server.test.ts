@@ -7,7 +7,6 @@ import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/cli
 import { loadConfig, type Config } from "../dist/config.js"
 import { createHttpServer, type McpHttpServer } from "../dist/http.js"
 import { VERSION } from "../dist/tools/index.js"
-import { MAX_POLL_SECONDS } from "../dist/tools/probe.js"
 import { createFakeApi, WORKSPACE, WORKSPACES, type FakeApi } from "./fake-api.ts"
 
 const ERAS = [
@@ -187,7 +186,7 @@ for (const { era, negotiation } of ERAS) {
   test(`[${era}] every tool has a title; only call and run may change data`, async () => {
     const client = await connect(mcpUrl, negotiation)
     const { tools } = await client.listTools()
-    assert.deepEqual(tools.map((t) => t.name).sort(), ["call", "observe", "probe_long", "probe_poll", "run", "search", "whoami"])
+    assert.deepEqual(tools.map((t) => t.name).sort(), ["call", "observe", "run", "search", "whoami"])
     const writers = ["call", "run"]
     for (const tool of tools) {
       assert.ok(tool.title, `${tool.name} title`)
@@ -408,142 +407,11 @@ test("requests with different tokens share one spec fetch", async () => {
   assert.ok(before >= 1)
 })
 
-test("a probe handle from one instance completes on another", async () => {
-  const other = await startMcp()
-  try {
-    const a = await connect(mcpUrl, ERAS[1].negotiation)
-    const started = structured(
-      await a.callTool({ name: "probe_long", arguments: { duration_seconds: 1 } })
-    )
-    assert.match(String(started.handle), /^probe1\./)
-    await a.close()
-
-    // A different instance has none of the first one's memory; the handle is enough.
-    // Host is checked against MCP_PUBLIC_URL's hostname, so localhost on another port passes.
-    const b = await connect(other.url, ERAS[1].negotiation)
-    const polled = structured(
-      await b.callTool({
-        name: "probe_poll",
-        arguments: { handle: started.handle, timeout_seconds: 5 }
-      })
-    )
-    assert.deepEqual(polled, { status: "done" })
-    await b.close()
-  } finally {
-    await other.instance.closeMcp()
-    other.instance.server.closeAllConnections()
-    await new Promise((resolve) => other.instance.server.close(resolve))
-  }
-})
-
-test("probe_poll without timeout_seconds checks once and returns at once", async () => {
-  const client = await connect(mcpUrl, ERAS[1].negotiation)
-  const { handle } = structured(
-    await client.callTool({ name: "probe_long", arguments: { duration_seconds: 60 } })
-  )
-  const t0 = Date.now()
-  const polled = structured(await client.callTool({ name: "probe_poll", arguments: { handle } }))
-  assert.ok(Date.now() - t0 < 1000, "returned without waiting")
-  assert.equal(polled.status, "running")
-  assert.ok(Number(polled.remaining_seconds) > 50)
-  await client.close()
-})
-
-test("probe_poll with timeout_seconds waits that long, then reports running", async () => {
-  const client = await connect(mcpUrl, ERAS[1].negotiation)
-  const { handle } = structured(
-    await client.callTool({ name: "probe_long", arguments: { duration_seconds: 60 } })
-  )
-  const t0 = Date.now()
-  const polled = structured(
-    await client.callTool({ name: "probe_poll", arguments: { handle, timeout_seconds: 1 } })
-  )
-  const elapsed = Date.now() - t0
-  assert.ok(elapsed >= 900 && elapsed < 3000, `waited ${elapsed} ms`)
-  assert.equal(polled.status, "running")
-  await client.close()
-})
-
-test("probe_poll stops waiting when the client cancels", async () => {
-  const own = await startMcp()
-  const client = await connect(own.url, ERAS[1].negotiation)
-  const { handle } = structured(
-    await client.callTool({ name: "probe_long", arguments: { duration_seconds: 600 } })
-  )
-  // The server's wait is a timer in this process, and only probe_poll sets one
-  // of exactly the cap. Spy on it so the check sees the server side, not only
-  // the client giving up.
-  const realSetTimeout = globalThis.setTimeout
-  const realClearTimeout = globalThis.clearTimeout
-  const longTimers = new Set<unknown>()
-  const cleared = new Set<unknown>()
-  globalThis.setTimeout = ((fn: () => void, ms?: number, ...rest: unknown[]) => {
-    const timer = realSetTimeout(fn, ms, ...rest)
-    if (ms === MAX_POLL_SECONDS * 1000) longTimers.add(timer)
-    return timer
-  }) as typeof setTimeout
-  globalThis.clearTimeout = ((timer: Parameters<typeof clearTimeout>[0]) => {
-    cleared.add(timer)
-    realClearTimeout(timer)
-  }) as typeof clearTimeout
-  try {
-    const controller = new AbortController()
-    const t0 = Date.now()
-    const poll = client.callTool(
-      { name: "probe_poll", arguments: { handle, timeout_seconds: 600 } },
-      { signal: controller.signal }
-    )
-    await new Promise((resolve) => realSetTimeout(resolve, 300))
-    assert.equal(longTimers.size, 1, "server is waiting")
-    controller.abort()
-    await assert.rejects(poll)
-    assert.ok(Date.now() - t0 < 5000)
-    await new Promise((resolve) => realSetTimeout(resolve, 300))
-    // Checked before any shutdown, so only the client's cancel can have released it.
-    assert.ok([...longTimers].every((t) => cleared.has(t)), "server wait released by cancel")
-  } finally {
-    globalThis.setTimeout = realSetTimeout
-    globalThis.clearTimeout = realClearTimeout
-  }
-  await client.close()
-  await own.instance.closeMcp()
-  own.instance.server.closeAllConnections()
-  await new Promise((resolve) => own.instance.server.close(resolve))
-})
-
-test("probe_poll clamps a longer timeout_seconds to the cap and reports running", async () => {
-  const client = await connect(mcpUrl, ERAS[1].negotiation)
-  const { handle } = structured(
-    await client.callTool({ name: "probe_long", arguments: { duration_seconds: 600 } })
-  )
-  // Record the server's wait and fire it at once, so the test doesn't sit out the cap.
-  const realSetTimeout = globalThis.setTimeout
-  const waits: number[] = []
-  globalThis.setTimeout = ((fn: () => void, ms?: number, ...rest: unknown[]) => {
-    if ((ms ?? 0) >= 30_000 && ms !== 60_000) {
-      waits.push(ms as number)
-      return realSetTimeout(fn, 0, ...rest)
-    }
-    return realSetTimeout(fn, ms, ...rest)
-  }) as typeof setTimeout
-  let polled: Record<string, unknown>
-  try {
-    polled = structured(
-      await client.callTool({ name: "probe_poll", arguments: { handle, timeout_seconds: 300 } })
-    )
-  } finally {
-    globalThis.setTimeout = realSetTimeout
-  }
-  assert.deepEqual(waits, [MAX_POLL_SECONDS * 1000])
-  assert.equal(polled.status, "running")
-  assert.ok(Number(polled.remaining_seconds) > 500)
-  await client.close()
-})
-
 test("a request the client aborts is still logged, as unfinished", async () => {
   const own = await startMcp()
-  const handle =
-    "probe1." + Buffer.from(JSON.stringify({ s: Date.now(), d: 600_000 })).toString("base64url")
+  // A run that never changes holds observe until the client gives up.
+  api.scriptRun("run_held", [{ status: "execution.start" }])
+  const handle = `v1:run:${WORKSPACE}:run_held`
   const logged: string[] = []
   const realLog = console.log
   console.log = (...args: unknown[]) => logged.push(args.join(" "))
@@ -558,15 +426,15 @@ test("a request the client aborts is still logged, as unfinished", async () => {
         Accept: "application/json, text/event-stream",
         "MCP-Protocol-Version": "2026-07-28",
         "Mcp-Method": "tools/call",
-        "Mcp-Name": "probe_poll"
+        "Mcp-Name": "observe"
       },
       body: JSON.stringify({
         jsonrpc: "2.0",
         id: 1,
         method: "tools/call",
         params: {
-          name: "probe_poll",
-          arguments: { handle, timeout_seconds: 30 },
+          name: "observe",
+          arguments: { handle, after: "r0.start" },
           _meta: {
             "io.modelcontextprotocol/protocolVersion": "2026-07-28",
             "io.modelcontextprotocol/clientCapabilities": {}
@@ -575,7 +443,7 @@ test("a request the client aborts is still logged, as unfinished", async () => {
       })
     })
     await new Promise((resolve) => setTimeout(resolve, 300))
-    assert.equal(logged.length, 0, "nothing logged while the poll waits")
+    assert.equal(logged.length, 0, "nothing logged while observe waits")
     controller.abort()
     await assert.rejects(call)
     await new Promise((resolve) => setTimeout(resolve, 300))
@@ -605,16 +473,6 @@ test("a normal request is logged once, as finished", async () => {
   assert.equal(lines.length, 1)
   assert.equal(lines[0].status, 200)
   assert.equal(lines[0].finished, true)
-})
-
-test("probe_poll rejects a malformed handle", async () => {
-  const client = await connect(mcpUrl, ERAS[1].negotiation)
-  const result = (await client.callTool({
-    name: "probe_poll",
-    arguments: { handle: "nope" }
-  })) as { isError?: boolean }
-  assert.equal(result.isError, true)
-  await client.close()
 })
 
 test("startup fails naming a missing variable", () => {

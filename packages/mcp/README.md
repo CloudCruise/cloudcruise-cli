@@ -23,7 +23,6 @@ One file per tool in `src/tools/`; `common.ts` holds what more than one tool use
 - `run`: starts a workflow run (`POST /run`) with its inputs in the given workspace and returns a handle, `v1:run:<workspace_id>:<session_id>`, fixed for the run's life.
 - `observe`: follows a run by its handle. Without `after` it returns the run's state at once; with the `after` cursor from its last result it reads `GET /run/{id}` (backing off 1, 2, 5, then every 10 s) until the run changes or the wait ends, then says what changed. A rise in `session_retries` counts as a change, so a requeue between calls is never missed. The run is done once `finalized_at` is set. The wait cap depends on the client: 50 s for Claude Code, 200 s for Claude, 45 s for others. The server keeps no state, so any instance answers any call.
 - `run` and `observe` carry `_meta["anthropic/alwaysLoad"]`, so Claude Code doesn't defer them behind tool search.
-- `probe_long` / `probe_poll`: a fake job for checking that a client keeps polling a handle until it is done. The handle carries its own start time and duration.
 
 ## Configuration
 

@@ -3,7 +3,6 @@ import type { Config } from "../config.js"
 import { registerCall } from "./call.js"
 import { VERSION } from "./common.js"
 import { registerObserve, type ObserveTiming } from "./observe.js"
-import { registerProbes } from "./probe.js"
 import { registerRun } from "./run.js"
 import { registerSearch } from "./search.js"
 import { registerWhoami } from "./whoami.js"
@@ -25,6 +24,5 @@ export async function createServer(config: Config, token: string, options: Serve
   registerWhoami(server, tool)
   registerRun(server, tool)
   registerObserve(server, tool, options.observeTiming)
-  registerProbes(server)
   return server
 }
