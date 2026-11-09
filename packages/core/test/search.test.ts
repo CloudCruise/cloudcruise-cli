@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs"
 import { afterEach, test } from "node:test"
 import assert from "node:assert/strict"
 import { fakeBackend, setup } from "./helpers.ts"
@@ -175,4 +176,89 @@ test("one caller can't change the operations another caller sees", async () => {
     type: "integer",
     description: "Most workflows to return."
   })
+})
+
+function launchSpec(): any {
+  return JSON.parse(readFileSync(new URL("./fixtures/launch.openapi.json", import.meta.url), "utf8"))
+}
+
+// Requests a user types in a chat client, against the operations tagged for launch.
+// The ticket's requests must rank first; the rest must reach the top 3, since an
+// agent reads every result before it calls one.
+const FIRST: [string, string][] = [
+  ["list my workflows", "workflows.list"],
+  ["show the last failed run", "runs.list"],
+  ["what did run 8f2c return", "runs.get"],
+  ["start the invoice workflow", "runs.start"],
+  ["dry run the invoice workflow", "runs.start"],
+  ["what inputs does the invoice workflow need", "workflows.get"],
+  ["tell the builder to add a login step", "builder.message"]
+]
+const TOP_3: [string, string][] = [
+  ["which runs failed today", "runs.list"],
+  ["runs of my invoice workflow", "runs.list"],
+  ["is my run done", "runs.get"],
+  ["is the builder finished", "builder.turn"]
+]
+
+test("known requests find their operation on the launch operations", async () => {
+  const backend = fakeBackend()
+  backend.spec = launchSpec()
+  const { strata } = setup()
+
+  const misses: string[] = []
+  for (const [queries, depth] of [[FIRST, 1], [TOP_3, 3]] as const) {
+    for (const [query, expected] of queries) {
+      const found = (await strata.search(query)).map((op) => op.name)
+      if (!found.slice(0, depth).includes(expected)) {
+        misses.push(`"${query}": expected ${expected} in top ${depth}, got [${found.join(", ")}]`)
+      }
+    }
+  }
+
+  assert.deepEqual(misses, [])
+})
+
+test("parameters, enum values, body fields, path segments and tags are searchable", async () => {
+  const backend = fakeBackend()
+  backend.spec = {
+    openapi: "3.0.0",
+    paths: {
+      "/widgets/{id}": {
+        post: {
+          summary: "Read a thing",
+          tags: ["Gadgets"],
+          "x-strata-surfaces": ["mcp"],
+          "x-strata-name": "things.read",
+          parameters: [
+            { name: "id", in: "path", required: true, schema: { type: "string" } },
+            { name: "colourCode", in: "query", description: "Zebra stripes", schema: { type: "string", enum: ["tint.crimson"] } }
+          ],
+          requestBody: {
+            content: {
+              "application/json": {
+                schema: { type: "object", properties: { flavour: { type: "string", enum: ["mango"] } } }
+              }
+            }
+          }
+        }
+      },
+      "/other": {
+        get: { summary: "Something else", "x-strata-surfaces": ["mcp"], "x-strata-name": "other.get" }
+      }
+    }
+  }
+  const { strata } = setup()
+
+  for (const term of ["widgets", "Gadgets", "colour", "code", "zebra", "crimson", "flavour", "mango"]) {
+    assert.deepEqual((await strata.search(term)).map((op) => op.name), ["things.read"], term)
+  }
+})
+
+test("categories are the reachable operations' tags in the spec's order", async () => {
+  const backend = fakeBackend()
+  backend.spec = launchSpec()
+  const { strata } = setup()
+
+  assert.deepEqual(await strata.categories(), ["Workflows", "Runs", "Builder"])
 })

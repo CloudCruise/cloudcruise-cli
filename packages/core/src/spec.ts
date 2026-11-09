@@ -34,11 +34,17 @@ export interface Plan {
   queryParams: string[]
   /** JSON of `input`, compared before and after a refresh to detect a change. */
   inputKey: string
+  /** The operation's OpenAPI tags. */
+  tags: string[]
+  /** Text search matches besides the name, summary and description. */
+  keywords: string
 }
 
 /** The operations one surface can reach in one spec, and their search index. */
 export interface View {
   plans: Map<string, Plan>
+  /** Tags of the reachable operations, in the spec's tag order. */
+  categories: string[]
   index: SearchIndex
   /** False when no spec has been fetched yet: the view is empty because the API is unreachable. */
   loaded: boolean
@@ -193,6 +199,7 @@ function buildPlan(doc: Obj, path: string, method: string, item: Obj, op: Obj): 
 
   const input: JsonSchema = { type: "object", properties, additionalProperties: false }
   if (required.length) input.required = required
+  const tags = Array.isArray(op.tags) ? op.tags.filter((t): t is string => typeof t === "string") : []
 
   const operation: Operation = {
     name,
@@ -211,8 +218,39 @@ function buildPlan(doc: Obj, path: string, method: string, item: Obj, op: Obj): 
     path,
     pathParams,
     queryParams,
-    inputKey: JSON.stringify(input)
+    inputKey: JSON.stringify(input),
+    tags,
+    keywords: keywords(path, properties, tags)
   }
+}
+
+/**
+ * Parameter names, descriptions and enum values, the body's top-level field names
+ * and enum values, the path's literal segments, and the tags.
+ */
+function keywords(path: string, properties: Record<string, JsonSchema>, tags: string[]): string {
+  const words: string[] = [...path.split("/").filter((s) => s && !s.startsWith("{")), ...tags]
+  for (const [name, schema] of Object.entries(properties)) {
+    if (name === "body") {
+      for (const [field, fieldSchema] of Object.entries(isObj(schema.properties) ? schema.properties : {})) {
+        words.push(field, ...enumWords(fieldSchema))
+      }
+      continue
+    }
+    words.push(name, ...enumWords(schema))
+    if (typeof schema.description === "string") words.push(schema.description)
+  }
+  return words.join(" ")
+}
+
+function enumWords(schema: unknown): string[] {
+  if (!isObj(schema)) return []
+  const values = Array.isArray(schema.enum)
+    ? schema.enum
+    : isObj(schema.items) && Array.isArray(schema.items.enum)
+      ? schema.items.enum
+      : []
+  return values.filter((v): v is string => typeof v === "string")
 }
 
 function deepFreeze<T>(value: T): T {
@@ -237,5 +275,15 @@ export function buildView(doc: Obj, surface: Surface): View {
       if (plan && !plans.has(plan.operation.name)) plans.set(plan.operation.name, plan)
     }
   }
-  return { plans, index: new SearchIndex([...plans.values()].map((p) => p.operation)), loaded: true }
+  const declared = Array.isArray(doc.tags)
+    ? doc.tags.map((t) => (isObj(t) ? t.name : undefined)).filter((t): t is string => typeof t === "string")
+    : []
+  const used = new Set([...plans.values()].flatMap((p) => p.tags))
+  const categories = [...declared.filter((t) => used.has(t)), ...[...used].filter((t) => !declared.includes(t))]
+  return {
+    plans,
+    categories,
+    index: new SearchIndex([...plans.values()].map(({ operation, keywords }) => ({ operation, keywords }))),
+    loaded: true
+  }
 }

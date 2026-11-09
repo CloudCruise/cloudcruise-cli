@@ -1,21 +1,22 @@
 import { after, before, test } from "node:test"
 import assert from "node:assert/strict"
 import { spawnSync } from "node:child_process"
-import { createServer, type IncomingHttpHeaders, type Server } from "node:http"
+import { createServer, type Server } from "node:http"
 import type { AddressInfo } from "node:net"
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client"
 import { loadConfig, type Config } from "../dist/config.js"
 import { createHttpServer, type McpHttpServer } from "../dist/http.js"
 import { MAX_POLL_SECONDS, VERSION } from "../dist/tools.js"
+import { createFakeApi, type FakeApi } from "./fake-api.ts"
 
 const ERAS = [
   { era: "2025-11-25", negotiation: { mode: "legacy" as const } },
   { era: "2026-07-28", negotiation: { mode: { pin: "2026-07-28" } } }
 ]
 
-// A stand-in for the CloudCruise API: accepts the token "good", records headers.
-const apiRequests: { path: string; headers: IncomingHttpHeaders }[] = []
-let api: Server
+// A stand-in for the CloudCruise API: accepts the token "good", records requests.
+let api: FakeApi
+let apiRequests: FakeApi["requests"]
 let config: Config
 let mcp: McpHttpServer
 let mcpUrl: string
@@ -31,17 +32,9 @@ async function startMcp(): Promise<{ instance: McpHttpServer; url: string }> {
 }
 
 before(async () => {
-  api = createServer((req, res) => {
-    apiRequests.push({ path: req.url ?? "", headers: req.headers })
-    if (req.headers.authorization !== "Bearer good") {
-      res.writeHead(401, { "Content-Type": "application/json" }).end('{"message":"Unauthorized"}')
-      return
-    }
-    res
-      .writeHead(200, { "Content-Type": "application/json" })
-      .end(JSON.stringify({ userId: "u1", email: "u1@example.test", workspaceId: "w1" }))
-  })
-  const apiUrl = await listen(api)
+  api = createFakeApi()
+  apiRequests = api.requests
+  const apiUrl = await listen(api.server)
   // MCP_PUBLIC_URL must name the port before the server starts, so reserve one.
   const probe = createServer()
   const port = Number(new URL(await listen(probe)).port)
@@ -60,10 +53,10 @@ before(async () => {
 after(async () => {
   await mcp.closeMcp()
   mcp.server.closeAllConnections()
-  api.closeAllConnections()
+  api.server.closeAllConnections()
   await Promise.all([
     new Promise((resolve) => mcp.server.close(resolve)),
-    new Promise((resolve) => api.close(resolve))
+    new Promise((resolve) => api.server.close(resolve))
   ])
 })
 
@@ -190,14 +183,23 @@ test("[2026-07-28] an unsupported protocol version is 400 naming the supported o
 })
 
 for (const { era, negotiation } of ERAS) {
-  test(`[${era}] every tool has a title and a read-only hint`, async () => {
+  test(`[${era}] every tool has a title; only call may change data`, async () => {
     const client = await connect(mcpUrl, negotiation)
     const { tools } = await client.listTools()
-    assert.deepEqual(tools.map((t) => t.name).sort(), ["probe_long", "probe_poll", "whoami"])
+    assert.deepEqual(tools.map((t) => t.name).sort(), ["call", "probe_long", "probe_poll", "search", "whoami"])
     for (const tool of tools) {
       assert.ok(tool.title, `${tool.name} title`)
-      assert.equal(tool.annotations?.readOnlyHint, true, `${tool.name} readOnlyHint`)
+      assert.equal(tool.annotations?.readOnlyHint, tool.name !== "call", `${tool.name} readOnlyHint`)
     }
+    const call = tools.find((t) => t.name === "call")!
+    assert.equal(call.annotations?.destructiveHint, true)
+    await client.close()
+  })
+
+  test(`[${era}] search's description lists the areas from the spec's tags`, async () => {
+    const client = await connect(mcpUrl, negotiation)
+    const { tools } = await client.listTools()
+    assert.match(tools.find((t) => t.name === "search")!.description ?? "", /Areas: Workflows, Runs, Builder\./)
     await client.close()
   })
 
@@ -241,6 +243,128 @@ for (const { era, negotiation } of ERAS) {
     await client.close()
   })
 }
+
+interface ToolResult {
+  isError?: boolean
+  content: { text: string }[]
+}
+
+async function tool(name: string, args: Record<string, unknown>, token = "good"): Promise<ToolResult> {
+  const client = await connect(mcpUrl, ERAS[1].negotiation, token)
+  try {
+    return (await client.callTool({ name, arguments: args })) as ToolResult
+  } finally {
+    await client.close()
+  }
+}
+
+test("search returns tagged operations with input schemas and no output schemas", async () => {
+  const result = await tool("search", { query: "show the last failed run" })
+  const found = JSON.parse(result.content[0].text) as Record<string, unknown>[]
+
+  assert.equal(found[0].name, "runs.list")
+  assert.ok(found.length <= 5)
+  assert.deepEqual(Object.keys(found[0]).sort(), ["description", "hints", "input", "name", "summary"])
+  assert.ok(!found.some((op) => ["workflows.delete"].includes(op.name as string)), "cli-only stays hidden")
+  const input = found[0].input as { properties: Record<string, unknown> }
+  assert.ok("status" in input.properties)
+})
+
+test("search with no match says so", async () => {
+  const result = await tool("search", { query: "zebra" })
+  assert.equal(result.isError, undefined)
+  assert.match(result.content[0].text, /No operations match/)
+})
+
+test("call runs an operation with the caller's token and returns its data", async () => {
+  apiRequests.length = 0
+  const result = await tool("call", {
+    operation: "runs.list",
+    arguments: { status: "execution.failed", limit: 1 }
+  })
+
+  assert.equal(result.isError, undefined)
+  assert.deepEqual(
+    JSON.parse(result.content[0].text).map((r: { session_id: string }) => r.session_id),
+    ["run_7d1a"]
+  )
+  assert.equal(apiRequests.length, 1)
+  assert.equal(apiRequests[0].path, "/runs?status=execution.failed&limit=1")
+  assert.equal(apiRequests[0].headers.authorization, "Bearer good")
+})
+
+test("call sends the body for a write", async () => {
+  apiRequests.length = 0
+  const body = { workflow_id: "6f1d2c3a-0b4e-4c5d-9e8f-1a2b3c4d5e6f", run_input_variables: { month: "2026-10" } }
+  const result = await tool("call", { operation: "runs.start", arguments: { body } })
+
+  const { session_id } = JSON.parse(result.content[0].text)
+  assert.match(session_id, /^run_/)
+  assert.deepEqual(apiRequests.map((r) => [r.method, r.path, r.body]), [["POST", "/run", body]])
+  const run = await tool("call", { operation: "runs.get", arguments: { session_id } })
+  assert.equal(JSON.parse(run.content[0].text).status, "execution.queued")
+})
+
+test("call with no content from the API says it is done", async () => {
+  const result = await tool("call", {
+    operation: "builder.message",
+    arguments: { session_id: "b1", body: { message: "Add a login step" } }
+  })
+  assert.equal(result.isError, undefined)
+  assert.match(result.content[0].text, /^Done\./)
+})
+
+test("call refuses an operation not tagged for mcp without sending it", async () => {
+  apiRequests.length = 0
+  for (const operation of ["workflows.delete", "vault.create", "nope"]) {
+    const result = await tool("call", { operation, arguments: { workflow_id: "x" } })
+    assert.equal(result.isError, true, operation)
+    assert.match(result.content[0].text, new RegExp(`No operation named ${operation}`))
+  }
+  assert.equal(apiRequests.length, 0)
+})
+
+test("call with arguments that don't fit returns the schema without sending", async () => {
+  apiRequests.length = 0
+  const result = await tool("call", { operation: "runs.get", arguments: { id: "run_8f2c" } })
+
+  assert.equal(result.isError, true)
+  assert.match(result.content[0].text, /unknown argument `id`.*missing `session_id`.*Schema:/)
+  assert.equal(apiRequests.length, 0)
+})
+
+test("call passes the API's error through", async () => {
+  const notFound = await tool("call", { operation: "runs.get", arguments: { session_id: "run_0000" } })
+  assert.equal(notFound.isError, true)
+  assert.match(notFound.content[0].text, /runs\.get failed \(404\): Run not found/)
+})
+
+for (const [token, expected] of [
+  ["expired", /Reconnect the CloudCruise connector/],
+  ["noprivs", /\(401\): Missing privileges/],
+  ["mfa", /\(403\): MFA challenge required/]
+] as const) {
+  test(`call with token "${token}" says ${expected}`, async () => {
+    const result = await tool("call", { operation: "workflows.list" }, token)
+    assert.equal(result.isError, true)
+    assert.match(result.content[0].text, expected)
+    if (token !== "expired") assert.doesNotMatch(result.content[0].text, /Reconnect/)
+  })
+
+  test(`whoami with token "${token}" says ${expected}`, async () => {
+    const result = await tool("whoami", {}, token)
+    assert.equal(result.isError, true)
+    assert.match(result.content[0].text, token === "expired" ? expected : /Missing privileges|MFA challenge required/)
+  })
+}
+
+test("requests with different tokens share one spec fetch", async () => {
+  const before = api.specFetches
+  await Promise.all([tool("search", { query: "workflows" }), tool("search", { query: "runs" }, "noprivs")])
+  // The spec was fetched when the server first started; within the TTL, no request fetches it again.
+  assert.equal(api.specFetches, before)
+  assert.ok(before >= 1)
+})
 
 test("a probe handle from one instance completes on another", async () => {
   const other = await startMcp()

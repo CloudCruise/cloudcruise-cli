@@ -71,6 +71,11 @@ export class Strata {
     return view.index.search(query, limit)
   }
 
+  /** The tags of the operations this surface can reach, e.g. `["Workflows", "Runs"]`. */
+  async categories(): Promise<string[]> {
+    return (await this.view(false)).categories
+  }
+
   /**
    * Sends one request for the named operation. Never retries: when the API rejects
    * a request, the error says why and the caller decides whether to call again.

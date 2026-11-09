@@ -15,6 +15,8 @@ Stateless streamable HTTP: every request builds a fresh server, so any replica c
 
 ## Tools
 
+- `search`: finds the API operations tagged for MCP that match a plain-language query, up to 5 by default, each with its name, summary, description, hints and input schema. The tool description lists the spec's tags as areas.
+- `call`: runs one of those operations with the caller's token: path and query parameters at the top level of `arguments`, the request body under `body`. Returns the API's data as JSON. A 401 for an invalid, expired or missing token asks the user to reconnect; other API errors pass the API's message through.
 - `whoami`: the signed-in user, from `GET /users/me`.
 - `probe_long` / `probe_poll`: a fake job for checking that a client keeps polling a handle until it is done. The handle carries its own start time and duration.
 
