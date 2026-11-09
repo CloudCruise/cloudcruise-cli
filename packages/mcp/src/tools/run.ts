@@ -8,7 +8,7 @@ export function registerRun(server: McpServer, tool: ToolContext): void {
     {
       title: "Run a workflow",
       description:
-        "Start a run of a CloudCruise workflow with its input variables. Returns at once with a handle; the run continues on its own. Follow it with observe.",
+        "Start a run of a CloudCruise workflow with its input variables. Returns at once with a handle; the run continues on its own. To follow it, use observe.",
       inputSchema: z.object({
         workflow_id: z.guid().describe("The workflow to run"),
         inputs: z
@@ -31,7 +31,7 @@ export function registerRun(server: McpServer, tool: ToolContext): void {
         }
         const out = {
           handle: formatHandle({ kind: "run", workspaceId: workspace_id, id: session_id }),
-          next: "The run continues on its own. Call observe with this handle to follow it."
+          next: "The run continues on its own. To follow it, call observe with this handle."
         }
         return { content: [{ type: "text", text: JSON.stringify(out) }], structuredContent: out }
       } catch (err) {
