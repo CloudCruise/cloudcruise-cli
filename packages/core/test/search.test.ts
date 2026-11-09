@@ -255,6 +255,49 @@ test("parameters, enum values, body fields, path segments and tags are searchabl
   }
 })
 
+test("body fields inside allOf, oneOf and anyOf branches are searchable", async () => {
+  const backend = fakeBackend()
+  backend.spec = {
+    openapi: "3.0.0",
+    paths: {
+      "/things": {
+        post: {
+          summary: "Make a thing",
+          "x-strata-surfaces": ["mcp"],
+          "x-strata-name": "things.make",
+          requestBody: {
+            content: { "application/json": { schema: { $ref: "#/components/schemas/MakeThing" } } }
+          }
+        }
+      },
+      "/other": {
+        get: { summary: "Something else", "x-strata-surfaces": ["mcp"], "x-strata-name": "other.get" }
+      }
+    },
+    components: {
+      schemas: {
+        Base: { type: "object", properties: { flavour: { type: "string", enum: ["mango"] } } },
+        MakeThing: {
+          allOf: [
+            { $ref: "#/components/schemas/Base" },
+            {
+              oneOf: [
+                { type: "object", properties: { zebra: { type: "boolean" } } },
+                { nullable: true, properties: { walrus: { type: "string", enum: ["tusk.long"] } } }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  }
+  const { strata } = setup()
+
+  for (const term of ["flavour", "mango", "zebra", "walrus", "tusk"]) {
+    assert.deepEqual((await strata.search(term)).map((op) => op.name), ["things.make"], term)
+  }
+})
+
 test("categories are the reachable operations' tags in the spec's order", async () => {
   const backend = fakeBackend()
   backend.spec = launchSpec()

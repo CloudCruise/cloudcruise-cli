@@ -232,15 +232,27 @@ function keywords(path: string, properties: Record<string, JsonSchema>, tags: st
   const words: string[] = [...path.split("/").filter((s) => s && !s.startsWith("{")), ...tags]
   for (const [name, schema] of Object.entries(properties)) {
     if (name === "body") {
-      for (const [field, fieldSchema] of Object.entries(isObj(schema.properties) ? schema.properties : {})) {
-        words.push(field, ...enumWords(fieldSchema))
-      }
+      words.push(...bodyWords(schema))
       continue
     }
     words.push(name, ...enumWords(schema))
     if (typeof schema.description === "string") words.push(schema.description)
   }
   return words.join(" ")
+}
+
+/** Top-level field names and enum values, including those in `allOf`, `oneOf` and `anyOf` branches. */
+function bodyWords(schema: unknown): string[] {
+  if (!isObj(schema)) return []
+  const words: string[] = []
+  for (const [field, fieldSchema] of Object.entries(isObj(schema.properties) ? schema.properties : {})) {
+    words.push(field, ...enumWords(fieldSchema))
+  }
+  for (const key of ["allOf", "oneOf", "anyOf"]) {
+    const branches = schema[key]
+    if (Array.isArray(branches)) for (const branch of branches) words.push(...bodyWords(branch))
+  }
+  return words
 }
 
 function enumWords(schema: unknown): string[] {
