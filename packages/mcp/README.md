@@ -8,9 +8,9 @@ Stateless streamable HTTP: every request builds a fresh server, so any replica c
 
 | Path | |
 |---|---|
-| `POST /mcp` | MCP. Without `Authorization: Bearer …` it answers `401` with `WWW-Authenticate: Bearer resource_metadata="…"`. |
+| `POST /mcp` | MCP. Without `Authorization: Bearer …` it answers `401` with `WWW-Authenticate: Bearer resource_metadata="…", scope="openid email offline_access"`. |
 | `GET`, `DELETE /mcp` | `405` |
-| `GET /.well-known/oauth-protected-resource[/mcp]` | Protected-resource metadata: `resource` is `${MCP_PUBLIC_URL}/mcp`, the issuer is the only authorization server. |
+| `GET /.well-known/oauth-protected-resource[/mcp]` | Protected-resource metadata: `resource` is `${MCP_PUBLIC_URL}/mcp`, the issuer is the only authorization server, `scopes_supported` is `openid email offline_access`. |
 | `GET /healthz` | `200`, no auth |
 
 ## Tools
