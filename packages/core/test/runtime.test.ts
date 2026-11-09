@@ -234,6 +234,7 @@ test("rejects arguments that don't fit the shape without sending", async () => {
     ["workflows.get", { workflowId: ".." }, '`workflowId` can\'t be ".."'],
     ["workflows.get", { workflowId: "." }, '`workflowId` can\'t be "."'],
     ["workflows.get", { workflowId: "" }, '`workflowId` can\'t be ""'],
+    ["workflows.get", { workflowId: "a\uD800b" }, "`workflowId` contains characters that can't go in a URL"],
     ["workflows.list", { toString: 1 }, "unknown argument `toString`"],
     ["workflows.list", { constructor: 1 }, "unknown argument `constructor`"]
   ]

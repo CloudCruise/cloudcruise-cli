@@ -192,6 +192,8 @@ function checkShape(plan: Plan, args: unknown): string[] {
     } else if (["", ".", ".."].includes(String(value))) {
       // fetch would collapse these and send the request to a different path.
       problems.push(`\`${key}\` can't be "${String(value)}"`)
+    } else if (!isEncodable(String(value))) {
+      problems.push(`\`${key}\` contains characters that can't go in a URL`)
     }
   }
   for (const key of plan.queryParams) {
@@ -202,6 +204,16 @@ function checkShape(plan: Plan, args: unknown): string[] {
     }
   }
   return problems
+}
+
+/** False for strings encodeURIComponent rejects, such as an unpaired surrogate. */
+function isEncodable(value: string): boolean {
+  try {
+    encodeURIComponent(value)
+    return true
+  } catch {
+    return false
+  }
 }
 
 function buildRequest(plan: Plan, args: Record<string, unknown>): { path: string; body?: unknown } {
