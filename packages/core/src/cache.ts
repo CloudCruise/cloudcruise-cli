@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs"
 import { buildView, isSpec, type Surface, type View } from "./spec.js"
 
 export interface SpecCacheOptions {
@@ -10,8 +9,6 @@ export interface SpecCacheOptions {
   retryMs?: number
   /** How long a spec fetch may take before it counts as failed. Default 10 seconds. */
   timeoutMs?: number
-  /** Spec to serve when none has been fetched yet and the fetch fails. Default: the one bundled with this package. */
-  snapshot?: () => unknown
   now?: () => number
 }
 
@@ -27,10 +24,6 @@ interface Entry {
 
 const EMPTY_SPEC = { openapi: "3.0.0", paths: {} }
 
-function bundledSnapshot(): unknown {
-  return JSON.parse(readFileSync(new URL("./openapi.snapshot.json", import.meta.url), "utf8"))
-}
-
 /**
  * The API spec per base URL. It holds nothing about any caller and fetches the spec
  * without a token, so one cache can serve every user in a process.
@@ -44,7 +37,6 @@ export class SpecCache {
       ttlMs: 5 * 60_000,
       retryMs: 30_000,
       timeoutMs: 10_000,
-      snapshot: bundledSnapshot,
       now: Date.now,
       ...options
     })
@@ -75,9 +67,10 @@ export class SpecCache {
       })
       await e.inflight
     }
+    if (!entry.spec) return { ...buildView(EMPTY_SPEC, surface), loaded: false }
     let view = entry.views.get(surface)
     if (!view) {
-      view = buildView(entry.spec ?? EMPTY_SPEC, surface)
+      view = buildView(entry.spec, surface)
       entry.views.set(surface, view)
     }
     return view
@@ -106,16 +99,7 @@ export class SpecCache {
       entry.freshUntil = this.options.now() + this.options.ttlMs
       entry.failedUntil = 0
     } catch {
-      // Keep serving what we have; with nothing yet, fall back to the snapshot.
-      if (!entry.spec) {
-        let snapshot: unknown
-        try {
-          snapshot = this.options.snapshot()
-        } catch {
-          snapshot = undefined
-        }
-        this.replace(entry, isSpec(snapshot) ? snapshot : EMPTY_SPEC, undefined)
-      }
+      // Keep serving the spec we have, if any.
       entry.failedUntil = this.options.now() + this.options.retryMs
     }
   }

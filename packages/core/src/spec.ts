@@ -40,6 +40,8 @@ export interface Plan {
 export interface View {
   plans: Map<string, Plan>
   index: SearchIndex
+  /** False when no spec has been fetched yet: the view is empty because the API is unreachable. */
+  loaded: boolean
 }
 
 type Obj = Record<string, unknown>
@@ -235,5 +237,5 @@ export function buildView(doc: Obj, surface: Surface): View {
       if (plan && !plans.has(plan.operation.name)) plans.set(plan.operation.name, plan)
     }
   }
-  return { plans, index: new SearchIndex([...plans.values()].map((p) => p.operation)) }
+  return { plans, index: new SearchIndex([...plans.values()].map((p) => p.operation)), loaded: true }
 }

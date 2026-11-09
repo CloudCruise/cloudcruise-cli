@@ -20,11 +20,10 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc && node scripts/copy-snapshot.mjs",
-    "dev": "node scripts/copy-snapshot.mjs && tsc --watch --preserveWatchOutput",
+    "build": "tsc",
+    "dev": "tsc --watch --preserveWatchOutput",
     "prepack": "npm run build",
-    "test": "node --test test/*.test.ts",
-    "spec:snapshot": "node scripts/update-snapshot.mjs"
+    "test": "node --test test/*.test.ts"
   },
   "engines": {
     "node": ">=18"

@@ -78,7 +78,11 @@ export class Strata {
   async call(name: string, args: unknown, options: CallOptions = {}): Promise<CallResult> {
     let plan = (await this.view(false)).plans.get(name)
     if (!plan) {
-      plan = (await this.view(true)).plans.get(name)
+      const view = await this.view(true)
+      plan = view.plans.get(name)
+      if (!plan && !view.loaded) {
+        throw new CallError("unavailable", `Could not reach the CloudCruise API for ${name}.`)
+      }
       if (!plan) {
         throw new CallError("unknown_operation", `No operation named ${name}. Search for it.`)
       }

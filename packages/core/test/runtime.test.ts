@@ -1,8 +1,7 @@
 import { afterEach, test } from "node:test"
 import assert from "node:assert/strict"
-import { readFileSync } from "node:fs"
 import { CallError, SpecCache } from "../dist/index.js"
-import { BASE, editOperation, fakeBackend, fixture, setup } from "./helpers.ts"
+import { BASE, editOperation, fakeBackend, setup } from "./helpers.ts"
 
 const realFetch = globalThis.fetch
 
@@ -92,38 +91,27 @@ test("a failed refresh keeps serving the old spec and retries after 30 s", async
   assert.equal(backend.specRequests.length, 3)
 })
 
-test("serves the snapshot when there is no spec yet and the fetch fails, then retries", async () => {
+test("with no spec yet and the fetch failing, search finds nothing and call is unavailable", async () => {
   const backend = fakeBackend()
   backend.specFailure = "throw"
-  const clock = { now: 0 }
-  const specs = new SpecCache({ client: "test/1.0.0", now: () => clock.now, snapshot: fixture })
-  const { strata } = setup({ specs })
+  const { strata, clock } = setup()
 
-  assert.equal((await strata.search("list workflows"))[0].name, "workflows.list")
+  assert.deepEqual(await strata.search("list workflows"), [])
+  const err = await callError(strata.call("workflows.list", {}))
+  assert.equal(err.kind, "unavailable")
+  assert.equal(err.message, "Could not reach the CloudCruise API for workflows.list.")
+  assert.equal(backend.apiCalls.length, 0)
+  assert.equal(backend.specRequests.length, 1)
 
   backend.specFailure = undefined
-  backend.spec = editOperation(backend.spec, "/workflows", "get", (op) => {
-    op["x-strata-name"] = "workflows.search"
-  })
+  clock.now = 29_999
+  assert.deepEqual(await strata.search("list workflows"), [])
+  assert.equal(backend.specRequests.length, 1)
+
   clock.now = 30_000
-  assert.equal((await strata.search("list workflows"))[0].name, "workflows.search")
-})
-
-test("the bundled snapshot ships in dist as an OpenAPI document", () => {
-  const snapshot = JSON.parse(readFileSync(new URL("../dist/openapi.snapshot.json", import.meta.url), "utf8"))
-
-  assert.equal(typeof snapshot.openapi, "string")
-  assert.equal(typeof snapshot.paths, "object")
-})
-
-test("bundled snapshot loads and exposes nothing yet", async () => {
-  const backend = fakeBackend()
-  backend.specFailure = 404
-  const { strata } = setup({ specs: new SpecCache({ client: "test/1.0.0" }) })
-
-  assert.deepEqual(await strata.search("workflow"), [])
-  const err = await callError(strata.call("workflows.list", {}))
-  assert.equal(err.kind, "unknown_operation")
+  assert.equal((await strata.search("list workflows"))[0].name, "workflows.list")
+  await strata.call("workflows.list", {})
+  assert.equal(backend.apiCalls.length, 1)
 })
 
 test("two callers on one cache send their own tokens and fetch the spec once", async () => {

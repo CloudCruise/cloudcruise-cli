@@ -40,8 +40,4 @@ try {
 
 `call` takes path and query parameters as top-level arguments and the JSON body under `body`. It never retries; a `CallError` message says what went wrong in words meant for the agent that made the call.
 
-The spec is checked again after 5 minutes, and whenever a call gets a 4xx. If no spec can be fetched, the runtime falls back to the snapshot bundled with the release. Refresh the snapshot when bumping a release:
-
-```sh
-npm run spec:snapshot -w @cloudcruise/strata -- https://api.cloudcruise.com
-```
+The spec is checked again after 5 minutes, and whenever a call gets a 4xx. If a refresh fails, the runtime keeps using the spec it has. If it has none yet, search finds nothing and `call` throws an `unavailable` error until the API can be reached.

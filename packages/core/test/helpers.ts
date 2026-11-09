@@ -68,9 +68,7 @@ export function setup(
   options: { surface?: Surface; token?: string; specs?: SpecCache; clock?: Clock } = {}
 ) {
   const clock = options.clock ?? { now: 0 }
-  const specs =
-    options.specs ??
-    new SpecCache({ client: "test/1.0.0", now: () => clock.now, snapshot: () => ({ openapi: "3.0.0", paths: {} }) })
+  const specs = options.specs ?? new SpecCache({ client: "test/1.0.0", now: () => clock.now })
   const client = new StrataClient({
     baseUrl: BASE,
     token: options.token ?? "tok",
