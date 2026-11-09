@@ -1,7 +1,7 @@
 import { CallError } from "@cloudcruise/strata"
 import type { McpServer } from "@modelcontextprotocol/server"
 import * as z from "zod/v4"
-import { RECONNECT, TOKEN_REJECTED, errorResult, strata, text, type ToolContext } from "./common.js"
+import { RECONNECT, TOKEN_REJECTED, errorResult, strata, text, workspaceIdInput, type ToolContext } from "./common.js"
 
 export function registerCall(server: McpServer, tool: ToolContext): void {
   server.registerTool(
@@ -9,16 +9,17 @@ export function registerCall(server: McpServer, tool: ToolContext): void {
     {
       title: "Call a CloudCruise operation",
       description:
-        "Run a CloudCruise API operation found with `search`, as the signed-in user. Pass its name and arguments that fit its input schema: path and query parameters at the top level, the request body under `body`. Some operations change data.",
+        "Run a CloudCruise API operation found with `search`, as the signed-in user. Pass its name and arguments that fit its input schema: path and query parameters at the top level, the request body under `body`. Every operation acts in one workspace: pass workspace_id. Some operations change data.",
       inputSchema: z.object({
         operation: z.string().describe("The operation's name from search, e.g. workflows.list"),
-        arguments: z.record(z.string(), z.unknown()).optional().describe("Arguments that fit the operation's input schema")
+        arguments: z.record(z.string(), z.unknown()).optional().describe("Arguments that fit the operation's input schema"),
+        workspace_id: workspaceIdInput
       }),
       annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true }
     },
-    async ({ operation, arguments: args }, ctx) => {
+    async ({ operation, arguments: args, workspace_id }, ctx) => {
       try {
-        const { data } = await strata(tool, ctx).call(operation, args ?? {})
+        const { data } = await strata(tool, ctx, workspace_id).call(operation, args ?? {})
         return text(data === undefined ? "Done. The API returned no content." : JSON.stringify(data))
       } catch (err) {
         // Anything else thrown becomes an error result with its message, via the SDK.

@@ -8,7 +8,7 @@ import { loadConfig, type Config } from "../dist/config.js"
 import { createHttpServer, type McpHttpServer } from "../dist/http.js"
 import { VERSION } from "../dist/tools/index.js"
 import { MAX_POLL_SECONDS } from "../dist/tools/probe.js"
-import { createFakeApi, type FakeApi } from "./fake-api.ts"
+import { createFakeApi, WORKSPACE, WORKSPACES, type FakeApi } from "./fake-api.ts"
 
 const ERAS = [
   { era: "2025-11-25", negotiation: { mode: "legacy" as const } },
@@ -194,6 +194,11 @@ for (const { era, negotiation } of ERAS) {
     }
     const call = tools.find((t) => t.name === "call")!
     assert.equal(call.annotations?.destructiveHint, true)
+    // Only call reaches workspace data, and it can't run without a workspace.
+    assert.ok(call.inputSchema.required?.includes("workspace_id"))
+    for (const tool of tools.filter((t) => t.name !== "call")) {
+      assert.ok(!("workspace_id" in (tool.inputSchema.properties ?? {})), `${tool.name} takes no workspace_id`)
+    }
     await client.close()
   })
 
@@ -217,18 +222,19 @@ for (const { era, negotiation } of ERAS) {
     assert.deepEqual(structured(result), {
       user_id: "u1",
       email: "u1@example.test",
-      workspace_id: "w1"
+      workspaces: WORKSPACES.map(({ id, name, organization_name, role }) => ({ id, name, organization: organization_name, role }))
     })
-    assert.equal(apiRequests.length, 1)
-    const { path, headers } = apiRequests[0]
-    assert.equal(path, "/users/me")
-    assert.equal(headers.authorization, "Bearer good")
-    assert.equal(headers["x-cloudcruise-client"], `mcp/${VERSION}`)
-    // Only 2026-07-28 clients send their name on every request.
-    assert.equal(
-      headers["x-cloudcruise-agent"],
-      era === "2026-07-28" ? "test-client" : undefined
-    )
+    assert.deepEqual(apiRequests.map((r) => r.path).sort(), ["/me/workspaces", "/users/me"])
+    for (const { headers } of apiRequests) {
+      assert.equal(headers.authorization, "Bearer good")
+      assert.equal(headers["x-cloudcruise-client"], `mcp/${VERSION}`)
+      assert.equal(headers["x-workspace-id"], undefined)
+      // Only 2026-07-28 clients send their name on every request.
+      assert.equal(
+        headers["x-cloudcruise-agent"],
+        era === "2026-07-28" ? "test-client" : undefined
+      )
+    }
     await client.close()
   })
 
@@ -279,7 +285,7 @@ test("search with no match says so", async () => {
 
 test("call runs an operation with the caller's token and returns its data", async () => {
   apiRequests.length = 0
-  const result = await tool("call", {
+  const result = await tool("call", { workspace_id: WORKSPACE,
     operation: "runs.list",
     arguments: { status: "execution.failed", limit: 1 }
   })
@@ -292,22 +298,50 @@ test("call runs an operation with the caller's token and returns its data", asyn
   assert.equal(apiRequests.length, 1)
   assert.equal(apiRequests[0].path, "/runs?status=execution.failed&limit=1")
   assert.equal(apiRequests[0].headers.authorization, "Bearer good")
+  assert.equal(apiRequests[0].headers["x-workspace-id"], WORKSPACE)
+})
+
+test("call acts in the workspace it is given", async () => {
+  apiRequests.length = 0
+  const other = WORKSPACES[1].id
+  const result = await tool("call", { workspace_id: other, operation: "workflows.list" })
+  assert.equal(result.isError, undefined)
+  assert.deepEqual(apiRequests.map((r) => [r.path, r.headers["x-workspace-id"]]), [["/workflows", other]])
+})
+
+for (const [label, args] of [
+  ["without workspace_id", { operation: "workflows.list" }],
+  ["with a workspace_id that isn't a UUID", { operation: "workflows.list", workspace_id: "billing" }]
+] as const) {
+  test(`call ${label} is an input error naming the field, and sends nothing`, async () => {
+    apiRequests.length = 0
+    const result = await tool("call", args)
+    assert.equal(result.isError, true)
+    assert.match(result.content[0].text, /Input validation error[\s\S]*workspace_id/)
+    assert.equal(apiRequests.length, 0)
+  })
+}
+
+test("call in a workspace the user isn't in passes the API's 403 through", async () => {
+  const result = await tool("call", { workspace_id: "0f0e0d0c-0b0a-4908-8706-050403020100", operation: "workflows.list" })
+  assert.equal(result.isError, true)
+  assert.match(result.content[0].text, /\(403\): Access denied to this workspace/)
 })
 
 test("call sends the body for a write", async () => {
   apiRequests.length = 0
   const body = { workflow_id: "6f1d2c3a-0b4e-4c5d-9e8f-1a2b3c4d5e6f", run_input_variables: { month: "2026-10" } }
-  const result = await tool("call", { operation: "runs.start", arguments: { body } })
+  const result = await tool("call", { workspace_id: WORKSPACE, operation: "runs.start", arguments: { body } })
 
   const { session_id } = JSON.parse(result.content[0].text)
   assert.match(session_id, /^run_/)
   assert.deepEqual(apiRequests.map((r) => [r.method, r.path, r.body]), [["POST", "/run", body]])
-  const run = await tool("call", { operation: "runs.get", arguments: { session_id } })
+  const run = await tool("call", { workspace_id: WORKSPACE, operation: "runs.get", arguments: { session_id } })
   assert.equal(JSON.parse(run.content[0].text).status, "execution.queued")
 })
 
 test("call with no content from the API says it is done", async () => {
-  const result = await tool("call", {
+  const result = await tool("call", { workspace_id: WORKSPACE,
     operation: "builder.message",
     arguments: { session_id: "b1", body: { message: "Add a login step" } }
   })
@@ -318,7 +352,7 @@ test("call with no content from the API says it is done", async () => {
 test("call refuses an operation not tagged for mcp without sending it", async () => {
   apiRequests.length = 0
   for (const operation of ["workflows.delete", "vault.create", "nope"]) {
-    const result = await tool("call", { operation, arguments: { workflow_id: "x" } })
+    const result = await tool("call", { workspace_id: WORKSPACE, operation, arguments: { workflow_id: "x" } })
     assert.equal(result.isError, true, operation)
     assert.match(result.content[0].text, new RegExp(`No operation named ${operation}`))
   }
@@ -327,7 +361,7 @@ test("call refuses an operation not tagged for mcp without sending it", async ()
 
 test("call with arguments that don't fit returns the schema without sending", async () => {
   apiRequests.length = 0
-  const result = await tool("call", { operation: "runs.get", arguments: { id: "run_8f2c" } })
+  const result = await tool("call", { workspace_id: WORKSPACE, operation: "runs.get", arguments: { id: "run_8f2c" } })
 
   assert.equal(result.isError, true)
   assert.match(result.content[0].text, /unknown argument `id`.*missing `session_id`.*Schema:/)
@@ -335,7 +369,7 @@ test("call with arguments that don't fit returns the schema without sending", as
 })
 
 test("call passes the API's error through", async () => {
-  const notFound = await tool("call", { operation: "runs.get", arguments: { session_id: "run_0000" } })
+  const notFound = await tool("call", { workspace_id: WORKSPACE, operation: "runs.get", arguments: { session_id: "run_0000" } })
   assert.equal(notFound.isError, true)
   assert.match(notFound.content[0].text, /runs\.get failed \(404\): Run not found/)
 })
@@ -346,7 +380,7 @@ for (const [token, expected] of [
   ["mfa", /\(403\): MFA challenge required/]
 ] as const) {
   test(`call with token "${token}" says ${expected}`, async () => {
-    const result = await tool("call", { operation: "workflows.list" }, token)
+    const result = await tool("call", { workspace_id: WORKSPACE, operation: "workflows.list" }, token)
     assert.equal(result.isError, true)
     assert.match(result.content[0].text, expected)
     if (token !== "expired") assert.doesNotMatch(result.content[0].text, /Reconnect/)

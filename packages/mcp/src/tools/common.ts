@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs"
 import { ApiError, SpecCache, Strata, StrataClient } from "@cloudcruise/strata"
 import { CLIENT_INFO_META_KEY, type CallToolResult, type ServerContext } from "@modelcontextprotocol/server"
+import * as z from "zod/v4"
 import type { Config } from "../config.js"
 
 export const VERSION = (
@@ -19,24 +20,29 @@ export const TOKEN_REJECTED = /invalid or expired|missing authorization|missing 
 export const RECONNECT =
   "The CloudCruise API rejected your token. Reconnect the CloudCruise connector to sign in again."
 
+// Every tool that reaches workspace data requires it. The API answers 503, not 403,
+// to an id that isn't a UUID, so the schema refuses one before it is sent.
+export const workspaceIdInput = z.guid().describe("The workspace to act in.")
+
 /** What every tool of one request shares: the server's config and the caller's token. */
 export interface ToolContext {
   config: Config
   token: string
 }
 
-export function client({ config, token }: ToolContext, ctx?: ServerContext): StrataClient {
+export function client({ config, token }: ToolContext, ctx?: ServerContext, workspaceId?: string): StrataClient {
   return new StrataClient({
     baseUrl: config.apiBaseUrl,
     token,
     authScheme: "bearer",
+    workspaceId,
     client: `mcp/${VERSION}`,
     agent: ctx && clientName(ctx)
   })
 }
 
-export function strata(tool: ToolContext, ctx?: ServerContext): Strata {
-  return new Strata({ client: client(tool, ctx), surface: "mcp", specs })
+export function strata(tool: ToolContext, ctx?: ServerContext, workspaceId?: string): Strata {
+  return new Strata({ client: client(tool, ctx, workspaceId), surface: "mcp", specs })
 }
 
 // Only 2026-07-28 clients send clientInfo on every request; 2025 clients sent it
