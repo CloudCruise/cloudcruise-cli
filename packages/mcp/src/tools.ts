@@ -23,6 +23,10 @@ const HANDLE_PREFIX = "probe1."
 // One per process: every request's Strata shares it, so the spec is fetched once per
 // TTL, not once per request.
 const specs = new SpecCache({ client: `mcp/${VERSION}` })
+// The areas in search's description, from the last spec read. Only the first
+// request waits for them; later ones refresh them in the background, so a slow
+// spec fetch never delays a request.
+let areas: string[] | undefined
 
 // The API's 401s for a bad, expired or missing credential. Other 401s ("Missing
 // privileges") and 403s (MFA, workspace access) aren't fixed by signing in again.
@@ -51,7 +55,11 @@ export async function createServer(config: Config, token: string): Promise<McpSe
       surface: "mcp",
       specs
     })
-  const categories = await strata().categories()
+  const next = strata()
+    .categories()
+    .catch(() => [])
+    .then((found) => (areas = found))
+  const categories = areas ?? (await next)
 
   server.registerTool(
     "search",

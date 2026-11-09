@@ -122,7 +122,8 @@ export class Strata {
           : " It may have run; check before calling it again."
         throw new CallError("unavailable", `Could not reach the CloudCruise API for ${name}.${warning}`)
       }
-      if (err.status >= 400 && err.status < 500) {
+      // 401 and 403 are about the caller, not the arguments: no spec check.
+      if (err.status >= 400 && err.status < 500 && err.status !== 401 && err.status !== 403) {
         const current = await this.current(plan)
         if (current.inputKey !== plan.inputKey) throw changed(current)
       }

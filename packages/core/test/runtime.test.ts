@@ -374,6 +374,29 @@ test("a change to another operation is not reported as a change", async () => {
   assert.equal((await callError(strata.call("runs.start", START))).kind, "api_error")
 })
 
+test("a 401 or 403 passes the API's message without checking the spec", async () => {
+  const backend = fakeBackend()
+  const { strata } = setup()
+  await strata.search("runs.start")
+  // Even with the operation changed, an auth failure isn't reported as a change.
+  backend.spec = editOperation(backend.spec, "/run", "post", (op) => {
+    op.requestBody.content["application/json"].schema = { type: "object", properties: {} }
+  })
+  backend.etag = 'W/"v2"'
+
+  for (const [status, message] of [[401, "Invalid or expired token"], [403, "MFA challenge required"]] as const) {
+    backend.api = () => Response.json({ message }, { status })
+    const specRequests = backend.specRequests.length
+
+    const err = await callError(strata.call("runs.start", START))
+
+    assert.equal(err.kind, "api_error")
+    assert.equal(err.status, status)
+    assert.equal(err.message, `runs.start failed (${status}): ${message}`)
+    assert.equal(backend.specRequests.length, specRequests)
+  }
+})
+
 test("other 4xx return the API's message without a schema", async () => {
   const backend = fakeBackend()
   const { strata } = setup()
