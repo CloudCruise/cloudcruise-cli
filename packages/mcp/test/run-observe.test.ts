@@ -166,6 +166,38 @@ test("observe with after returns the same cursor when nothing changes before the
   assert.match(String(second.statusMessage), /No change since your last call; still start/)
 })
 
+test("a short timeout_seconds is waited out, not lost to jitter", async () => {
+  const own = createHttpServer(config, { observeTiming: { delaysMs: [20], capMs: () => 200_000 } })
+  const url = `${await listen(own.server)}/mcp`
+  const { handle } = scripted([{ status: "execution.start" }])
+  try {
+    for (let i = 0; i < 3; i++) {
+      const t0 = Date.now()
+      await tool("observe", { handle, after: "r0.start", timeout_seconds: 1 }, url)
+      const elapsed = Date.now() - t0
+      assert.ok(elapsed >= 900 && elapsed < 2000, `waited ${elapsed} ms`)
+    }
+  } finally {
+    await stopMcp(own)
+  }
+})
+
+test("a read that fails during the wait returns the last good state", async () => {
+  const { id, handle } = scripted([{ status: "execution.start" }, { status: "execution.start" }, { fail: 503 }])
+  const out = await tool("observe", { handle, after: "r0.start" })
+  assert.equal(out.isError, undefined)
+  assert.equal(out.structuredContent!.status, "execution.start")
+  assert.match(String(out.structuredContent!.statusMessage), /No change/)
+  assert.equal(reads(id), 3)
+})
+
+test("a read that fails at once is the API's error", async () => {
+  const { handle } = scripted([{ fail: 503 }])
+  const out = await tool("observe", { handle })
+  assert.equal(out.isError, true)
+  assert.match(out.content[0].text, /503/)
+})
+
 test("observe sees a requeue between calls even when both reads say start", async () => {
   const { handle } = scripted([{ status: "execution.start" }, { status: "execution.start", session_retries: 1 }])
   const first = (await tool("observe", { handle })).structuredContent!

@@ -1,6 +1,6 @@
 import type { McpServer } from "@modelcontextprotocol/server"
 import * as z from "zod/v4"
-import { apiFailure, client, formatHandle, workspaceIdInput, type ToolContext } from "./common.js"
+import { apiFailure, client, errorResult, formatHandle, workspaceIdInput, type ToolContext } from "./common.js"
 
 export function registerRun(server: McpServer, tool: ToolContext): void {
   server.registerTool(
@@ -26,6 +26,9 @@ export function registerRun(server: McpServer, tool: ToolContext): void {
           workflow_id,
           run_input_variables: inputs ?? {}
         })
+        if (typeof session_id !== "string" || !session_id) {
+          return errorResult("The CloudCruise API started no run: its reply had no session id.")
+        }
         const out = {
           handle: formatHandle({ kind: "run", workspaceId: workspace_id, id: session_id }),
           next: "The run continues on its own. Call observe with this handle to follow it."

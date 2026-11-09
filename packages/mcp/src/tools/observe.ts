@@ -68,7 +68,7 @@ export function registerObserve(server: McpServer, tool: ToolContext, timing: Ob
       const cap = timing.capMs(clientName(ctx))
       const limit = timeout_seconds === undefined ? cap : Math.min(timeout_seconds * 1000, cap)
       // Jitter spreads re-armed calls apart; it only shortens the wait, so the cap holds.
-      const waitMs = Math.max(0, limit - Math.random() * (cap / 16))
+      const waitMs = limit - Math.random() * (limit / 16)
       let run: Run
       try {
         run = await readRun(client(tool, ctx, ref.workspaceId), ref.id, cursor, waitMs, timing.delaysMs, ctx.mcpReq.signal)
@@ -117,7 +117,12 @@ async function readRun(
     if (left <= 0) break
     await sleep(Math.min(delaysMs[Math.min(i, delaysMs.length - 1)], left), signal)
     if (signal.aborted) break
-    run = await api.get<Run>(`/run/${id}`)
+    try {
+      run = await api.get<Run>(`/run/${id}`)
+    } catch {
+      // The last good read still answers the call; the next call reads again.
+      break
+    }
   }
   return run
 }

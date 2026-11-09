@@ -47,7 +47,9 @@ export interface ApiRequest {
 
 /** One read of a scripted run: what GET /run/{id} returns. */
 export interface RunRead {
-  status: string
+  /** Answer this read with an error of this status instead. */
+  fail?: number
+  status?: string
   session_retries?: number
   finalized_at?: string | null
   data?: unknown
@@ -125,7 +127,11 @@ export function createFakeApi(spec: unknown = JSON.parse(readFileSync(LAUNCH_SPE
     }
     if ((m = /^GET \/run\/([^/]+)$/.exec(route))) {
       const script = scripts.get(m[1])
-      if (script) return send(200, { session_id: m[1], ...(script.length > 1 ? script.shift() : script[0]) })
+      if (script) {
+        const { fail, ...read } = (script.length > 1 ? script.shift() : script[0])!
+        if (fail) return send(fail, { statusCode: fail, message: "Service unavailable" })
+        return send(200, { session_id: m[1], ...read })
+      }
       const run = RUNS.find((r) => r.session_id === m![1])
       return run ? send(200, run) : send(404, { statusCode: 404, message: "Run not found" })
     }
