@@ -7,6 +7,7 @@ import {
   buildErrorCodeBody,
   buildListErrorCodesPath,
   findErrorCode,
+  parseNonNegativeInt,
   readErrorCodeBody
 } from "../dist/src/commands/error-codes.js"
 
@@ -76,4 +77,30 @@ test("findErrorCode matches ids case-insensitively", () => {
   const codes = [{ id: "3f2b9c1e-aaaa-bbbb-cccc-000000000001" }]
   assert.equal(findErrorCode(codes, "3F2B9C1E-AAAA-BBBB-CCCC-000000000001"), codes[0])
   assert.equal(findErrorCode(codes, "3f2b9c1e-aaaa-bbbb-cccc-000000000002"), undefined)
+})
+
+test("buildErrorCodeBody maps the retry settings to retries and retry_after", () => {
+  assert.deepEqual(
+    buildErrorCodeBody({ action: "retry", retries: 3, retryAfter: 60 }),
+    { error_action: "retry", retries: 3, retry_after: 60 }
+  )
+})
+
+test("buildErrorCodeBody keeps a zero retry setting", () => {
+  assert.deepEqual(buildErrorCodeBody({ retries: 0 }), { retries: 0 })
+})
+
+test("parseNonNegativeInt accepts whole numbers and rejects anything else", () => {
+  assert.equal(parseNonNegativeInt("0"), 0)
+  assert.equal(parseNonNegativeInt("60"), 60)
+  for (const bad of ["-1", "1.5", "abc", ""]) {
+    assert.throws(() => parseNonNegativeInt(bad), /non-negative integer/)
+  }
+})
+
+test("readErrorCodeBody rejects retry flags combined with --file", async () => {
+  await assert.rejects(
+    readErrorCodeBody({ retries: 2, file: writeJson({ error_action: "retry" }) }),
+    /not both/
+  )
 })

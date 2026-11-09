@@ -4,6 +4,7 @@
 
 ### Added
 
+- `error-codes create` and `error-codes update` take `--retries <n>` and `--retry-after <seconds>`, sent as `retries` and `retry_after`, for the `retry` action. Both were already accepted in a `--file`/`--stdin` body.
 - `vault create` and `vault update` set additional fields with `--additional-fields-file <path>` or `--additional-fields-stdin`: a plaintext JSON array of `{name, type, value}`; the CLI encrypts each value. Types: `Text`, `Email`, `Url`, `Phone`, `Date`, `MonthYear`, `Address` (object value), `Concealed`, `Totp`.
 - `vault create` and `vault update` set security questions with `--security-questions-file <path>` or `--security-questions-stdin`: a plaintext JSON array of `{question, answer}`; the CLI encrypts both. Needs the backend change in CloudCruise/monorepo#12158; until it is deployed the API rejects the field.
 - `vault tfa-code --user-id <id> --domain <domain>` prints the entry's current 2FA code. `--method` picks the method on an entry with several; `--field` generates the code of a `Totp` additional field.
@@ -16,7 +17,8 @@
 - `--tfa-method` on `vault create` and `vault update` is repeatable and sends `tfa_methods`, so an entry can have several TFA methods. `MAGIC_LINK` is accepted. Unknown or repeated methods are usage errors. `vault update --no-tfa-method` removes every TFA method.
 - `vault get` and `vault list --full` show additional fields as `{name, type}` and security questions without answers. `vault get --decrypt` shows field values, questions and answers in plaintext.
 - `cloudcruise-workflow-dsl` documents vault additional fields as `{{context.inputs.<ALIAS>.FIELDS.<name>}}`, the TFA node's `tfa_field`, and the `SECURITY_QUESTION` TFA type with `question_selector` and `fuzzy_match`.
-- `error-codes create` and `error-codes update` no longer list `input_required` as an `--action`. The API retired that action and rejects it with a 400; the remaining actions are `alert`, `cancel`, `pause` and `retry`. The `cloudcruise` skill lists the same four.
+- `error-codes create` and `error-codes update` no longer list `input_required` as an `--action`. The API retired that action and rejects it with a 400.
+- `error-codes create` and `error-codes update` document all five actions the API accepts: `alert`, `retry`, `pause`, `pause_credential` and `cancel`. `pause_credential` already worked but was not listed. The help text and the `cloudcruise` skill now say what each action does to a run: `retry` requeues the run (it no longer only labels the error), and `cancel` also cancels every queued run in the workspace on the same vault credential, so it is meant for credential failures, not single-record errors.
 - `run network` reports `omitted_bodies`: the number of request and response bodies returned as `null` because the call's 100 MB body budget was used up. The `--output` summary includes it, and a non-zero count is reported on stderr.
 
 ## 1.16.1

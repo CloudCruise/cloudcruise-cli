@@ -333,12 +333,26 @@ cloudcruise error-codes list --workflow-id <id>                     # Only codes
 cloudcruise error-codes get <id>                                    # One code by id (exit 1 if not in the workspace)
 cloudcruise error-codes create --code <NAME> --description "<text>" # Find-or-create by name; prints { id, created, ... }
 cloudcruise error-codes create --code <NAME> --description "<text>" \
-  --action pause                                                    # Actions: alert (default), cancel, pause, retry
+  --action pause                                                    # Actions: alert (default), retry, pause, pause_credential, cancel
 cloudcruise error-codes update <id> --description "<text>"         # Change only the fields passed
+cloudcruise error-codes update <id> --action retry \
+  --retries 3 --retry-after 60                                      # Retry settings (API fields retries, retry_after)
 cloudcruise error-codes create --file code.json                     # Or pass one JSON object (API field names), not both
 ```
 
-`create` returns an existing code unchanged when the name is taken (`"created": false`); run `update` if its fields differ from what you need. The `retry` action only labels the error; nothing reruns the run.
+`create` returns an existing code unchanged when the name is taken (`"created": false`); run `update` if its fields differ from what you need.
+
+The action decides what happens to a run that fails with the code. Actions change run behavior; they are not labels:
+
+| Action | What happens |
+|---|---|
+| `alert` | The run fails and the workspace is notified. Default |
+| `retry` | The run is requeued up to `--retries` times (once if unset), waiting `--retry-after` seconds (at least 10). Follows the workflow's `allow_requeue` and `max_retries` |
+| `pause` | The run is requeued and its workflow is paused until unpaused (Runs > Paused Resources or `POST /runs/unpause`) |
+| `pause_credential` | Like `pause`, but only the vault credential the run used is paused; other workflows keep running |
+| `cancel` | The run ends as `execution.stopped`, and **every queued run in the workspace on the same vault credential is cancelled** |
+
+Use `cancel` only for failures that make the credential itself unusable (invalid or blocked login). On a code for a single bad input or record (record not found, search returned nothing), one failure cancels the whole queue for that credential. Prefer `alert` there, and `pause_credential` when queued runs should wait for a credential fix instead of being dropped.
 
 When editing the DSL directly (outside the builder), create or look up codes here and put the returned `id` into `error_on_false_message`, `error_message` or `selector_error_message`. Names, placeholders and free text are rejected by `workflows update`. See the DSL skill's Error Codes section.
 

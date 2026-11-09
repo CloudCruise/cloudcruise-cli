@@ -1,4 +1,4 @@
-import { Command } from "commander"
+import { Command, InvalidArgumentError } from "commander"
 import { resolveAuth } from "../core/auth.js"
 import { ApiClient } from "../core/api-client.js"
 import { outputJson } from "../core/output.js"
@@ -15,9 +15,20 @@ export type ErrorCodeFieldOptions = {
   description?: string
   enrichedDescription?: string
   action?: string
+  retries?: number
+  retryAfter?: number
 }
 
 type ErrorCode = { id: string } & Record<string, unknown>
+
+export const parseNonNegativeInt = (value: string): number => {
+  if (!/^\d+$/.test(value)) {
+    throw new InvalidArgumentError(
+      `Must be a non-negative integer (got: ${value}).`
+    )
+  }
+  return Number(value)
+}
 
 export function buildListErrorCodesPath(opts: { workflowId?: string }): string {
   if (opts.workflowId === undefined) return "/error-codes"
@@ -38,6 +49,8 @@ export function buildErrorCodeBody(
     body.enriched_description = opts.enrichedDescription
   }
   if (opts.action !== undefined) body.error_action = opts.action
+  if (opts.retries !== undefined) body.retries = opts.retries
+  if (opts.retryAfter !== undefined) body.retry_after = opts.retryAfter
   return body
 }
 
@@ -76,7 +89,17 @@ function addFieldOptions(cmd: Command): Command {
     )
     .option(
       "--action <action>",
-      "error_action: alert (default), cancel, pause or retry"
+      "error_action: alert (default), retry, pause, pause_credential or cancel"
+    )
+    .option(
+      "--retries <n>",
+      "How many times the retry action requeues the run (once if unset)",
+      parseNonNegativeInt
+    )
+    .option(
+      "--retry-after <seconds>",
+      "Seconds the retry action waits before requeuing (at least 10; default backoff if unset)",
+      parseNonNegativeInt
     )
     .option(
       "--file <path>",
@@ -91,10 +114,23 @@ function addFieldOptions(cmd: Command): Command {
 const FIELDS_HELP = `
 Pass the fields as flags, or as one JSON object via --file or --stdin. Not
 both. The JSON object uses the API's field names (error_code, description,
-enriched_description, error_action) and is sent as-is; unknown keys are
-rejected (400).
+enriched_description, error_action, retries, retry_after) and is sent as-is;
+unknown keys are rejected (400).
 
-error_action "retry" only labels the error today; nothing reruns the run.`
+What error_action does to a run that fails with the code:
+  alert             The run fails and the workspace is notified (default)
+  retry             The run is requeued up to --retries times (once if unset),
+                    waiting --retry-after seconds. Follows the workflow's
+                    allow_requeue and max_retries
+  pause             The run is requeued and its workflow is paused until
+                    unpaused (Runs > Paused Resources or POST /runs/unpause)
+  pause_credential  Like pause, but only the vault credential the run used is
+                    paused, so other workflows keep running
+  cancel            The run ends as execution.stopped, and every queued run in
+                    the workspace on the same vault credential is cancelled.
+                    Use it only for failures that make the credential unusable
+                    (e.g. invalid or blocked login), not for a single bad
+                    input or record`
 
 export function registerErrorCodeCommands(program: Command): void {
   const errorCodes = program
@@ -204,7 +240,9 @@ Examples:
     addFieldOptions(
       errorCodes
         .command("update <id>")
-        .description("Update an error code's name, descriptions or action")
+        .description(
+          "Update an error code's name, descriptions, action or retry settings"
+        )
     )
   )
     .addHelpText(
@@ -216,7 +254,8 @@ ${FIELDS_HELP}
 
 Examples:
   $ cloudcruise error-codes update 7c1e... --description "Claim number not found"
-  $ cloudcruise error-codes update 7c1e... --action pause`
+  $ cloudcruise error-codes update 7c1e... --action pause_credential
+  $ cloudcruise error-codes update 7c1e... --action retry --retries 3 --retry-after 60`
     )
     .action(
       async (
