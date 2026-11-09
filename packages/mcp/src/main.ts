@@ -1,6 +1,6 @@
 import { loadConfig, type Config } from "./config.js"
 import { createHttpServer } from "./http.js"
-import { VERSION } from "./tools.js"
+import { VERSION } from "./tools/index.js"
 
 let config: Config
 try {

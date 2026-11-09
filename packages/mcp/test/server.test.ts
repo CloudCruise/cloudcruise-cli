@@ -6,7 +6,8 @@ import type { AddressInfo } from "node:net"
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client"
 import { loadConfig, type Config } from "../dist/config.js"
 import { createHttpServer, type McpHttpServer } from "../dist/http.js"
-import { MAX_POLL_SECONDS, VERSION } from "../dist/tools.js"
+import { VERSION } from "../dist/tools/index.js"
+import { MAX_POLL_SECONDS } from "../dist/tools/probe.js"
 import { createFakeApi, type FakeApi } from "./fake-api.ts"
 
 const ERAS = [

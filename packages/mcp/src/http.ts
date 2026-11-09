@@ -2,7 +2,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { createMcpHandler } from "@modelcontextprotocol/server"
 import { hostHeaderValidation, originValidation, toNodeHandler } from "@modelcontextprotocol/node"
 import type { Config } from "./config.js"
-import { createServer as createMcpServer } from "./tools.js"
+import { createServer as createMcpServer } from "./tools/index.js"
 
 const METADATA_PATHS = new Set([
   "/.well-known/oauth-protected-resource",
