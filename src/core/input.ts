@@ -38,7 +38,30 @@ export async function readJsonObject(
     throw new UsageError(`Pass only one of ${given.join(", ")}`)
   }
   const flag = given[0]
+  const value = await readJson(flag, src)
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new UsageError(`${flag} must contain a JSON object`)
+  }
+  return value as Record<string, unknown>
+}
 
+/**
+ * Read a JSON array from a --<name>-file path or --<name>-stdin. Returns
+ * undefined when neither was passed. Every input problem is a UsageError.
+ */
+export async function readJsonArray(
+  flag: string,
+  src: { file?: string; stdin?: boolean }
+): Promise<unknown[] | undefined> {
+  if (src.file === undefined && !src.stdin) return undefined
+  const value = await readJson(flag, src)
+  if (!Array.isArray(value)) {
+    throw new UsageError(`${flag} must contain a JSON array`)
+  }
+  return value
+}
+
+async function readJson(flag: string, src: JsonObjectSource): Promise<unknown> {
   let raw: string
   if (src.stdin) {
     raw = await readStdin()
@@ -47,23 +70,17 @@ export async function readJsonObject(
       raw = readFileSync(src.file, "utf-8")
     } catch (err: unknown) {
       const reason = err instanceof Error ? err.message : String(err)
-      throw new UsageError(`Cannot read --file ${src.file}: ${reason}`)
+      throw new UsageError(`Cannot read ${flag} ${src.file}: ${reason}`)
     }
   } else {
     raw = src.data as string
   }
-
-  let value: unknown
   try {
-    value = JSON.parse(raw)
+    return JSON.parse(raw)
   } catch (err: unknown) {
     const reason = err instanceof Error ? err.message : String(err)
     throw new UsageError(`${flag} must contain valid JSON: ${reason}`)
   }
-  if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    throw new UsageError(`${flag} must contain a JSON object`)
-  }
-  return value as Record<string, unknown>
 }
 
 /** readJsonObject, but a missing payload is a UsageError too. */
