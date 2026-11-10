@@ -139,7 +139,7 @@ test("observe holds through processing and returns the report when the turn comp
     { phase: "processing", turnId: TURN_A },
     { phase: "completed", turnId: TURN_A, report: "Added a login step and saved." }
   ])
-  api.replyToMessage(id, { conversationId: id, messageId: TURN_A, accepted: true })
+  api.replyTo(id, "message", { conversationId: id, messageId: TURN_A, turnId: TURN_A, accepted: true })
   api.requests.length = 0
   const built = (await tool("build", { workspace_id: WORKSPACE, conversation_id: id, message: "Add a login step" })).structuredContent!
   assert.equal(built.handle, handle)
@@ -287,17 +287,18 @@ test("a new conversation whose first message fails still hands back its handle",
   assert.equal(result.structuredContent!.handle, `v1:turn:${WORKSPACE}:${STARTED_CONVERSATION}`)
 })
 
-test("a send whose reply names no message returns the handle without after", async () => {
+test("a reply that names no turn returns the handle without after", async () => {
   const { id, handle } = conversation([{ phase: "processing", turnId: TURN_A }])
-  api.replyToMessage(id, { conversationId: id, accepted: true })
+  api.replyTo(id, "message", { conversationId: id, messageId: "m1", accepted: true })
   const out = (await tool("build", { workspace_id: WORKSPACE, conversation_id: id, message: "Hi" })).structuredContent!
   assert.deepEqual(out, { handle, next: "To follow the turn, call observe with this handle, without after." })
 })
 
-test("an answer typed as a message returns the handle without after", async () => {
+test("an answer typed as a message follows the turn it answers", async () => {
   const { id, handle } = conversation([{ phase: "processing", turnId: TURN_A }])
-  api.replyToMessage(id, { conversationId: id, messageId: "m-chat", accepted: true, answeredInChat: true })
-  const out = (await tool("build", { workspace_id: WORKSPACE, conversation_id: id, message: "Pro, please" })).structuredContent!
-  assert.equal(out.handle, handle)
-  assert.equal(out.after, undefined)
+  api.replyTo(id, "message", { conversationId: id, messageId: "m-chat", turnId: TURN_A, accepted: true, answeredInChat: true })
+  const built = (await tool("build", { workspace_id: WORKSPACE, conversation_id: id, message: "Pro, please" })).structuredContent!
+  assert.equal(built.handle, handle)
+  const first = (await tool("observe", { handle })).structuredContent!
+  assert.equal(built.after, first.after, "the open turn's id, not the answer's message id")
 })

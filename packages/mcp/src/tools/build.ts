@@ -60,15 +60,15 @@ export function registerBuild(server: McpServer, tool: ToolContext, timing: Buil
         let id = args.conversation_id ?? (await start(api, args, ctx, timing))
         if (!id) return errorResult("The CloudCruise API started no builder conversation: its reply had no conversation id.")
         let cleared = false
-        // The writes return once the turn reads as processing under its id, so the cursor
-        // comes from their replies; no read follows that could fail after the turn started.
+        // The writes return once the turn reads as processing, naming the open turn, so the
+        // cursor comes from their replies; no read follows that could fail after the turn started.
         let turnId: string | undefined
         if (args.responses) {
           const answered = await answer(api, id, args.responses)
           if ("refused" in answered) return answered.refused
           turnId = answered.turnId
         } else {
-          let sent: Sent
+          let sent: string | undefined
           try {
             sent = await send(api, id, args.message!)
           } catch (err) {
@@ -85,8 +85,7 @@ export function registerBuild(server: McpServer, tool: ToolContext, timing: Buil
             id = successor
             cleared = true
           }
-          // An answer typed as a message continues the turn that asked; the reply doesn't name it.
-          turnId = sent.answeredInChat ? undefined : sent.messageId
+          turnId = sent
         }
         const out: Record<string, unknown> = { handle: handle(id) }
         if (turnId) {
@@ -162,28 +161,17 @@ async function start(api: StrataClient, args: Input, ctx: ServerContext, timing:
   }
 }
 
-/** What /message returns. */
-interface MessageReply {
-  messageId?: unknown
-  answeredInChat?: boolean
+// /message and /respond name the open turn: the new one, or the one an answer continues.
+// An API that predates the field names none, and the caller observes without after.
+function openTurn(reply: { turnId?: unknown } | undefined): string | undefined {
+  return typeof reply?.turnId === "string" && reply.turnId ? reply.turnId : undefined
 }
 
-/** A message the builder accepted. */
-interface Sent {
-  messageId?: string
-  answeredInChat: boolean
+/** Sends a message; returns the open turn's id. */
+async function send(api: StrataClient, id: string, text: string): Promise<string | undefined> {
+  return openTurn(await api.post<{ turnId?: unknown }>(builderPath(id, "message"), { text }))
 }
 
-async function send(api: StrataClient, id: string, text: string): Promise<Sent> {
-  const reply = await api.post<MessageReply>(builderPath(id, "message"), { text })
-  return {
-    // The message that opens a turn names it.
-    messageId: typeof reply?.messageId === "string" && reply.messageId ? reply.messageId : undefined,
-    answeredInChat: reply?.answeredInChat === true
-  }
-}
-
-// The answered turn keeps its id, which the read that found the question already has.
 async function answer(
   api: StrataClient,
   id: string,
@@ -206,8 +194,8 @@ async function answer(
   if (state.phase !== "awaiting-human-input" || !state.humanInput) {
     return { refused: errorResult("The builder isn't waiting on a question; send a message instead.") }
   }
-  await api.post(builderPath(id, "respond"), { messageId: state.humanInput.messageId, responses })
-  return { turnId: state.turnId ?? undefined }
+  const reply = await api.post<{ turnId?: unknown }>(builderPath(id, "respond"), { messageId: state.humanInput.messageId, responses })
+  return { turnId: openTurn(reply) }
 }
 
 // The conversation exists but the message didn't reach it: an error that still carries the handle.
