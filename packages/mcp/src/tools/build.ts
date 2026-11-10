@@ -1,20 +1,8 @@
 import { ApiError, type StrataClient } from "@cloudcruise/strata"
 import type { CallToolResult, McpServer, ServerContext } from "@modelcontextprotocol/server"
 import * as z from "zod/v4"
-import {
-  apiFailure,
-  builderPath,
-  client,
-  errorResult,
-  formatHandle,
-  formatTurnCursor,
-  isGone,
-  successorOf,
-  turnCursor,
-  workspaceIdInput,
-  type ToolContext,
-  type TurnState
-} from "./common.js"
+import { apiFailure, client, errorResult, formatHandle, structured, workspaceIdInput, type ToolContext } from "./common.js"
+import { GONE, builderPath, formatTurnCursor, isGone, successorOf, turnCursor, type TurnState } from "./turn.js"
 
 /** How often build reports progress while the builder browser starts; tests pass a shorter one. */
 export interface BuildTiming {
@@ -98,7 +86,7 @@ export function registerBuild(server: McpServer, tool: ToolContext, timing: Buil
           out.conversation_cleared = true
           out.statusMessage = "That conversation was cleared; the message went to the one it continues as, which this handle names."
         }
-        return { content: [{ type: "text", text: JSON.stringify(out) }], structuredContent: out }
+        return structured(out)
       } catch (err) {
         return failure(err)
       }
@@ -187,7 +175,7 @@ async function answer(
       refused: errorResult(
         successor
           ? `This conversation was cleared and continues as ${successor}. Its question belonged to the old one: send a message to ${successor} with build instead.`
-          : "This conversation is gone: it was cleared or has expired. Start a new one with build."
+          : `${GONE} Start a new one with build.`
       )
     }
   }
@@ -215,7 +203,7 @@ function failure(err: unknown): CallToolResult {
       return errorResult("The builder is still working on the last message. Follow it with observe, then send again.")
     }
     if (err.code === "ALREADY_ANSWERED") return errorResult("That question was already answered.")
-    if (isGone(err)) return errorResult("This conversation is gone: it was cleared or has expired. Start a new one with build.")
+    if (isGone(err)) return errorResult(`${GONE} Start a new one with build.`)
   }
   return apiFailure(err)
 }

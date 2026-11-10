@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto"
 import { readFileSync } from "node:fs"
 import { ApiError, SpecCache, Strata, StrataClient } from "@cloudcruise/strata"
 import { CLIENT_INFO_META_KEY, type CallToolResult, type ServerContext } from "@modelcontextprotocol/server"
@@ -85,6 +84,11 @@ export function errorResult(text: string): CallToolResult {
   return { isError: true, content: [{ type: "text", text }] }
 }
 
+/** A result the model reads as JSON text and a client can read as structured content. */
+export function structured(out: Record<string, unknown>): CallToolResult {
+  return { content: [{ type: "text", text: JSON.stringify(out) }], structuredContent: out }
+}
+
 /** What a handle names: a run, or a builder conversation, in the workspace it belongs to. */
 export interface Handle {
   kind: "run" | "turn"
@@ -121,59 +125,29 @@ export function sleep(ms: number, signal: AbortSignal): Promise<void> {
   })
 }
 
-/** The builder's path for a conversation. */
-export function builderPath(conversationId: string, action: string): string {
-  return `/workflow-builder/agent/${conversationId}/${action}`
+/** How long one call may wait for a change, and how it paces its reads. */
+export interface Wait {
+  waitMs: number
+  /** Gaps between reads; the last one repeats. */
+  delaysMs: number[]
+  signal: AbortSignal
 }
 
-/** What /turn-state returns. */
-export interface TurnState {
-  phase: string
-  /** The user message that opened the current turn; null before any turn. */
-  turnId?: string | null
-  report?: string
-  humanInput?: { messageId: string; prompt?: string; fields?: Record<string, unknown>[] }
-}
-
-/** What the caller last saw of a turn: the v1 cursor `t<turn>.<phase>[.<question>]`. */
-export interface TurnCursor {
-  turn: string
-  phase: string
-  question?: string
-}
-
-const TURN_CURSOR = /^t([0-9a-f]{8}|0)\.([a-z-]+)(?:\.([0-9a-f]{8}))?$/
-
-export function turnCursor(state: TurnState): TurnCursor {
-  const question = state.phase === "awaiting-human-input" && state.humanInput ? digest(state.humanInput.messageId) : undefined
-  return { turn: state.turnId ? digest(state.turnId) : "0", phase: state.phase, ...(question ? { question } : {}) }
-}
-
-export function formatTurnCursor(cursor: TurnCursor): string {
-  return `t${cursor.turn}.${cursor.phase}${cursor.question ? `.${cursor.question}` : ""}`
-}
-
-export function parseTurnCursor(after: string): TurnCursor | undefined {
-  const match = TURN_CURSOR.exec(after)
-  return match ? { turn: match[1], phase: match[2], ...(match[3] ? { question: match[3] } : {}) } : undefined
-}
-
-// Short, so the cursor stays readable; ids only need telling apart, not recovering.
-function digest(id: string): string {
-  return createHash("sha256").update(id).digest("hex").slice(0, 8)
-}
-
-/** The live conversation a cleared or restarted one continues as, when the API's 404 names it. */
-export function successorOf(err: unknown): string | undefined {
-  if (!(err instanceof ApiError) || err.code !== "CONVERSATION_NOT_FOUND") return undefined
-  try {
-    const id = (JSON.parse(err.body) as { successorConversationId?: unknown }).successorConversationId
-    return typeof id === "string" && id ? id : undefined
-  } catch {
-    return undefined
+// Reads until changed says so, the wait ends or the request is aborted. A failed
+// re-read ends the wait: the last good read still answers the call; the next call reads again.
+export async function waitForChange<T>(read: () => Promise<T>, changed: (value: T) => boolean, wait: Wait): Promise<T> {
+  const deadline = Date.now() + wait.waitMs
+  let value = await read()
+  for (let i = 0; !changed(value); i++) {
+    const left = deadline - Date.now()
+    if (left <= 0) break
+    await sleep(Math.min(wait.delaysMs[Math.min(i, wait.delaysMs.length - 1)], left), wait.signal)
+    if (wait.signal.aborted) break
+    try {
+      value = await read()
+    } catch {
+      break
+    }
   }
-}
-
-export function isGone(err: unknown): boolean {
-  return err instanceof ApiError && err.code === "CONVERSATION_NOT_FOUND"
+  return value
 }

@@ -3,22 +3,28 @@ import type { CallToolResult, McpServer } from "@modelcontextprotocol/server"
 import * as z from "zod/v4"
 import {
   apiFailure,
-  builderPath,
   client,
   clientName,
   errorResult,
-  formatTurnCursor,
-  isGone,
   parseHandle,
-  parseTurnCursor,
-  sleep,
-  successorOf,
-  turnCursor,
+  structured,
+  waitForChange,
   type Handle,
   type ToolContext,
+  type Wait
+} from "./common.js"
+import {
+  GONE,
+  formatTurnCursor,
+  isGone,
+  parseTurnCursor,
+  readTurn,
+  successorOf,
+  turnCursor,
+  type Phase,
   type TurnCursor,
   type TurnState
-} from "./common.js"
+} from "./turn.js"
 
 /** How observe paces its reads; tests pass shorter ones. */
 export interface ObserveTiming {
@@ -90,13 +96,6 @@ export function registerObserve(server: McpServer, tool: ToolContext, timing: Ob
   )
 }
 
-/** How long one call may wait for a change, and how it paces its reads. */
-interface Wait {
-  waitMs: number
-  delaysMs: number[]
-  signal: AbortSignal
-}
-
 async function observeRun(api: StrataClient, ref: Handle, after: string | undefined, wait: Wait): Promise<CallToolResult> {
   let cursor = after === undefined ? undefined : parseCursor(after)
   let run: Run
@@ -161,11 +160,7 @@ async function observeTurn(api: StrataClient, ref: Handle, after: string | undef
   return structured(out)
 }
 
-function structured(out: Record<string, unknown>): CallToolResult {
-  return { content: [{ type: "text", text: JSON.stringify(out) }], structuredContent: out }
-}
-
-const NEXT: Record<string, string> = {
+const NEXT: Record<Phase, string> = {
   processing: "Call observe again with the same handle and this after value.",
   "awaiting-human-input": "Answer with build (conversation_id and responses, or a message), then observe again.",
   completed: "Send the next message with build.",
@@ -174,7 +169,7 @@ const NEXT: Record<string, string> = {
   ended: "This conversation has ended. Start a new one with build."
 }
 
-const PHASE: Record<string, string> = {
+const PHASE: Record<Phase, string> = {
   processing: "working on it",
   "awaiting-human-input": "waiting for an answer to its question",
   completed: "finished the turn",
@@ -183,11 +178,16 @@ const PHASE: Record<string, string> = {
   ended: "ended"
 }
 
+// Cursors carry the phase as a string: one from an older server may name a phase this one doesn't.
+function describe(phase: string): string {
+  return (PHASE as Record<string, string>)[phase] ?? phase
+}
+
 function turnMessage(now: TurnCursor, cursor: TurnCursor | undefined): string {
-  const phase = PHASE[now.phase] ?? now.phase
+  const phase = describe(now.phase)
   if (!cursor) return `The builder is ${phase}.`
   if (now.turn !== cursor.turn) return `A new turn started since your last call; the builder is ${phase}.`
-  if (now.phase !== cursor.phase) return `Was ${PHASE[cursor.phase] ?? cursor.phase}, now ${phase}.`
+  if (now.phase !== cursor.phase) return `Was ${describe(cursor.phase)}, now ${phase}.`
   if (now.question !== cursor.question) return "The builder asked another question."
   return `No change since your last call; the builder is still ${phase}.`
 }
@@ -197,7 +197,7 @@ function gone(successor: string | undefined): Record<string, unknown> {
   if (!successor) {
     return {
       status: "ended",
-      statusMessage: "This conversation is gone: it was cleared or has expired.",
+      statusMessage: GONE,
       done: true,
       next: "Start a new conversation with build."
     }
@@ -211,52 +211,14 @@ function gone(successor: string | undefined): Record<string, unknown> {
   }
 }
 
-// Reads the turn until it differs from the cursor or the wait ends. A stopped turn
-// returns at once: nothing changes until the caller acts. The signature is the one
-// an API-side wait would take.
-async function readTurn(api: StrataClient, id: string, cursor: TurnCursor | undefined, wait: Wait): Promise<TurnState> {
-  const deadline = Date.now() + wait.waitMs
-  const read = () => api.get<TurnState>(builderPath(id, "turn-state"))
-  let state = await read()
-  for (let i = 0; cursor && !turnChanged(state, cursor); i++) {
-    const left = deadline - Date.now()
-    if (left <= 0) break
-    await sleep(Math.min(wait.delaysMs[Math.min(i, wait.delaysMs.length - 1)], left), wait.signal)
-    if (wait.signal.aborted) break
-    try {
-      state = await read()
-    } catch {
-      break
-    }
-  }
-  return state
-}
-
-function turnChanged(state: TurnState, cursor: TurnCursor): boolean {
-  if (state.phase !== "processing") return true
-  const now = turnCursor(state)
-  return now.turn !== cursor.turn || now.phase !== cursor.phase || now.question !== cursor.question
-}
-
-// Reads the run until it differs from the cursor or waitMs passes. Without a cursor it
+// Reads the run until it differs from the cursor or the wait ends. Without a cursor it
 // reads once. The signature is the one an API-side wait would take.
-async function readRun(api: StrataClient, id: string, cursor: Cursor | undefined, wait: Wait): Promise<Run> {
-  const { delaysMs, signal } = wait
-  const deadline = Date.now() + wait.waitMs
-  let run = await api.get<Run>(`/run/${id}`)
-  for (let i = 0; cursor && !changed(run, cursor); i++) {
-    const left = deadline - Date.now()
-    if (left <= 0) break
-    await sleep(Math.min(delaysMs[Math.min(i, delaysMs.length - 1)], left), signal)
-    if (signal.aborted) break
-    try {
-      run = await api.get<Run>(`/run/${id}`)
-    } catch {
-      // The last good read still answers the call; the next call reads again.
-      break
-    }
-  }
-  return run
+function readRun(api: StrataClient, id: string, cursor: Cursor | undefined, wait: Wait): Promise<Run> {
+  return waitForChange(
+    () => api.get<Run>(`/run/${id}`),
+    (run) => !cursor || changed(run, cursor),
+    wait
+  )
 }
 
 // A requeue between two reads shows as the retry count rising, even when both read `start`.
