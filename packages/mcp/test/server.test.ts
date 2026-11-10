@@ -88,7 +88,7 @@ function structured(result: unknown): Record<string, unknown> {
   return (result as { structuredContent: Record<string, unknown> }).structuredContent
 }
 
-test("POST /mcp without a bearer is 401 pointing at the resource metadata", async () => {
+test("POST /mcp without a bearer is 401 pointing at the resource metadata, with the scopes to request", async () => {
   const res = await fetch(mcpUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -97,7 +97,7 @@ test("POST /mcp without a bearer is 401 pointing at the resource metadata", asyn
   assert.equal(res.status, 401)
   assert.equal(
     res.headers.get("www-authenticate"),
-    `Bearer resource_metadata="${config.publicUrl}/.well-known/oauth-protected-resource/mcp"`
+    `Bearer resource_metadata="${config.publicUrl}/.well-known/oauth-protected-resource/mcp", scope="openid email offline_access"`
   )
 })
 
@@ -113,7 +113,7 @@ test("/healthz is 200 without auth", async () => {
   assert.equal(res.status, 200)
 })
 
-test("protected-resource metadata names the /mcp resource and one issuer, at both paths", async () => {
+test("protected-resource metadata names the /mcp resource, one issuer and the scopes, at both paths", async () => {
   for (const path of [
     "/.well-known/oauth-protected-resource",
     "/.well-known/oauth-protected-resource/mcp"
@@ -123,6 +123,7 @@ test("protected-resource metadata names the /mcp resource and one issuer, at bot
     assert.deepEqual(await res.json(), {
       resource: `${config.publicUrl}/mcp`,
       authorization_servers: ["https://issuer.example.test/auth/v1"],
+      scopes_supported: ["openid", "email", "offline_access"],
       bearer_methods_supported: ["header"]
     })
   }

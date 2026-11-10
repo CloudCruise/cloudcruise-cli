@@ -9,6 +9,10 @@ const METADATA_PATHS = new Set([
   "/.well-known/oauth-protected-resource/mcp"
 ])
 
+// Clients request exactly these. Without them they fall back to every scope
+// the authorization server lists, which includes `phone`.
+const SCOPES = ["openid", "email", "offline_access"]
+
 export interface McpHttpServer {
   server: Server
   /** Aborts in-flight MCP exchanges (e.g. long polls) so the process can exit. */
@@ -21,6 +25,7 @@ export function createHttpServer(config: Config): McpHttpServer {
   const metadata = JSON.stringify({
     resource,
     authorization_servers: [config.oauthIssuer],
+    scopes_supported: SCOPES,
     bearer_methods_supported: ["header"]
   })
   const publicHost = new URL(config.publicUrl).hostname
@@ -60,7 +65,7 @@ export function createHttpServer(config: Config): McpHttpServer {
         res
           .writeHead(401, {
             "Content-Type": "application/json",
-            "WWW-Authenticate": `Bearer resource_metadata="${metadataUrl}"`
+            "WWW-Authenticate": `Bearer resource_metadata="${metadataUrl}", scope="${SCOPES.join(" ")}"`
           })
           .end(JSON.stringify({ error: "unauthorized", error_description: "Bearer token required" }))
         return
