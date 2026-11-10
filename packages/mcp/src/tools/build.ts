@@ -55,30 +55,45 @@ export function registerBuild(server: McpServer, tool: ToolContext, timing: Buil
       const problem = checkInput(args)
       if (problem) return errorResult(problem)
       const api = client(tool, ctx, args.workspace_id)
+      const handle = (id: string) => formatHandle({ kind: "turn", workspaceId: args.workspace_id, id })
       try {
         let id = args.conversation_id ?? (await start(api, args, ctx, timing))
         if (!id) return errorResult("The CloudCruise API started no builder conversation: its reply had no conversation id.")
         let cleared = false
+        // The writes return once the turn reads as processing under its id, so the cursor
+        // comes from their replies; no read follows that could fail after the turn started.
+        let turnId: string | undefined
         if (args.responses) {
-          const refused = await answer(api, id, args.responses)
-          if (refused) return refused
+          const answered = await answer(api, id, args.responses)
+          if ("refused" in answered) return answered.refused
+          turnId = answered.turnId
         } else {
+          let sent: Sent
           try {
-            await api.post(builderPath(id, "message"), { text: args.message })
+            sent = await send(api, id, args.message!)
           } catch (err) {
+            // A new conversation exists now: hand back its handle so a retry doesn't start another.
+            if (!args.conversation_id) return keptHandle(handle(id), "The conversation started, but the message failed", id, err)
             // As the CLI's send does: a cleared conversation's message belongs to the one it continues as.
             const successor = successorOf(err)
             if (!successor) throw err
-            await api.post(builderPath(successor, "message"), { text: args.message })
+            try {
+              sent = await send(api, successor, args.message!)
+            } catch (err) {
+              return keptHandle(handle(successor), "The conversation was cleared and continues as a new one, but the message failed", successor, err)
+            }
             id = successor
             cleared = true
           }
+          // An answer typed as a message continues the turn that asked; the reply doesn't name it.
+          turnId = sent.answeredInChat ? undefined : sent.messageId
         }
-        const state = await api.get<TurnState>(builderPath(id, "turn-state"))
-        const out: Record<string, unknown> = {
-          handle: formatHandle({ kind: "turn", workspaceId: args.workspace_id, id }),
-          after: formatTurnCursor(turnCursor(state)),
-          next: "To follow the turn, call observe with this handle and after."
+        const out: Record<string, unknown> = { handle: handle(id) }
+        if (turnId) {
+          out.after = formatTurnCursor(turnCursor({ phase: "processing", turnId }))
+          out.next = "To follow the turn, call observe with this handle and after."
+        } else {
+          out.next = "To follow the turn, call observe with this handle, without after."
         }
         if (cleared) {
           out.conversation_cleared = true
@@ -147,24 +162,63 @@ async function start(api: StrataClient, args: Input, ctx: ServerContext, timing:
   }
 }
 
-async function answer(api: StrataClient, id: string, responses: Record<string, unknown>): Promise<CallToolResult | undefined> {
+/** What /message returns. */
+interface MessageReply {
+  messageId?: unknown
+  answeredInChat?: boolean
+}
+
+/** A message the builder accepted. */
+interface Sent {
+  messageId?: string
+  answeredInChat: boolean
+}
+
+async function send(api: StrataClient, id: string, text: string): Promise<Sent> {
+  const reply = await api.post<MessageReply>(builderPath(id, "message"), { text })
+  return {
+    // The message that opens a turn names it.
+    messageId: typeof reply?.messageId === "string" && reply.messageId ? reply.messageId : undefined,
+    answeredInChat: reply?.answeredInChat === true
+  }
+}
+
+// The answered turn keeps its id, which the read that found the question already has.
+async function answer(
+  api: StrataClient,
+  id: string,
+  responses: Record<string, unknown>
+): Promise<{ refused: CallToolResult } | { turnId?: string }> {
   let state: TurnState
   try {
     state = await api.get<TurnState>(builderPath(id, "turn-state"))
   } catch (err) {
     if (!isGone(err)) throw err
     const successor = successorOf(err)
-    return errorResult(
-      successor
-        ? `This conversation was cleared and continues as ${successor}. Its question belonged to the old one: send a message to ${successor} with build instead.`
-        : "This conversation is gone: it was cleared or has expired. Start a new one with build."
-    )
+    return {
+      refused: errorResult(
+        successor
+          ? `This conversation was cleared and continues as ${successor}. Its question belonged to the old one: send a message to ${successor} with build instead.`
+          : "This conversation is gone: it was cleared or has expired. Start a new one with build."
+      )
+    }
   }
   if (state.phase !== "awaiting-human-input" || !state.humanInput) {
-    return errorResult("The builder isn't waiting on a question; send a message instead.")
+    return { refused: errorResult("The builder isn't waiting on a question; send a message instead.") }
   }
   await api.post(builderPath(id, "respond"), { messageId: state.humanInput.messageId, responses })
-  return undefined
+  return { turnId: state.turnId ?? undefined }
+}
+
+// The conversation exists but the message didn't reach it: an error that still carries the handle.
+function keptHandle(handle: string, what: string, id: string, err: unknown): CallToolResult {
+  const reason = failure(err).content.map((c) => (c.type === "text" ? c.text : "")).join(" ")
+  const out = { handle, next: `Send the message again with build and conversation_id ${id}.` }
+  return {
+    isError: true,
+    content: [{ type: "text", text: `${what}: ${reason} ${out.next} ${JSON.stringify(out)}` }],
+    structuredContent: out
+  }
 }
 
 function failure(err: unknown): CallToolResult {

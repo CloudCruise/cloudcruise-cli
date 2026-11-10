@@ -73,7 +73,6 @@ function sent(path: string) {
 
 test("build starts a blank conversation, sends the message and returns a handle and after", async () => {
   api.requests.length = 0
-  api.scriptTurn(STARTED_CONVERSATION, [{ phase: "processing", turnId: TURN_A }])
   const result = await tool("build", { workspace_id: WORKSPACE, message: "Log in and download invoices", name: "Invoices", start_url: "https://portal.example.test" })
   assert.ok(!result.isError, result.content[0].text)
   const out = result.structuredContent!
@@ -83,8 +82,7 @@ test("build starts a blank conversation, sends the message and returns a handle 
     api.requests.map((r) => [r.method, r.path, r.body]),
     [
       ["POST", "/workflow-builder/agent/session", { name: "Invoices", startUrl: "https://portal.example.test" }],
-      ["POST", `/workflow-builder/agent/${STARTED_CONVERSATION}/message`, { text: "Log in and download invoices" }],
-      ["GET", `/workflow-builder/agent/${STARTED_CONVERSATION}/turn-state`, undefined]
+      ["POST", `/workflow-builder/agent/${STARTED_CONVERSATION}/message`, { text: "Log in and download invoices" }]
     ]
   )
   for (const r of api.requests) assert.equal(r.headers["x-workspace-id"], WORKSPACE)
@@ -134,15 +132,20 @@ test("build refuses inputs that don't fit, without a request", async () => {
 })
 
 test("observe holds through processing and returns the report when the turn completes", async () => {
+  // The send's message id is the turn's id, so observe's reads match build's after and it holds.
   const { id, handle } = conversation([
     { phase: "processing", turnId: TURN_A },
     { phase: "processing", turnId: TURN_A },
     { phase: "processing", turnId: TURN_A },
     { phase: "completed", turnId: TURN_A, report: "Added a login step and saved." }
   ])
+  api.replyToMessage(id, { conversationId: id, messageId: TURN_A, accepted: true })
+  api.requests.length = 0
   const built = (await tool("build", { workspace_id: WORKSPACE, conversation_id: id, message: "Add a login step" })).structuredContent!
   assert.equal(built.handle, handle)
+  assert.equal(sent(`/workflow-builder/agent/${id}/turn-state`).length, 0, "build reads no turn-state after a send")
   const out = (await tool("observe", { handle, after: built.after })).structuredContent!
+  assert.ok(sent(`/workflow-builder/agent/${id}/turn-state`).length >= 4, "observe held through the processing reads")
   assert.equal(out.status, "completed")
   assert.equal(out.done, true)
   assert.equal(out.report, "Added a login step and saved.")
@@ -220,7 +223,10 @@ test("build answers the pending question by its message id", async () => {
   const result = await tool("build", { workspace_id: WORKSPACE, conversation_id: id, responses: { plan: "Pro" } })
   assert.ok(!result.isError, result.content[0].text)
   assert.deepEqual(sent(`/workflow-builder/agent/${id}/respond`)[0].body, { messageId: "q7", responses: { plan: "Pro" } })
-  assert.match(result.structuredContent!.after as string, /\.processing$/)
+  assert.equal(sent(`/workflow-builder/agent/${id}/turn-state`).length, 1, "only the read that found the question")
+  // The answered turn keeps its id: build's after is what observe reads next.
+  const next = (await tool("observe", { handle: result.structuredContent!.handle as string })).structuredContent!
+  assert.equal(result.structuredContent!.after, next.after)
 })
 
 test("build with responses when no question is pending sends nothing", async () => {
@@ -270,4 +276,28 @@ test("a conversation gone without a successor tells the model to start again", a
   assert.equal(observed.next, "Start a new conversation with build.")
   const sentTo = await tool("build", { workspace_id: WORKSPACE, conversation_id: id, message: "Hello?" })
   assert.match(sentTo.content[0].text, /Start a new one with build/)
+})
+
+test("a new conversation whose first message fails still hands back its handle", async () => {
+  api.refuseNext(STARTED_CONVERSATION, 500, "INTERNAL_SERVER_ERROR")
+  const result = await tool("build", { workspace_id: WORKSPACE, message: "Hi", name: "Invoices", start_url: "https://portal.example.test" })
+  assert.equal(result.isError, true)
+  assert.match(result.content[0].text, /^The conversation started, but the message failed: The CloudCruise API returned 500/)
+  assert.match(result.content[0].text, new RegExp(`Send the message again with build and conversation_id ${STARTED_CONVERSATION}`))
+  assert.equal(result.structuredContent!.handle, `v1:turn:${WORKSPACE}:${STARTED_CONVERSATION}`)
+})
+
+test("a send whose reply names no message returns the handle without after", async () => {
+  const { id, handle } = conversation([{ phase: "processing", turnId: TURN_A }])
+  api.replyToMessage(id, { conversationId: id, accepted: true })
+  const out = (await tool("build", { workspace_id: WORKSPACE, conversation_id: id, message: "Hi" })).structuredContent!
+  assert.deepEqual(out, { handle, next: "To follow the turn, call observe with this handle, without after." })
+})
+
+test("an answer typed as a message returns the handle without after", async () => {
+  const { id, handle } = conversation([{ phase: "processing", turnId: TURN_A }])
+  api.replyToMessage(id, { conversationId: id, messageId: "m-chat", accepted: true, answeredInChat: true })
+  const out = (await tool("build", { workspace_id: WORKSPACE, conversation_id: id, message: "Pro, please" })).structuredContent!
+  assert.equal(out.handle, handle)
+  assert.equal(out.after, undefined)
 })

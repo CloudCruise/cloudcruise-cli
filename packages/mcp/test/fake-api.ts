@@ -81,6 +81,8 @@ export interface FakeApi {
   clearConversation(id: string, successor?: string): void
   /** Makes the next message or respond to a conversation fail with this status and code. */
   refuseNext(id: string, status: number, code: string): void
+  /** What POST …/message answers for a conversation; by default it names message m-new. */
+  replyToMessage(id: string, body: Record<string, unknown>): void
   /** How long a builder start takes. */
   startDelayMs: number
 }
@@ -90,6 +92,7 @@ export function createFakeApi(spec: unknown = JSON.parse(readFileSync(LAUNCH_SPE
   const turns = new Map<string, TurnRead[]>()
   const cleared = new Map<string, string | undefined>()
   const refusals = new Map<string, [number, string]>()
+  const messageReplies = new Map<string, Record<string, unknown>>()
   const api: FakeApi = {
     server: undefined as unknown as Server,
     requests: [],
@@ -98,6 +101,7 @@ export function createFakeApi(spec: unknown = JSON.parse(readFileSync(LAUNCH_SPE
     scriptTurn: (id, reads) => void turns.set(id, [...reads]),
     clearConversation: (id, successor) => void cleared.set(id, successor),
     refuseNext: (id, status, code) => void refusals.set(id, [status, code]),
+    replyToMessage: (id, body) => void messageReplies.set(id, body),
     startDelayMs: 0
   }
   api.server = createServer(async (req, res) => {
@@ -192,7 +196,7 @@ export function createFakeApi(spec: unknown = JSON.parse(readFileSync(LAUNCH_SPE
         refusals.delete(id)
         return send(refusal[0], { statusCode: refusal[0], code: refusal[1], message: refusal[1] })
       }
-      if (action === "message") return send(201, { conversationId: id, messageId: "m-new", accepted: true })
+      if (action === "message") return send(201, messageReplies.get(id) ?? { conversationId: id, messageId: "m-new", accepted: true })
       if (action === "respond") return send(201, { conversationId: id, accepted: true })
       const script = turns.get(id) ?? [{ phase: "idle", turnId: null }]
       return send(200, { conversationId: id, ...(script.length > 1 ? script.shift() : script[0]) })
