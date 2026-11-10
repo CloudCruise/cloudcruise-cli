@@ -183,17 +183,18 @@ test("[2026-07-28] an unsupported protocol version is 400 naming the supported o
 })
 
 for (const { era, negotiation } of ERAS) {
-  test(`[${era}] every tool has a title; only call and run may change data`, async () => {
+  test(`[${era}] every tool has a title; only build, call and run may change data`, async () => {
     const client = await connect(mcpUrl, negotiation)
     const { tools } = await client.listTools()
-    assert.deepEqual(tools.map((t) => t.name).sort(), ["call", "observe", "run", "search", "whoami"])
-    const writers = ["call", "run"]
+    assert.deepEqual(tools.map((t) => t.name).sort(), ["build", "call", "observe", "run", "search", "whoami"])
+    const writers = ["build", "call", "run"]
     for (const tool of tools) {
       assert.ok(tool.title, `${tool.name} title`)
       assert.equal(tool.annotations?.readOnlyHint, !writers.includes(tool.name), `${tool.name} readOnlyHint`)
     }
     for (const tool of tools.filter((t) => writers.includes(t.name))) {
-      assert.equal(tool.annotations?.destructiveHint, true, `${tool.name} destructiveHint`)
+      // build edits a draft workflow; nothing it does is irreversible.
+      assert.equal(tool.annotations?.destructiveHint, tool.name !== "build", `${tool.name} destructiveHint`)
       // These reach workspace data, and can't without a workspace.
       assert.ok(tool.inputSchema.required?.includes("workspace_id"), `${tool.name} requires workspace_id`)
     }
@@ -203,7 +204,7 @@ for (const { era, negotiation } of ERAS) {
     }
     for (const tool of tools) {
       const alwaysLoad = tool._meta?.["anthropic/alwaysLoad"]
-      assert.equal(alwaysLoad, ["run", "observe"].includes(tool.name) ? true : undefined, `${tool.name} alwaysLoad`)
+      assert.equal(alwaysLoad, ["build", "run", "observe"].includes(tool.name) ? true : undefined, `${tool.name} alwaysLoad`)
     }
     await client.close()
   })

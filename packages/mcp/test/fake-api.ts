@@ -56,6 +56,18 @@ export interface RunRead {
   errors?: { message: string; error_code: string | null }[]
 }
 
+/** One read of a scripted builder conversation: what GET …/turn-state returns. */
+export interface TurnRead {
+  phase: string
+  turnId?: string | null
+  report?: string
+  humanInput?: { messageId: string; prompt?: string; fields?: Record<string, unknown>[] }
+}
+
+/** The conversation id a builder start returns, and the viewer token that must never reach the model. */
+export const STARTED_CONVERSATION = "c0ffee00-1111-4222-8333-444455556666"
+export const VIEWER_TOKEN = "dcv-viewer-token-do-not-leak"
+
 export interface FakeApi {
   server: Server
   requests: ApiRequest[]
@@ -63,15 +75,30 @@ export interface FakeApi {
   specFetches: number
   /** Scripts a run: each GET /run/{id} returns the next read, then the last one forever. */
   scriptRun(id: string, reads: RunRead[]): void
+  /** Scripts a conversation: each GET …/turn-state returns the next read, then the last one forever. */
+  scriptTurn(id: string, reads: TurnRead[]): void
+  /** Makes a conversation answer 404 CONVERSATION_NOT_FOUND, naming its successor when given. */
+  clearConversation(id: string, successor?: string): void
+  /** Makes the next message or respond to a conversation fail with this status and code. */
+  refuseNext(id: string, status: number, code: string): void
+  /** How long a builder start takes. */
+  startDelayMs: number
 }
 
 export function createFakeApi(spec: unknown = JSON.parse(readFileSync(LAUNCH_SPEC, "utf8"))): FakeApi {
   const scripts = new Map<string, RunRead[]>()
+  const turns = new Map<string, TurnRead[]>()
+  const cleared = new Map<string, string | undefined>()
+  const refusals = new Map<string, [number, string]>()
   const api: FakeApi = {
     server: undefined as unknown as Server,
     requests: [],
     specFetches: 0,
-    scriptRun: (id, reads) => void scripts.set(id, [...reads])
+    scriptRun: (id, reads) => void scripts.set(id, [...reads]),
+    scriptTurn: (id, reads) => void turns.set(id, [...reads]),
+    clearConversation: (id, successor) => void cleared.set(id, successor),
+    refuseNext: (id, status, code) => void refusals.set(id, [status, code]),
+    startDelayMs: 0
   }
   api.server = createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", "http://fake")
@@ -145,6 +172,30 @@ export function createFakeApi(spec: unknown = JSON.parse(readFileSync(LAUNCH_SPE
       const session_id = `run_${(RUNS.length + 1).toString(16).padStart(4, "0")}`
       RUNS.push({ session_id, workflow_id: body.workflow_id, status: "execution.queued", created_at: new Date().toISOString(), finished_at: null, data: null, error: null })
       return send(202, { session_id })
+    }
+    if (route === "POST /workflow-builder/agent/session" || route === "POST /workflow-builder/agent/session/from-workflow") {
+      await new Promise((resolve) => setTimeout(resolve, api.startDelayMs))
+      return send(201, {
+        conversationId: STARTED_CONVERSATION,
+        builderSession: { sessionId: "dcv-1", url: "https://viewer.example.test", authToken: VIEWER_TOKEN },
+        workflow: { id: INVOICE, nodes: [], edges: {} }
+      })
+    }
+    if ((m = /^(GET|POST) \/workflow-builder\/agent\/([^/]+)\/(message|respond|turn-state)$/.exec(route))) {
+      const [, , id, action] = m
+      if (cleared.has(id)) {
+        const successor = cleared.get(id)
+        return send(404, { statusCode: 404, code: "CONVERSATION_NOT_FOUND", message: "Conversation not found", ...(successor ? { successorConversationId: successor } : {}) })
+      }
+      const refusal = action !== "turn-state" && refusals.get(id)
+      if (refusal) {
+        refusals.delete(id)
+        return send(refusal[0], { statusCode: refusal[0], code: refusal[1], message: refusal[1] })
+      }
+      if (action === "message") return send(201, { conversationId: id, messageId: "m-new", accepted: true })
+      if (action === "respond") return send(201, { conversationId: id, accepted: true })
+      const script = turns.get(id) ?? [{ phase: "idle", turnId: null }]
+      return send(200, { conversationId: id, ...(script.length > 1 ? script.shift() : script[0]) })
     }
     if ((m = /^POST \/builder\/sessions\/([^/]+)\/messages$/.exec(route))) return send(202)
     if ((m = /^GET \/builder\/sessions\/([^/]+)\/turn$/.exec(route))) {
