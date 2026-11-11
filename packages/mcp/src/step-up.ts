@@ -38,26 +38,29 @@ export class StepUpGate {
     if (cachedUntil !== undefined && cachedUntil > Date.now()) return NONE
 
     const answer = await this.ask(token)
+    if (!answer) return NONE
     if (answer.status === "none") this.remember(sessionId)
     return answer
   }
 
   // Fails open: if the API is unreachable or predates the endpoint, the request is
-  // served as before and the API still authorizes every call.
-  private async ask(token: string): Promise<StepUp> {
+  // served as before and the API still authorizes every call. A failure is never
+  // cached, so the next request asks again.
+  private async ask(token: string): Promise<StepUp | undefined> {
     try {
       const res = await fetch(`${this.config.apiBaseUrl}/mcp/step-up`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
         signal: AbortSignal.timeout(TIMEOUT_MS)
       })
-      if (!res.ok) return NONE
+      if (!res.ok) return undefined
       const body = (await res.json()) as { status?: unknown; url?: unknown }
+      if (body.status === "none") return NONE
       if (body.status === "refresh") return { status: "refresh" }
       if (body.status === "required" && typeof body.url === "string") return { status: "required", url: body.url }
-      return NONE
+      return undefined
     } catch {
-      return NONE
+      return undefined
     }
   }
 

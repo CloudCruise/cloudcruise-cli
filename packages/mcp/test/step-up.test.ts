@@ -128,7 +128,7 @@ test("until the user confirms the connector, every tool answers with the link an
   )
 })
 
-test("after the user confirms, the old aal1 token gets 401 invalid_token so the client refreshes to an aal2 token", async () => {
+test("after the user confirms, the old aal1 token gets HTTP 401 invalid_token naming the resource metadata, the challenge that makes an OAuth client refresh", async () => {
   const token = grant()
   api.stepUp(token, { status: "refresh" })
   const res = await fetch(mcpUrl, {
@@ -154,4 +154,15 @@ test("when the API has no step-up endpoint or fails, the request is served as be
 test("a bearer that isn't a JWT is passed to the API unchanged and never costs a step-up call", async () => {
   assert.equal((await whoami("good")).isError, undefined)
   assert.equal(stepUpCalls("good"), 0)
+})
+
+test("a failed check is not cached, so once the API recovers the next request gets the link", async () => {
+  const token = grant()
+  api.accept(token)
+  api.stepUp(token, 500)
+  assert.equal((await whoami(token)).isError, undefined)
+  api.stepUp(token, { status: "required", url: LINK })
+  const result = await whoami(token)
+  assert.equal(result.isError, true)
+  assert.ok(result.content[0].text.includes(LINK))
 })
