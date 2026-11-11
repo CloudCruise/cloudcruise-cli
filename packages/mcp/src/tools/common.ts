@@ -84,17 +84,22 @@ export function errorResult(text: string): CallToolResult {
   return { isError: true, content: [{ type: "text", text }] }
 }
 
-/** What a handle names: a run, in the workspace it was started in. */
+/** A result the model reads as JSON text and a client can read as structured content. */
+export function structured(out: Record<string, unknown>): CallToolResult {
+  return { content: [{ type: "text", text: JSON.stringify(out) }], structuredContent: out }
+}
+
+/** What a handle names: a run, or a builder conversation, in the workspace it belongs to. */
 export interface Handle {
-  kind: "run"
+  kind: "run" | "turn"
   workspaceId: string
   id: string
 }
 
-const HANDLE = /^v1:(run):([^:]+):([A-Za-z0-9_-]+)$/
+const HANDLE = /^v1:(run|turn):([^:]+):([A-Za-z0-9_-]+)$/
 const GUID = z.guid()
 
-// Readable and fixed for the run's life. Unsigned: the API authorizes every read
+// Readable and fixed for the run's or conversation's life. Unsigned: the API authorizes every read
 // with the caller's token, so a made-up handle reads only what `call` could.
 export function formatHandle({ kind, workspaceId, id }: Handle): string {
   return `v1:${kind}:${workspaceId}:${id}`
@@ -118,4 +123,31 @@ export function sleep(ms: number, signal: AbortSignal): Promise<void> {
       resolve()
     }
   })
+}
+
+/** How long one call may wait for a change, and how it paces its reads. */
+export interface Wait {
+  waitMs: number
+  /** Gaps between reads; the last one repeats. */
+  delaysMs: number[]
+  signal: AbortSignal
+}
+
+// Reads until changed says so, the wait ends or the request is aborted. A failed
+// re-read ends the wait: the last good read still answers the call; the next call reads again.
+export async function waitForChange<T>(read: () => Promise<T>, changed: (value: T) => boolean, wait: Wait): Promise<T> {
+  const deadline = Date.now() + wait.waitMs
+  let value = await read()
+  for (let i = 0; !changed(value); i++) {
+    const left = deadline - Date.now()
+    if (left <= 0) break
+    await sleep(Math.min(wait.delaysMs[Math.min(i, wait.delaysMs.length - 1)], left), wait.signal)
+    if (wait.signal.aborted) break
+    try {
+      value = await read()
+    } catch {
+      break
+    }
+  }
+  return value
 }

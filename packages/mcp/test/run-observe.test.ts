@@ -256,7 +256,7 @@ test("observe rejects a handle it can't read, without a request", async () => {
   for (const handle of [
     "run_8f2c",
     `v2:run:${WORKSPACE}:run_8f2c`,
-    `v1:turn:${WORKSPACE}:run_8f2c`,
+    `v1:task:${WORKSPACE}:run_8f2c`,
     "v1:run:not-a-workspace:run_8f2c",
     `v1:run:${WORKSPACE}:run/8f2c`
   ]) {

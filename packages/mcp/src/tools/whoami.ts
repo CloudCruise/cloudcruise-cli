@@ -1,6 +1,6 @@
 import type { StrataClient } from "@cloudcruise/strata"
 import type { McpServer } from "@modelcontextprotocol/server"
-import { apiFailure, client, type ToolContext } from "./common.js"
+import { apiFailure, client, structured, type ToolContext } from "./common.js"
 
 interface Me {
   userId?: string
@@ -27,7 +27,7 @@ export function registerWhoami(server: McpServer, tool: ToolContext): void {
       try {
         const [me, workspaces] = await Promise.all([api.get<Me>("/users/me"), listWorkspaces(api)])
         const out = { user_id: me.userId ?? null, email: me.email ?? null, workspaces }
-        return { content: [{ type: "text", text: JSON.stringify(out) }], structuredContent: out }
+        return structured(out)
       } catch (err) {
         return apiFailure(err)
       }

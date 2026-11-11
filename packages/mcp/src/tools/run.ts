@@ -1,6 +1,6 @@
 import type { McpServer } from "@modelcontextprotocol/server"
 import * as z from "zod/v4"
-import { apiFailure, client, errorResult, formatHandle, workspaceIdInput, type ToolContext } from "./common.js"
+import { apiFailure, client, errorResult, formatHandle, structured, workspaceIdInput, type ToolContext } from "./common.js"
 
 export function registerRun(server: McpServer, tool: ToolContext): void {
   server.registerTool(
@@ -33,7 +33,7 @@ export function registerRun(server: McpServer, tool: ToolContext): void {
           handle: formatHandle({ kind: "run", workspaceId: workspace_id, id: session_id }),
           next: "The run continues on its own. To follow it, call observe with this handle."
         }
-        return { content: [{ type: "text", text: JSON.stringify(out) }], structuredContent: out }
+        return structured(out)
       } catch (err) {
         return apiFailure(err)
       }
