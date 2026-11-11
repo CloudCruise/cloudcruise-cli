@@ -2,7 +2,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { createMcpHandler } from "@modelcontextprotocol/server"
 import { hostHeaderValidation, originValidation, toNodeHandler } from "@modelcontextprotocol/node"
 import type { Config } from "./config.js"
-import { createServer as createMcpServer } from "./tools/index.js"
+import { createServer as createMcpServer, type TestHooks } from "./tools/index.js"
 
 const METADATA_PATHS = new Set([
   "/.well-known/oauth-protected-resource",
@@ -19,7 +19,7 @@ export interface McpHttpServer {
   closeMcp: () => Promise<void>
 }
 
-export function createHttpServer(config: Config): McpHttpServer {
+export function createHttpServer(config: Config, hooks: TestHooks = {}): McpHttpServer {
   const resource = `${config.publicUrl}/mcp`
   const metadataUrl = `${config.publicUrl}/.well-known/oauth-protected-resource/mcp`
   const metadata = JSON.stringify({
@@ -34,7 +34,7 @@ export function createHttpServer(config: Config): McpHttpServer {
 
   // The SDK never reads the Authorization header; the gate below hands it the
   // token as authInfo, and each request gets its own McpServer bound to it.
-  const mcp = createMcpHandler(({ authInfo }) => createMcpServer(config, authInfo?.token ?? ""))
+  const mcp = createMcpHandler(({ authInfo }) => createMcpServer(config, authInfo?.token ?? "", hooks))
   const mcpNode = toNodeHandler(mcp)
 
   const server = createServer((req, res) => {

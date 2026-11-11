@@ -47,7 +47,7 @@ export function strata(tool: ToolContext, ctx?: ServerContext, workspaceId?: str
 
 // Only 2026-07-28 clients send clientInfo on every request; 2025 clients sent it
 // once in initialize, a separate stateless request, so there is none to read.
-function clientName(ctx: ServerContext): string | undefined {
+export function clientName(ctx: ServerContext): string | undefined {
   const envelope = ctx.mcpReq.envelope as Record<string, unknown> | undefined
   const info = envelope?.[CLIENT_INFO_META_KEY] as { name?: unknown } | undefined
   return typeof info?.name === "string" && info.name ? info.name : undefined
@@ -67,7 +67,10 @@ export function apiFailure(err: unknown): CallToolResult {
 function apiMessage(body: string): string | undefined {
   try {
     const message = (JSON.parse(body) as { message?: unknown }).message
-    return typeof message === "string" ? message : undefined
+    if (typeof message === "string") return message
+    // Validation errors list one message per field.
+    if (Array.isArray(message) && message.every((m) => typeof m === "string")) return message.join("; ")
+    return undefined
   } catch {
     return undefined
   }
@@ -79,4 +82,40 @@ export function text(value: string): CallToolResult {
 
 export function errorResult(text: string): CallToolResult {
   return { isError: true, content: [{ type: "text", text }] }
+}
+
+/** What a handle names: a run, in the workspace it was started in. */
+export interface Handle {
+  kind: "run"
+  workspaceId: string
+  id: string
+}
+
+const HANDLE = /^v1:(run):([^:]+):([A-Za-z0-9_-]+)$/
+const GUID = z.guid()
+
+// Readable and fixed for the run's life. Unsigned: the API authorizes every read
+// with the caller's token, so a made-up handle reads only what `call` could.
+export function formatHandle({ kind, workspaceId, id }: Handle): string {
+  return `v1:${kind}:${workspaceId}:${id}`
+}
+
+export function parseHandle(handle: string): Handle | undefined {
+  const match = HANDLE.exec(handle)
+  if (!match || !GUID.safeParse(match[2]).success) return undefined
+  return { kind: match[1] as Handle["kind"], workspaceId: match[2], id: match[3] }
+}
+
+/** Resolves after ms, or at once when the request is aborted. */
+export function sleep(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal.aborted) return resolve()
+    const timer = setTimeout(done, ms)
+    signal.addEventListener("abort", done, { once: true })
+    function done() {
+      clearTimeout(timer)
+      signal.removeEventListener("abort", done)
+      resolve()
+    }
+  })
 }
