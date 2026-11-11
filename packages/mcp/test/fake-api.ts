@@ -13,6 +13,14 @@ const REFUSED: Record<string, [number, string]> = {
 }
 export const GOOD_TOKEN = "good"
 
+// The good token's workspaces, as /me/workspaces lists them. Two, so nothing can
+// lean on a user having only one.
+export const WORKSPACES = [
+  { id: "3b1f8e2a-7c4d-4e9f-a1b2-c3d4e5f6a7b8", name: "Billing", organization_id: "9e8d7c6b-5a4f-4e3d-8c2b-1a0f9e8d7c6b", organization_name: "Acme Health", role: "owner" },
+  { id: "5c2e9f3b-8d5e-4fa0-b2c3-d4e5f6a7b8c9", name: "Intake", organization_id: "9e8d7c6b-5a4f-4e3d-8c2b-1a0f9e8d7c6b", organization_name: "Acme Health", role: "member" }
+]
+export const WORKSPACE = WORKSPACES[0].id
+
 const INVOICE = "6f1d2c3a-0b4e-4c5d-9e8f-1a2b3c4d5e6f"
 const PORTAL = "a7b8c9d0-1e2f-4a3b-8c4d-5e6f7a8b9c0d"
 const ELIGIBILITY = "0c9b8a7d-6e5f-4d3c-b2a1-f0e9d8c7b6a5"
@@ -70,7 +78,16 @@ export function createFakeApi(spec: unknown = JSON.parse(readFileSync(LAUNCH_SPE
 
     const route = `${req.method} ${url.pathname}`
     let m: RegExpExecArray | null
-    if (route === "GET /users/me") return send(200, { userId: "u1", email: "u1@example.test", workspaceId: "w1" })
+    // Like the API's auth guard: a named workspace must be one of the user's.
+    const workspaceId = req.headers["x-workspace-id"]
+    if (workspaceId && !WORKSPACES.some((w) => w.id === workspaceId)) {
+      return send(403, { statusCode: 403, message: "Access denied to this workspace" })
+    }
+    if (route === "GET /users/me") return send(200, { userId: "u1", email: "u1@example.test", workspaceId: workspaceId ?? null })
+    if (route === "GET /me/workspaces") return send(200, WORKSPACES)
+    if (!workspaceId) {
+      return send(400, { statusCode: 400, message: "Workspace ID is required. Please add it in the request header 'x-workspace-id'." })
+    }
     if (route === "GET /workflows") {
       const search = url.searchParams.get("search")?.toLowerCase()
       return send(200, WORKFLOWS.filter((w) => !search || w.name.toLowerCase().includes(search)))
