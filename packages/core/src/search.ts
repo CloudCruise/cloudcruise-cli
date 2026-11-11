@@ -9,10 +9,13 @@ const STOPWORDS = new Set([
   "me", "my", "of", "on", "or", "our", "show", "the", "this", "to", "with", "your"
 ])
 
-/** Lower-cases, splits on anything but letters and digits, drops stopwords, and strips a plural `s`. */
+/**
+ * Splits camelCase and anything but letters and digits, lower-cases, drops
+ * stopwords, and strips a plural `s`.
+ */
 export function tokenize(text: string): string[] {
   const tokens: string[] = []
-  for (const word of text.toLowerCase().split(/[^a-z0-9]+/)) {
+  for (const word of text.replace(/([a-z0-9])([A-Z])/g, "$1 $2").toLowerCase().split(/[^a-z0-9]+/)) {
     if (!word || STOPWORDS.has(word)) continue
     tokens.push(word.length > 3 && word.endsWith("s") && !word.endsWith("ss") ? word.slice(0, -1) : word)
   }
@@ -25,18 +28,25 @@ interface Doc {
   length: number
 }
 
-/** BM25 over operation names, summaries and descriptions. */
+/** An operation and the other text it is found by: parameters, enum values, path and tags. */
+export interface Searchable {
+  operation: Operation
+  keywords: string
+}
+
+/** BM25 over operation names, summaries, descriptions and keywords. */
 export class SearchIndex {
   private readonly docs: Doc[]
   private readonly docFreq = new Map<string, number>()
   private readonly avgLength: number
 
-  constructor(operations: Operation[]) {
-    this.docs = operations.map((operation) => {
+  constructor(entries: Searchable[]) {
+    this.docs = entries.map(({ operation, keywords }) => {
       const tokens = [
         ...repeat(tokenize(operation.name), NAME_WEIGHT),
         ...repeat(tokenize(operation.summary ?? ""), SUMMARY_WEIGHT),
-        ...tokenize(operation.description ?? "")
+        ...tokenize(operation.description ?? ""),
+        ...tokenize(keywords)
       ]
       const counts = new Map<string, number>()
       for (const t of tokens) counts.set(t, (counts.get(t) ?? 0) + 1)

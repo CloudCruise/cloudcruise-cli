@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs"
-import { ApiError, StrataClient } from "@cloudcruise/strata"
+import { ApiError, CallError, SpecCache, Strata, StrataClient } from "@cloudcruise/strata"
 import {
   CLIENT_INFO_META_KEY,
   McpServer,
@@ -20,6 +20,20 @@ export const VERSION = (
 export const MAX_POLL_SECONDS = 45
 const HANDLE_PREFIX = "probe1."
 
+// One per process: every request's Strata shares it, so the spec is fetched once per
+// TTL, not once per request.
+const specs = new SpecCache({ client: `mcp/${VERSION}` })
+// The areas in search's description, from the last spec read. Only the first
+// request waits for them; later ones refresh them in the background, so a slow
+// spec fetch never delays a request.
+let areas: string[] | undefined
+
+// The API's 401s for a bad, expired or missing credential. Other 401s ("Missing
+// privileges") and 403s (MFA, workspace access) aren't fixed by signing in again.
+const TOKEN_REJECTED = /invalid or expired|missing authorization|missing or invalid|missing user id/i
+const RECONNECT =
+  "The CloudCruise API rejected your token. Reconnect the CloudCruise connector to sign in again."
+
 interface Me {
   userId?: string
   email?: string
@@ -27,8 +41,80 @@ interface Me {
 }
 
 /** One server per HTTP request: the token is that request's, never shared. */
-export function createServer(config: Config, token: string): McpServer {
+export async function createServer(config: Config, token: string): Promise<McpServer> {
   const server = new McpServer({ name: "cloudcruise", version: VERSION })
+  const strata = (ctx?: ServerContext) =>
+    new Strata({
+      client: new StrataClient({
+        baseUrl: config.apiBaseUrl,
+        token,
+        authScheme: "bearer",
+        client: `mcp/${VERSION}`,
+        agent: ctx && clientName(ctx)
+      }),
+      surface: "mcp",
+      specs
+    })
+  const next = strata()
+    .categories()
+    .catch(() => [])
+    .then((found) => (areas = found))
+  const categories = areas ?? (await next)
+
+  server.registerTool(
+    "search",
+    {
+      title: "Search CloudCruise operations",
+      description: [
+        "Find the CloudCruise API operations that do what the user asked.",
+        categories.length ? `Areas: ${categories.join(", ")}.` : "",
+        "Describe the task in plain words, e.g. \"list my workflows\". Each result gives an operation's name, what it does and returns, and the arguments `call` takes. Search before `call`."
+      ]
+        .filter(Boolean)
+        .join(" "),
+      inputSchema: z.object({
+        query: z.string().describe("The task in plain words"),
+        limit: z.number().int().min(1).max(10).optional().describe("How many operations to return, default 5")
+      }),
+      annotations: { readOnlyHint: true, openWorldHint: false }
+    },
+    async ({ query, limit }, ctx) => {
+      const found = await strata(ctx).search(query, { limit })
+      if (!found.length) return text("No operations match. Try other words.")
+      // The description says what an operation returns; output schemas would only cost tokens.
+      return text(
+        JSON.stringify(
+          found.map(({ name, summary, description, hints, input }) => ({ name, summary, description, hints, input }))
+        )
+      )
+    }
+  )
+
+  server.registerTool(
+    "call",
+    {
+      title: "Call a CloudCruise operation",
+      description:
+        "Run a CloudCruise API operation found with `search`, as the signed-in user. Pass its name and arguments that fit its input schema: path and query parameters at the top level, the request body under `body`. Some operations change data.",
+      inputSchema: z.object({
+        operation: z.string().describe("The operation's name from search, e.g. workflows.list"),
+        arguments: z.record(z.string(), z.unknown()).optional().describe("Arguments that fit the operation's input schema")
+      }),
+      annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true }
+    },
+    async ({ operation, arguments: args }, ctx) => {
+      try {
+        const { data } = await strata(ctx).call(operation, args ?? {})
+        return text(data === undefined ? "Done. The API returned no content." : JSON.stringify(data))
+      } catch (err) {
+        // Anything else thrown becomes an error result with its message, via the SDK.
+        if (err instanceof CallError && err.status === 401 && TOKEN_REJECTED.test(err.message)) {
+          return errorResult(RECONNECT)
+        }
+        throw err
+      }
+    }
+  )
 
   server.registerTool(
     "whoami",
@@ -129,16 +215,26 @@ function clientName(ctx: ServerContext): string | undefined {
 
 function apiFailure(err: unknown): CallToolResult {
   if (err instanceof ApiError) {
-    if (err.status === 401 || err.status === 403) {
-      return errorResult(
-        "The CloudCruise API rejected your token. Reconnect the CloudCruise connector to sign in again."
-      )
-    }
+    if (err.status === 401 && TOKEN_REJECTED.test(err.body)) return errorResult(RECONNECT)
+    const message = apiMessage(err.body)
     return errorResult(
-      `The CloudCruise API returned ${err.status}${err.code ? ` (${err.code})` : ""}.`
+      `The CloudCruise API returned ${err.status}${err.code ? ` (${err.code})` : ""}${message ? `: ${message}` : "."}`
     )
   }
   return errorResult("Could not reach the CloudCruise API.")
+}
+
+function apiMessage(body: string): string | undefined {
+  try {
+    const message = (JSON.parse(body) as { message?: unknown }).message
+    return typeof message === "string" ? message : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function text(value: string): CallToolResult {
+  return { content: [{ type: "text", text: value }] }
 }
 
 function errorResult(text: string): CallToolResult {

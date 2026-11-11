@@ -1,0 +1,258 @@
+{
+  "openapi": "3.0.0",
+  "info": { "title": "CloudCruise API", "version": "1.0.0" },
+  "tags": [
+    { "name": "Workflows", "description": "Browser automations defined in a workspace" },
+    { "name": "Runs", "description": "Executions of a workflow" },
+    { "name": "Builder", "description": "The agent that builds and edits workflows" },
+    { "name": "Vault", "description": "Stored credentials" }
+  ],
+  "paths": {
+    "/workflows": {
+      "get": {
+        "operationId": "WorkflowsController_list",
+        "summary": "List workflows",
+        "description": "Returns every workflow in the workspace with its id, name, description and when it was last updated. Use a workflow's id to get its definition or start a run of it.",
+        "tags": ["Workflows"],
+        "x-strata-surfaces": ["cli", "mcp"],
+        "x-strata-name": "workflows.list",
+        "x-strata-hints": { "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false },
+        "parameters": [
+          { "name": "search", "in": "query", "required": false, "description": "Only workflows whose name contains this text", "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "The workspace's workflows",
+            "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/WorkflowSummary" } } } }
+          }
+        }
+      }
+    },
+    "/workflows/{workflow_id}": {
+      "get": {
+        "operationId": "WorkflowsController_get",
+        "summary": "Get a workflow",
+        "description": "Returns one workflow's definition: its nodes, edges, the input variables a run needs and the data it extracts.",
+        "tags": ["Workflows"],
+        "x-strata-surfaces": ["cli", "mcp"],
+        "x-strata-name": "workflows.get",
+        "x-strata-hints": { "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false },
+        "parameters": [
+          { "name": "workflow_id", "in": "path", "required": true, "description": "The workflow's id", "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "responses": {
+          "200": { "description": "The workflow", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Workflow" } } } }
+        }
+      },
+      "delete": {
+        "operationId": "WorkflowsController_delete",
+        "summary": "Delete a workflow",
+        "tags": ["Workflows"],
+        "x-strata-surfaces": ["cli"],
+        "x-strata-name": "workflows.delete",
+        "x-strata-hints": { "readOnlyHint": false, "destructiveHint": true, "idempotentHint": true, "openWorldHint": false },
+        "parameters": [{ "name": "workflow_id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "204": { "description": "Deleted" } }
+      }
+    },
+    "/runs": {
+      "get": {
+        "operationId": "RunController_list",
+        "summary": "List runs",
+        "description": "Returns runs newest first, each with its session id, workflow id, status and start and end times. Filter by workflow, status or time range. Defaults to the last 24 hours.",
+        "tags": ["Runs"],
+        "x-strata-surfaces": ["cli", "mcp"],
+        "x-strata-name": "runs.list",
+        "x-strata-hints": { "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false },
+        "parameters": [
+          { "name": "workflow_id", "in": "query", "required": false, "description": "Only runs of this workflow", "schema": { "type": "string", "format": "uuid" } },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "description": "Only runs with this execution status",
+            "schema": {
+              "type": "string",
+              "enum": ["execution.queued", "execution.start", "execution.failed", "execution.success", "execution.paused", "execution.stopped"]
+            }
+          },
+          { "name": "start_time", "in": "query", "required": false, "description": "Earliest creation time to include, ISO 8601. Defaults to 24 hours ago.", "schema": { "type": "string", "format": "date-time" } },
+          { "name": "end_time", "in": "query", "required": false, "description": "Latest creation time to include, ISO 8601", "schema": { "type": "string", "format": "date-time" } },
+          { "name": "limit", "in": "query", "required": false, "description": "Maximum number of runs to return", "schema": { "type": "integer", "minimum": 1, "maximum": 500, "default": 100 } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Matching runs",
+            "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/RunSummary" } } } }
+          }
+        }
+      }
+    },
+    "/run": {
+      "post": {
+        "operationId": "RunController_createRun",
+        "summary": "Start a run",
+        "description": "Starts a run of a workflow with the given input variables. Returns the run's session id at once; the run continues in the background. Get the run with its session id to follow its status and read its results.",
+        "tags": ["Runs"],
+        "x-strata-surfaces": ["cli", "mcp"],
+        "x-strata-name": "runs.start",
+        "x-strata-hints": { "readOnlyHint": false, "destructiveHint": false, "idempotentHint": false, "openWorldHint": true },
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/StartRun" } } }
+        },
+        "responses": {
+          "202": {
+            "description": "Run started",
+            "content": {
+              "application/json": {
+                "schema": { "type": "object", "properties": { "session_id": { "type": "string", "description": "The run's session id" } } }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/run/{session_id}": {
+      "get": {
+        "operationId": "RunController_get",
+        "summary": "Get a run",
+        "description": "Returns one run's current status, the data it extracted, and its error if it failed. Poll it to see whether a run has finished.",
+        "tags": ["Runs"],
+        "x-strata-surfaces": ["cli", "mcp"],
+        "x-strata-name": "runs.get",
+        "x-strata-hints": { "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false },
+        "parameters": [
+          { "name": "session_id", "in": "path", "required": true, "description": "The run's session id", "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "The run", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Run" } } } }
+        }
+      }
+    },
+    "/builder/sessions/{session_id}/messages": {
+      "post": {
+        "operationId": "BuilderController_message",
+        "summary": "Send a message to the builder",
+        "description": "Sends an instruction to a builder session, such as a change to make to the workflow it is editing. The builder works on it in the background; read the turn to see its progress and reply.",
+        "tags": ["Builder"],
+        "x-strata-surfaces": ["cli", "mcp"],
+        "x-strata-name": "builder.message",
+        "x-strata-hints": { "readOnlyHint": false, "destructiveHint": false, "idempotentHint": false, "openWorldHint": true },
+        "parameters": [
+          { "name": "session_id", "in": "path", "required": true, "description": "The builder session's id", "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["message"],
+                "properties": { "message": { "type": "string", "description": "What the builder should do" } }
+              }
+            }
+          }
+        },
+        "responses": { "202": { "description": "Message accepted" } }
+      }
+    },
+    "/builder/sessions/{session_id}/turn": {
+      "get": {
+        "operationId": "BuilderController_turn",
+        "summary": "Get the builder's current turn",
+        "description": "Returns whether the builder is working, waiting for an answer or done, and the messages it has written in its current turn.",
+        "tags": ["Builder"],
+        "x-strata-surfaces": ["cli", "mcp"],
+        "x-strata-name": "builder.turn",
+        "x-strata-hints": { "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false },
+        "parameters": [
+          { "name": "session_id", "in": "path", "required": true, "description": "The builder session's id", "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "The turn",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "state": { "type": "string", "enum": ["working", "waiting_for_user", "done"] },
+                    "messages": { "type": "array", "items": { "type": "string" } }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/vault": {
+      "post": {
+        "operationId": "VaultController_create",
+        "summary": "Store a credential",
+        "tags": ["Vault"],
+        "x-strata-surfaces": [],
+        "requestBody": { "content": { "application/json": { "schema": { "type": "object" } } } },
+        "responses": { "201": { "description": "Stored" } }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "WorkflowSummary": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "name": { "type": "string" },
+          "description": { "type": "string", "nullable": true },
+          "updated_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "Workflow": {
+        "allOf": [
+          { "$ref": "#/components/schemas/WorkflowSummary" },
+          {
+            "type": "object",
+            "properties": {
+              "input_schema": { "type": "object", "description": "JSON Schema of the input variables a run needs" },
+              "nodes": { "type": "array", "items": { "type": "object" } },
+              "edges": { "type": "array", "items": { "type": "object" } }
+            }
+          }
+        ]
+      },
+      "RunSummary": {
+        "type": "object",
+        "properties": {
+          "session_id": { "type": "string" },
+          "workflow_id": { "type": "string", "format": "uuid" },
+          "status": { "type": "string" },
+          "created_at": { "type": "string", "format": "date-time" },
+          "finished_at": { "type": "string", "format": "date-time", "nullable": true }
+        }
+      },
+      "Run": {
+        "allOf": [
+          { "$ref": "#/components/schemas/RunSummary" },
+          {
+            "type": "object",
+            "properties": {
+              "data": { "type": "object", "nullable": true, "description": "What the run extracted, shaped by the workflow's data model" },
+              "error": { "type": "string", "nullable": true }
+            }
+          }
+        ]
+      },
+      "StartRun": {
+        "type": "object",
+        "required": ["workflow_id", "run_input_variables"],
+        "properties": {
+          "workflow_id": { "type": "string", "format": "uuid", "description": "The workflow to run" },
+          "run_input_variables": { "type": "object", "description": "Values for the workflow's input variables, as its input_schema describes" },
+          "dry_run": { "type": "boolean", "default": false, "description": "Run without writing anything to the target site" }
+        }
+      }
+    }
+  }
+}

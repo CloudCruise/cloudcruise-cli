@@ -71,6 +71,11 @@ export class Strata {
     return view.index.search(query, limit)
   }
 
+  /** The tags of the operations this surface can reach, e.g. `["Workflows", "Runs"]`. */
+  async categories(): Promise<string[]> {
+    return (await this.view(false)).categories
+  }
+
   /**
    * Sends one request for the named operation. Never retries: when the API rejects
    * a request, the error says why and the caller decides whether to call again.
@@ -117,7 +122,8 @@ export class Strata {
           : " It may have run; check before calling it again."
         throw new CallError("unavailable", `Could not reach the CloudCruise API for ${name}.${warning}`)
       }
-      if (err.status >= 400 && err.status < 500) {
+      // 401 and 403 are about the caller, not the arguments: no spec check.
+      if (err.status >= 400 && err.status < 500 && err.status !== 401 && err.status !== 403) {
         const current = await this.current(plan)
         if (current.inputKey !== plan.inputKey) throw changed(current)
       }
