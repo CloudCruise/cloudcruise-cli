@@ -142,6 +142,89 @@ export function omittedBodiesWarning(data: RunNetworkResponse): string | undefin
   return `${subject} null: the 100 MB body budget per call was used up.\n`
 }
 
+type PauseData = {
+  paused_at?: number
+  reason?: string
+  source?: string
+  resumes_at?: number | null
+} | null
+
+export type PausedResourcesResponse = {
+  pausedWorkflows?: Record<string, PauseData>
+  pausedCredentials?: Record<string, PauseData>
+}
+
+const WORKFLOW_PAUSE_PREFIX = "dispatcher:pause:workflow:"
+const CREDENTIAL_PAUSE_PREFIX = "dispatcher:pause:credential:"
+
+function isoOrNull(ms: number | null | undefined): string | null {
+  return typeof ms === "number" ? new Date(ms).toISOString() : null
+}
+
+export function summarizePausedResources(data: PausedResourcesResponse) {
+  const workflows = Object.entries(data.pausedWorkflows ?? {})
+    .filter(([key]) => key.startsWith(WORKFLOW_PAUSE_PREFIX))
+    .map(([key, pause]) => {
+      const [workspaceId, workflowId] = key.slice(WORKFLOW_PAUSE_PREFIX.length).split(":")
+      return {
+        workflow_id: workflowId,
+        workspace_id: workspaceId,
+        source: pause?.source ?? null,
+        reason: pause?.reason ?? null,
+        paused_at: isoOrNull(pause?.paused_at),
+        resumes_at: isoOrNull(pause?.resumes_at)
+      }
+    })
+  const credentials = Object.entries(data.pausedCredentials ?? {})
+    .filter(([key]) => key.startsWith(CREDENTIAL_PAUSE_PREFIX))
+    .map(([key, pause]) => {
+      const credentialId = key.slice(CREDENTIAL_PAUSE_PREFIX.length)
+      const [workspaceId, permissionedUserId, ...domain] = credentialId.split(":")
+      return {
+        credential_id: credentialId,
+        workspace_id: workspaceId,
+        permissioned_user_id: permissionedUserId,
+        domain: domain.join(":"),
+        reason: pause?.reason ?? null,
+        paused_at: isoOrNull(pause?.paused_at)
+      }
+    })
+  return { workflows, credentials }
+}
+
+export function buildUnpauseRequests(opts: {
+  workflow?: string[]
+  credential?: string[]
+  all?: boolean
+}): { path: string; body: Record<string, unknown> }[] {
+  const workflows = opts.workflow ?? []
+  const credentials = opts.credential ?? []
+  if (opts.all) {
+    if (workflows.length || credentials.length) {
+      throw new UsageError("--all unpauses everything; do not combine it with --workflow or --credential")
+    }
+    return [{ path: "/runs/unpause-all", body: {} }]
+  }
+  if (!workflows.length && !credentials.length) {
+    throw new UsageError("Pass --workflow <id>, --credential <credential_id> or --all")
+  }
+  for (const id of credentials) {
+    if (id.split(":").length < 3) {
+      throw new UsageError(
+        `Invalid --credential "${id}". Use the credential_id from cloudcruise run paused: <workspace_id>:<permissioned_user_id>:<domain>`
+      )
+    }
+  }
+  const requests: { path: string; body: Record<string, unknown> }[] = []
+  if (workflows.length) {
+    requests.push({ path: "/runs/unpause", body: { pause_resource: "workflow", resource_ids: workflows } })
+  }
+  if (credentials.length) {
+    requests.push({ path: "/runs/unpause", body: { pause_resource: "credential", resource_ids: credentials } })
+  }
+  return requests
+}
+
 export function registerRunCommands(program: Command): void {
   const run = program.command("run").description("Manage runs")
 
@@ -560,4 +643,62 @@ Examples:
       }
     }
   )
+
+  addAuthOptions(
+    run
+      .command("paused")
+      .description("List paused workflows and credentials, and workflows held by a closed run window")
+  ).addHelpText("after", `
+A workflow or credential is paused by hand, by an error code with the pause_workflow or pause_credential action, or by a pause setting (for example a retired service or a locked account). Queued runs that use it stay execution.paused until it is unpaused.
+Prints { workflows, credentials }. Each credential has a credential_id to pass to run unpause --credential. A workflow with source run_window is held by its run window and resumes when the window opens; unpausing does not lift it.
+
+Examples:
+  $ cloudcruise run paused
+`).action(async (opts: AuthOptions) => {
+    try {
+      const auth = await resolveAuth(opts)
+      const client = new ApiClient(auth)
+      const data = await client.get("/runs/paused")
+      outputJson(summarizePausedResources(data as PausedResourcesResponse))
+    } catch (err: unknown) {
+      fail(err)
+    }
+  })
+
+  addAuthOptions(
+    run
+      .command("unpause")
+      .description("Unpause workflows or credentials so their held runs resume")
+      .option(
+        "--workflow <id>",
+        "Workflow id to unpause, repeatable",
+        (value: string, previous: string[] = []) => [...previous, value]
+      )
+      .option(
+        "--credential <credential_id>",
+        "credential_id from run paused (<workspace_id>:<permissioned_user_id>:<domain>), repeatable",
+        (value: string, previous: string[] = []) => [...previous, value]
+      )
+      .option("--all", "Unpause every paused workflow and credential in the workspace")
+  ).addHelpText("after", `
+Calls POST /runs/unpause, once for workflows and once for credentials, or POST /runs/unpause-all with --all. Runs held by the pause resume.
+
+Examples:
+  $ cloudcruise run unpause --workflow wf_abc123
+  $ cloudcruise run unpause --credential 'ws_1:billing-bot:portal.example.com'
+  $ cloudcruise run unpause --all
+`).action(async (opts: { workflow?: string[]; credential?: string[]; all?: boolean } & AuthOptions) => {
+    try {
+      const requests = buildUnpauseRequests(opts)
+      const auth = await resolveAuth(opts)
+      const client = new ApiClient(auth)
+      const results = []
+      for (const request of requests) {
+        results.push(await client.post(request.path, request.body))
+      }
+      outputJson(results.length === 1 ? results[0] : results)
+    } catch (err: unknown) {
+      fail(err)
+    }
+  })
 }

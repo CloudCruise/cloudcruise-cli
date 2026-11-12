@@ -157,6 +157,8 @@ cloudcruise snapshot test '//input[@name="email"]' --file ./snapshots/page.html
 | `run get <id>` | Get run status and results (poll until terminal) |
 | `run list` | List runs (`--workflow`, `--status`, `--limit`, `--since`) |
 | `run interrupt <id>` | Stop a running session |
+| `run paused` | List paused workflows and credentials, and workflows held by a closed run window |
+| `run unpause` | Unpause workflows (`--workflow`) or credentials (`--credential`), or everything (`--all`), so held runs resume |
 | `run decision <id>` | Show the decision the recovery agent is waiting on for a run (Decision Required): question, fields and options, `answer_by`, in the `agent.decision_requested` shape |
 | `run answer-decision <id>` | Answer a Decision Required question the recovery agent asked during a run (`--decision-id`, `--value <field=value>`, `--text`, `--directive`) |
 | `run respond <id>` | Submit user interaction data to a run waiting on a `USER_INTERACTION` node (`--data`, `--file`, `--stdin`) |

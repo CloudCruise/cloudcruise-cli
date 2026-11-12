@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- `run paused` lists what holds runs in `execution.paused`: paused workflows and credentials, with the reason (for example "Paused because the target service is retired" or "Paused because the site says the account is locked"), and workflows held by a closed run window with `resumes_at`. Each credential has a `credential_id` for `run unpause`. It calls `GET /runs/paused`.
+- `run unpause --workflow <id> --credential <credential_id>` (both repeatable) unpauses them so their held runs resume, and `run unpause --all` unpauses everything in the workspace. They call `POST /runs/unpause` and `POST /runs/unpause-all`.
+
 ## 1.17.0
 
 ### Added
