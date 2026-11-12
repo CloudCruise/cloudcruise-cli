@@ -45,8 +45,8 @@ test("buildErrorCodeBody maps flags to the API's snake_case fields", () => {
 })
 
 test("buildErrorCodeBody sends only the flags that were passed", () => {
-  assert.deepEqual(buildErrorCodeBody({ action: "cancel" }), {
-    error_action: "cancel"
+  assert.deepEqual(buildErrorCodeBody({ action: "pause_credential" }), {
+    error_action: "pause_credential"
   })
 })
 

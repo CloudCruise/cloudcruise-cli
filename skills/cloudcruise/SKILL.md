@@ -333,7 +333,7 @@ cloudcruise error-codes list --workflow-id <id>                     # Only codes
 cloudcruise error-codes get <id>                                    # One code by id (exit 1 if not in the workspace)
 cloudcruise error-codes create --code <NAME> --description "<text>" # Find-or-create by name; prints { id, created, ... }
 cloudcruise error-codes create --code <NAME> --description "<text>" \
-  --action pause                                                    # Actions: alert (default), cancel, pause, retry
+  --action pause_credential                                         # Actions: alert (default), retry, pause_workflow, pause_credential
 cloudcruise error-codes update <id> --description "<text>"         # Change only the fields passed
 cloudcruise error-codes create --file code.json                     # Or pass one JSON object (API field names), not both
 ```

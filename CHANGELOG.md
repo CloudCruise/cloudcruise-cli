@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- `error-codes create` and `error-codes update` list the actions the API accepts: `alert`, `retry`, `pause_workflow` and `pause_credential`. The help and the `cloudcruise` skill listed `cancel` and `pause`, which the API rejects with a 400. The `--file`/`--stdin` help names the `retries` and `retry_after` fields and no longer says `retry` only labels the error; a retry requeues the run.
+
 ## 1.17.0
 
 ### Added
