@@ -338,7 +338,7 @@ cloudcruise error-codes update <id> --description "<text>"         # Change only
 cloudcruise error-codes create --file code.json                     # Or pass one JSON object (API field names), not both
 ```
 
-`create` returns an existing code unchanged when the name is taken (`"created": false`); run `update` if its fields differ from what you need. The `retry` action only labels the error; nothing reruns the run.
+`create` returns an existing code unchanged when the name is taken (`"created": false`); run `update` if its fields differ from what you need. The `retry` action requeues the run up to `retries` times (once if unset), waiting `retry_after` seconds, so do not add a manual retry. `pause_workflow` and `pause_credential` end the run and pause the workflow or the vault credential until you unpause it.
 
 When editing the DSL directly (outside the builder), create or look up codes here and put the returned `id` into `error_on_false_message`, `error_message` or `selector_error_message`. Names, placeholders and free text are rejected by `workflows update`. See the DSL skill's Error Codes section.
 
