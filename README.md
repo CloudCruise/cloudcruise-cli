@@ -151,7 +151,7 @@ cloudcruise snapshot test '//input[@name="email"]' --file ./snapshots/page.html
 | `components delete <id>` | Delete a component |
 | `error-codes list` | List workspace error codes (`--workflow-id`) |
 | `error-codes get <id>` | Get one workspace error code by id |
-| `error-codes create` | Find-or-create an error code by name (`--code`, `--description`, `--enriched-description`, `--action`, or one JSON object via `--file`/`--stdin`) |
+| `error-codes create` | Find-or-create an error code by name (`--code`, `--description`, `--enriched-description`, `--action alert\|retry\|pause_workflow\|pause_credential`, or one JSON object via `--file`/`--stdin`, which also takes `retries` and `retry_after`) |
 | `error-codes update <id>` | Update an error code (same flags as create) |
 | `run start <id>` | Start a run, returns session_id immediately (`--debug`, `--input`, `--version`, `--branch <name\|id>`) |
 | `run get <id>` | Get run status and results (poll until terminal) |
