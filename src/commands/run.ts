@@ -209,7 +209,8 @@ export function buildUnpauseRequests(opts: {
     throw new UsageError("Pass --workflow <id>, --credential <credential_id> or --all")
   }
   for (const id of credentials) {
-    if (id.split(":").length < 3) {
+    const [workspaceId, permissionedUserId, ...domain] = id.split(":")
+    if (!workspaceId || !permissionedUserId || !domain.join(":")) {
       throw new UsageError(
         `Invalid --credential "${id}". Use the credential_id from cloudcruise run paused: <workspace_id>:<permissioned_user_id>:<domain>`
       )
@@ -692,9 +693,18 @@ Examples:
       const requests = buildUnpauseRequests(opts)
       const auth = await resolveAuth(opts)
       const client = new ApiClient(auth)
-      const results = []
+      const results: unknown[] = []
       for (const request of requests) {
-        results.push(await client.post(request.path, request.body))
+        try {
+          results.push(await client.post(request.path, request.body))
+        } catch (err: unknown) {
+          if (results.length) {
+            process.stderr.write(
+              `Unpaused before the failure: ${JSON.stringify(requests.slice(0, results.length).map((r) => r.body))}\n`
+            )
+          }
+          throw err
+        }
       }
       outputJson(results.length === 1 ? results[0] : results)
     } catch (err: unknown) {

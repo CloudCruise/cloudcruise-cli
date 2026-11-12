@@ -32,13 +32,19 @@ const pausedResponse = {
   }
 }
 
-async function startPauseBackend() {
+async function startPauseBackend(failCredentialUnpause = false) {
   const requests: { method?: string; url?: string; body: unknown }[] = []
   const server = createServer((req, res) => {
     let raw = ""
     req.on("data", (chunk) => (raw += chunk))
     req.on("end", () => {
       requests.push({ method: req.method, url: req.url, body: raw ? JSON.parse(raw) : undefined })
+      const body = raw ? JSON.parse(raw) : undefined
+      if (failCredentialUnpause && body?.pause_resource === "credential") {
+        res.writeHead(404, { "content-type": "application/json" })
+        res.end(JSON.stringify({ message: "Credential not found" }))
+        return
+      }
       res.writeHead(200, { "content-type": "application/json" })
       res.end(JSON.stringify(req.url === "/runs/paused" ? pausedResponse : { success: true, resumedRuns: 1 }))
     })
@@ -116,6 +122,8 @@ test("buildUnpauseRequests refuses a call that names nothing, --all mixed with i
   assert.throws(() => buildUnpauseRequests({}), /Pass --workflow/)
   assert.throws(() => buildUnpauseRequests({ all: true, workflow: ["wf_1"] }), /do not combine/)
   assert.throws(() => buildUnpauseRequests({ credential: ["billing-bot"] }), /Invalid --credential/)
+  assert.throws(() => buildUnpauseRequests({ credential: ["ws_1::portal.example.com"] }), /Invalid --credential/)
+  assert.throws(() => buildUnpauseRequests({ credential: ["ws_1:billing-bot:"] }), /Invalid --credential/)
 })
 
 test("run paused calls GET /runs/paused and prints the summarized lists through the real command", async () => {
@@ -172,6 +180,29 @@ test("run unpause with nothing to unpause exits 2 without credentials and sends 
     assert.equal(result.code, 2)
     assert.match(result.stderr, /Pass --workflow/)
     assert.deepEqual(backend.requests, [])
+  } finally {
+    backend.server.close()
+  }
+})
+
+test("run unpause reports the workflows it already unpaused when the credential unpause fails, and still exits non-zero", async () => {
+  const backend = await startPauseBackend(true)
+  try {
+    const result = await runCli(
+      [
+        "run",
+        "unpause",
+        "--workflow",
+        "wf_retired",
+        "--credential",
+        "ws_1:billing-bot:portal.example.com",
+        "--base-url",
+        backend.baseUrl
+      ],
+      { CLOUDCRUISE_API_KEY: "test_key" }
+    )
+    assert.notEqual(result.code, 0)
+    assert.match(result.stderr, /Unpaused before the failure: \[\{"pause_resource":"workflow","resource_ids":\["wf_retired"\]\}\]/)
   } finally {
     backend.server.close()
   }

@@ -266,7 +266,7 @@ cloudcruise run network <session_id>                         # All recorded netw
 **Run statuses.** `run get` and `run list` report `status` as one of these exact strings:
 
 - Terminal: `execution.success`, `execution.failed`, `execution.stopped`
-- Not terminal: `execution.queued`, `execution.requeued` (retrying, same `session_id`), `execution.start`, `execution.step`, `execution.paused` (workflow or credential paused, or the run window is closed; won't progress on its own, so stop polling, run `cloudcruise run paused` to see what holds it and why, and tell the user; unpause with `cloudcruise run unpause` only when the user asks)
+- Not terminal: `execution.queued`, `execution.requeued` (retrying, same `session_id`), `execution.start`, `execution.step`, `execution.paused` (held before execution; stop polling and run `cloudcruise run paused` to see what holds it. A workflow with `source: run_window` resumes on its own at `resumes_at`, so report that time. A paused workflow or credential won't progress on its own: tell the user the `reason`, and unpause with `cloudcruise run unpause` only when the user asks)
 
 These differ from `builder status` values: runs never report `completed`, `error` or `interrupted`.
 
