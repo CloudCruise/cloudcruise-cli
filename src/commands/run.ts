@@ -149,9 +149,17 @@ type PauseData = {
   resumes_at?: number | null
 } | null
 
+type HeldRunsEntry = { count: number; session_ids: string[] }
+
 export type PausedResourcesResponse = {
   pausedWorkflows?: Record<string, PauseData>
   pausedCredentials?: Record<string, PauseData>
+  heldRuns?: {
+    total: number
+    unattributed: number
+    workflows?: Record<string, HeldRunsEntry>
+    credentials?: Record<string, HeldRunsEntry>
+  }
 }
 
 const WORKFLOW_PAUSE_PREFIX = "dispatcher:pause:workflow:"
@@ -161,7 +169,17 @@ function isoOrNull(ms: number | null | undefined): string | null {
   return typeof ms === "number" ? new Date(ms).toISOString() : null
 }
 
-export function summarizePausedResources(data: PausedResourcesResponse) {
+function heldFields(entry: HeldRunsEntry | undefined, held: PausedResourcesResponse["heldRuns"], withRuns: boolean) {
+  if (!held) return {}
+  return {
+    held_runs: entry?.count ?? 0,
+    ...(withRuns ? { held_session_ids: entry?.session_ids ?? [] } : {})
+  }
+}
+
+export function summarizePausedResources(data: PausedResourcesResponse, opts: { runs?: boolean } = {}) {
+  const held = data.heldRuns
+  const withRuns = opts.runs === true
   const workflows = Object.entries(data.pausedWorkflows ?? {})
     .filter(([key]) => key.startsWith(WORKFLOW_PAUSE_PREFIX))
     .map(([key, pause]) => {
@@ -172,7 +190,8 @@ export function summarizePausedResources(data: PausedResourcesResponse) {
         source: pause?.source ?? null,
         reason: pause?.reason ?? null,
         paused_at: isoOrNull(pause?.paused_at),
-        resumes_at: isoOrNull(pause?.resumes_at)
+        resumes_at: isoOrNull(pause?.resumes_at),
+        ...heldFields(held?.workflows?.[key], held, withRuns)
       }
     })
   const credentials = Object.entries(data.pausedCredentials ?? {})
@@ -186,10 +205,21 @@ export function summarizePausedResources(data: PausedResourcesResponse) {
         permissioned_user_id: permissionedUserId,
         domain: domain.join(":"),
         reason: pause?.reason ?? null,
-        paused_at: isoOrNull(pause?.paused_at)
+        paused_at: isoOrNull(pause?.paused_at),
+        ...heldFields(held?.credentials?.[key], held, withRuns)
       }
     })
-  return { workflows, credentials }
+  if (!held) return { workflows, credentials }
+  return {
+    held_runs: { total: held.total, unattributed: held.unattributed },
+    workflows,
+    credentials
+  }
+}
+
+export function credentialFilter(value: string): string {
+  const parts = value.split(":")
+  return parts.length >= 3 ? parts[1] : value
 }
 
 export function buildUnpauseRequests(opts: {
@@ -324,6 +354,7 @@ Examples:
       .command("list")
       .description("List runs")
       .option("--workflow <id>", "Filter by workflow ID")
+      .option("--credential <id>", "Filter by vault credential: a permissioned_user_id, or a credential_id from run paused")
       .option("--status <status>", "Filter by status")
       .option("--limit <n>", "Max results", "100")
       .option("--since <duration>", "Time range (e.g. 24h, 7d, 30m)")
@@ -334,9 +365,11 @@ Examples:
   $ cloudcruise run list
   $ cloudcruise run list --workflow <workflow_id> --status completed --limit 10
   $ cloudcruise run list --workflow <workflow_id> --since 7d
+  $ cloudcruise run list --status execution.paused --credential <credential_id> --since 30d
 `).action(
     async (opts: {
       workflow?: string
+      credential?: string
       status?: string
       limit: string
       since?: string
@@ -347,6 +380,7 @@ Examples:
 
         const params = new URLSearchParams()
         if (opts.workflow) params.set("workflow_id", opts.workflow)
+        if (opts.credential) params.set("credential_id", credentialFilter(opts.credential))
         if (opts.status) params.set("status", opts.status)
         if (opts.limit) params.set("limit", opts.limit)
         if (opts.since) params.set("start_time", parseSince(opts.since).toISOString())
@@ -648,19 +682,22 @@ Examples:
   addAuthOptions(
     run
       .command("paused")
-      .description("List paused workflows and credentials, and workflows held by a closed run window")
+      .description("List paused workflows and credentials, workflows held by a closed run window, and the runs each one holds")
+      .option("--runs", "Also list the session IDs of the runs each pause holds (most recently paused first, at most 50 each)")
   ).addHelpText("after", `
 A workflow or credential is paused by hand, by an error code with the pause_workflow or pause_credential action, or by a pause setting (for example a retired service or a locked account). Queued runs that use it stay execution.paused until it is unpaused.
-Prints { workflows, credentials }. Each credential has a credential_id to pass to run unpause --credential. A workflow with source run_window is held by its run window and resumes when the window opens; unpausing does not lift it.
+Prints { held_runs, workflows, credentials }. Each workflow and credential has held_runs, the number of runs it holds in execution.paused; held_runs.total counts each waiting run once, and held_runs.unattributed counts runs no listed pause holds any more, which the dispatcher releases on its next pass. Each credential has a credential_id to pass to run unpause --credential or run list --credential. A workflow with source run_window is held by its run window and resumes when the window opens; unpausing does not lift it.
 
 Examples:
   $ cloudcruise run paused
-`).action(async (opts: AuthOptions) => {
+  $ cloudcruise run paused --runs
+  $ cloudcruise run list --status execution.paused --credential <credential_id> --since 30d
+`).action(async (opts: { runs?: boolean } & AuthOptions) => {
     try {
       const auth = await resolveAuth(opts)
       const client = new ApiClient(auth)
       const data = await client.get("/runs/paused")
-      outputJson(summarizePausedResources(data as PausedResourcesResponse))
+      outputJson(summarizePausedResources(data as PausedResourcesResponse, { runs: opts.runs }))
     } catch (err: unknown) {
       fail(err)
     }
