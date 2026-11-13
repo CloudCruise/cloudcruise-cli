@@ -76,7 +76,7 @@ function addFieldOptions(cmd: Command): Command {
     )
     .option(
       "--action <action>",
-      "error_action: alert (default), cancel, pause or retry"
+      "error_action: alert (default), retry, pause_workflow or pause_credential"
     )
     .option(
       "--file <path>",
@@ -91,10 +91,14 @@ function addFieldOptions(cmd: Command): Command {
 const FIELDS_HELP = `
 Pass the fields as flags, or as one JSON object via --file or --stdin. Not
 both. The JSON object uses the API's field names (error_code, description,
-enriched_description, error_action) and is sent as-is; unknown keys are
-rejected (400).
+enriched_description, error_action, retries, retry_after) and is sent as-is;
+unknown keys are rejected (400).
 
-error_action "retry" only labels the error today; nothing reruns the run.`
+error_action "retry" requeues the run up to "retries" times (once if unset),
+waiting "retry_after" seconds. "pause_workflow" ends the run and pauses its
+workflow; "pause_credential" ends the run and pauses the vault credential it
+used. Queued runs stay paused until you unpause them (cloudcruise run paused,
+cloudcruise run unpause).`
 
 export function registerErrorCodeCommands(program: Command): void {
   const errorCodes = program
@@ -216,7 +220,7 @@ ${FIELDS_HELP}
 
 Examples:
   $ cloudcruise error-codes update 7c1e... --description "Claim number not found"
-  $ cloudcruise error-codes update 7c1e... --action pause`
+  $ cloudcruise error-codes update 7c1e... --action pause_credential`
     )
     .action(
       async (

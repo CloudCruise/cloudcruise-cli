@@ -7,6 +7,10 @@
 - `run paused` lists what holds runs in `execution.paused`: paused workflows and credentials, with the reason (for example "Paused because the target service is retired" or "Paused because the site says the account is locked"), and workflows held by a closed run window with `resumes_at`. Each credential has a `credential_id` for `run unpause`. It calls `GET /runs/paused`.
 - `run unpause --workflow <id> --credential <credential_id>` (both repeatable) unpauses them so their held runs resume, and `run unpause --all` unpauses everything in the workspace. They call `POST /runs/unpause` and `POST /runs/unpause-all`.
 
+### Fixed
+
+- `error-codes create` and `error-codes update` list the actions the API accepts: `alert`, `retry`, `pause_workflow` and `pause_credential`. The help and the `cloudcruise` skill listed `cancel` and `pause`, which the API rejects with a 400. The `--file`/`--stdin` help and the README name the `retries` and `retry_after` fields, and the help no longer says `retry` only labels the error; a retry requeues the run.
+
 ## 1.17.0
 
 ### Added
