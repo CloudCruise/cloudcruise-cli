@@ -252,6 +252,8 @@ cloudcruise run start <workflow_id> --branch <branch_id>     # Run a branch's he
 cloudcruise run get <session_id>                             # Get run status, errors, screenshots, output (poll until status is terminal, see Run statuses)
 cloudcruise run list --workflow <id> --status execution.failed --since 7d --limit 50 # List runs with filters (--status takes a run status below)
 cloudcruise run interrupt <session_id>                       # Stop a running session
+cloudcruise run paused                                       # List paused workflows/credentials and run-window holds, with the reason and a credential_id
+cloudcruise run unpause --workflow <id> | --credential <credential_id> | --all  # Unpause so held runs resume
 cloudcruise run decision <session_id> # Show the pending Decision Required question (decision_id, fields, options, answer_by) in the agent.decision_requested shape (null when nothing is pending, including when a remembered answer was applied automatically, which sends agent.decision_applied)
 cloudcruise run answer-decision <session_id> --decision-id <id> --value choice=keep # Answer a Decision Required question (ids from run decision or the agent.decision_requested webhook) (--value <field=value> repeatable, --text, --directive requeue|add_error_code|fail)
 cloudcruise run respond <session_id> --data '{"approval_code":"123456"}' # Submit user interaction data to a run paused on a USER_INTERACTION node (--data/--file/--stdin)
@@ -264,7 +266,7 @@ cloudcruise run network <session_id>                         # All recorded netw
 **Run statuses.** `run get` and `run list` report `status` as one of these exact strings:
 
 - Terminal: `execution.success`, `execution.failed`, `execution.stopped`
-- Not terminal: `execution.queued`, `execution.requeued` (retrying, same `session_id`), `execution.start`, `execution.step`, `execution.paused` (workflow or credential paused; won't progress on its own, so stop polling and tell the user)
+- Not terminal: `execution.queued`, `execution.requeued` (retrying, same `session_id`), `execution.start`, `execution.step`, `execution.paused` (held before execution; stop polling and run `cloudcruise run paused` to see what holds it. A workflow with `source: run_window` resumes on its own at `resumes_at`, so report that time. A paused workflow or credential won't progress on its own: tell the user the `reason`, and unpause with `cloudcruise run unpause` only when the user asks)
 
 These differ from `builder status` values: runs never report `completed`, `error` or `interrupted`.
 
@@ -333,12 +335,12 @@ cloudcruise error-codes list --workflow-id <id>                     # Only codes
 cloudcruise error-codes get <id>                                    # One code by id (exit 1 if not in the workspace)
 cloudcruise error-codes create --code <NAME> --description "<text>" # Find-or-create by name; prints { id, created, ... }
 cloudcruise error-codes create --code <NAME> --description "<text>" \
-  --action pause                                                    # Actions: alert (default), cancel, pause, retry
+  --action pause_credential                                         # Actions: alert (default), retry, pause_workflow, pause_credential
 cloudcruise error-codes update <id> --description "<text>"         # Change only the fields passed
 cloudcruise error-codes create --file code.json                     # Or pass one JSON object (API field names), not both
 ```
 
-`create` returns an existing code unchanged when the name is taken (`"created": false`); run `update` if its fields differ from what you need. The `retry` action only labels the error; nothing reruns the run.
+`create` returns an existing code unchanged when the name is taken (`"created": false`); run `update` if its fields differ from what you need. The `retry` action requeues the run up to `retries` times (once if unset), waiting `retry_after` seconds, so do not add a manual retry. `pause_workflow` and `pause_credential` end the run and pause the workflow or the vault credential until it is unpaused; `cloudcruise run paused` lists it and `cloudcruise run unpause` clears it.
 
 When editing the DSL directly (outside the builder), create or look up codes here and put the returned `id` into `error_on_false_message`, `error_message` or `selector_error_message`. Names, placeholders and free text are rejected by `workflows update`. See the DSL skill's Error Codes section.
 

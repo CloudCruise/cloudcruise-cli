@@ -151,12 +151,14 @@ cloudcruise snapshot test '//input[@name="email"]' --file ./snapshots/page.html
 | `components delete <id>` | Delete a component |
 | `error-codes list` | List workspace error codes (`--workflow-id`) |
 | `error-codes get <id>` | Get one workspace error code by id |
-| `error-codes create` | Find-or-create an error code by name (`--code`, `--description`, `--enriched-description`, `--action`, or one JSON object via `--file`/`--stdin`) |
+| `error-codes create` | Find-or-create an error code by name (`--code`, `--description`, `--enriched-description`, `--action alert\|retry\|pause_workflow\|pause_credential`, or one JSON object via `--file`/`--stdin`, which also takes `retries` and `retry_after`) |
 | `error-codes update <id>` | Update an error code (same flags as create) |
 | `run start <id>` | Start a run, returns session_id immediately (`--debug`, `--input`, `--version`, `--branch <name\|id>`) |
 | `run get <id>` | Get run status and results (poll until terminal) |
 | `run list` | List runs (`--workflow`, `--status`, `--limit`, `--since`) |
 | `run interrupt <id>` | Stop a running session |
+| `run paused` | List paused workflows and credentials, and workflows held by a closed run window |
+| `run unpause` | Unpause workflows (`--workflow`) or credentials (`--credential`), or everything (`--all`), so held runs resume |
 | `run decision <id>` | Show the decision the recovery agent is waiting on for a run (Decision Required): question, fields and options, `answer_by`, in the `agent.decision_requested` shape |
 | `run answer-decision <id>` | Answer a Decision Required question the recovery agent asked during a run (`--decision-id`, `--value <field=value>`, `--text`, `--directive`) |
 | `run respond <id>` | Submit user interaction data to a run waiting on a `USER_INTERACTION` node (`--data`, `--file`, `--stdin`) |
