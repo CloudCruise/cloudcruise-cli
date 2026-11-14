@@ -85,6 +85,10 @@ export interface FakeApi {
   replyTo(id: string, action: "message" | "respond", body: Record<string, unknown>): void
   /** How long a builder start takes. */
   startDelayMs: number
+  /** Makes the API accept this token like the good one. */
+  accept(token: string): void
+  /** What POST /mcp/step-up answers for a token: a body, or an error status. Unset tokens get 404, as an API without the endpoint would. */
+  stepUp(token: string, answer: Record<string, unknown> | number): void
 }
 
 export function createFakeApi(spec: unknown = JSON.parse(readFileSync(LAUNCH_SPEC, "utf8"))): FakeApi {
@@ -93,6 +97,8 @@ export function createFakeApi(spec: unknown = JSON.parse(readFileSync(LAUNCH_SPE
   const cleared = new Map<string, string | undefined>()
   const refusals = new Map<string, [number, string]>()
   const replies = new Map<string, Record<string, unknown>>()
+  const accepted = new Set([GOOD_TOKEN])
+  const stepUps = new Map<string, Record<string, unknown> | number>()
   const api: FakeApi = {
     server: undefined as unknown as Server,
     requests: [],
@@ -102,7 +108,9 @@ export function createFakeApi(spec: unknown = JSON.parse(readFileSync(LAUNCH_SPE
     clearConversation: (id, successor) => void cleared.set(id, successor),
     refuseNext: (id, status, code) => void refusals.set(id, [status, code]),
     replyTo: (id, action, body) => void replies.set(`${action} ${id}`, body),
-    startDelayMs: 0
+    startDelayMs: 0,
+    accept: (token) => void accepted.add(token),
+    stepUp: (token, answer) => void stepUps.set(token, answer)
   }
   api.server = createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", "http://fake")
@@ -122,9 +130,14 @@ export function createFakeApi(spec: unknown = JSON.parse(readFileSync(LAUNCH_SPE
 
     const token = /^Bearer (\S+)$/.exec(req.headers.authorization ?? "")?.[1]
     if (!token) return send(401, { statusCode: 401, message: "Missing Authorization header" })
+    if (req.method === "POST" && url.pathname === "/mcp/step-up") {
+      const answer = stepUps.get(token)
+      if (answer === undefined) return send(404, { statusCode: 404, message: "Cannot POST /mcp/step-up" })
+      return typeof answer === "number" ? send(answer, { statusCode: answer }) : send(200, answer)
+    }
     const refused = REFUSED[token]
     if (refused) return send(refused[0], { statusCode: refused[0], message: refused[1] })
-    if (token !== GOOD_TOKEN) return send(401, { statusCode: 401, message: "Invalid or expired token" })
+    if (!accepted.has(token)) return send(401, { statusCode: 401, message: "Invalid or expired token" })
 
     const route = `${req.method} ${url.pathname}`
     let m: RegExpExecArray | null

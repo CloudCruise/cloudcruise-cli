@@ -13,6 +13,16 @@ Stateless streamable HTTP: every request builds a fresh server, so any replica c
 | `GET /.well-known/oauth-protected-resource[/mcp]` | Protected-resource metadata: `resource` is `${MCP_PUBLIC_URL}/mcp`, the issuer is the only authorization server, `scopes_supported` is `openid email offline_access`. |
 | `GET /healthz` | `200`, no auth |
 
+## Two-factor step-up
+
+Supabase issues every OAuth grant at `aal1`, even when the user passed MFA before consent, and RLS hides workspace data from an `aal1` session of a user with MFA. Before a request with an `aal1` token that carries `client_id` reaches the SDK, the server asks the API (`POST /mcp/step-up`) what to do, and caches a `none` answer per session for 10 minutes:
+
+- `none`: the user has no MFA; the request is served.
+- `required`: every tool, `whoami` included, returns an error with a dashboard link. There the user enters their authenticator code, and the API runs the MFA challenge on the connector's session. `initialize` and `tools/list` are unchanged.
+- `refresh`: the user has confirmed; the request gets `401` with `WWW-Authenticate: Bearer error="invalid_token", …`, so the client refreshes and gets an `aal2` token.
+
+If the API call fails or the endpoint doesn't exist, the request is served as before. The token is decoded without verification, only to route the request; the API still authorizes every call.
+
 ## Tools
 
 One file per tool in `src/tools/`; `common.ts` holds what more than one tool uses, including `workspaceIdInput`, the required `workspace_id` field every workspace-scoped tool takes.
