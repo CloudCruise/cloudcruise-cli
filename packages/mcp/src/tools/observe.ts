@@ -144,6 +144,10 @@ async function observeTurn(api: StrataClient, ref: Handle, after: string | undef
     after: formatTurnCursor(now)
   }
   if (after !== undefined && !cursor) out.history_reset = true
+  if (state.interrupted) {
+    out.interrupted = true
+    out.statusMessage = `${out.statusMessage} Its last turn was interrupted.`
+  }
   if (state.phase === "completed" && state.report) out.report = state.report
   const fields = state.phase === "awaiting-human-input" ? (state.humanInput?.fields ?? []) : []
   if (state.phase === "awaiting-human-input" && state.humanInput) {

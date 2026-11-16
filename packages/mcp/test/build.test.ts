@@ -163,6 +163,24 @@ test("observe without after returns the turn at once", async () => {
   assert.equal(out.next, "Call observe again with the same handle and this after value.")
 })
 
+test("observe says the last turn was interrupted when the API marks it, and keeps the idle status and hint", async () => {
+  const { handle } = conversation([{ phase: "idle", turnId: TURN_A, interrupted: true }])
+  const out = (await tool("observe", { handle })).structuredContent!
+  assert.equal(out.status, "idle")
+  assert.equal(out.interrupted, true)
+  assert.equal(out.done, true)
+  assert.equal(out.statusMessage, "The builder is idle, waiting for a message. Its last turn was interrupted.")
+  assert.equal(out.next, "Send the next message with build.")
+})
+
+test("observe adds no interrupted field to a plain idle conversation", async () => {
+  const { handle } = conversation([{ phase: "idle", turnId: null }])
+  const out = (await tool("observe", { handle })).structuredContent!
+  assert.equal(out.status, "idle")
+  assert.equal("interrupted" in out, false)
+  assert.equal(out.statusMessage, "The builder is idle, waiting for a message.")
+})
+
 test("observe returns when the same cursor has nothing new before the wait ends", async () => {
   const { handle } = conversation([{ phase: "processing", turnId: TURN_A }])
   const first = (await tool("observe", { handle })).structuredContent!

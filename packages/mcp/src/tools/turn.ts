@@ -10,6 +10,8 @@ export interface TurnState {
   phase: Phase
   /** The user message that opened the current turn; null before any turn. */
   turnId?: string | null
+  /** True when the last turn was interrupted; only with `idle`, until the next turn starts. */
+  interrupted?: true
   report?: string
   humanInput?: { messageId: string; prompt?: string; fields?: Record<string, unknown>[] }
 }
