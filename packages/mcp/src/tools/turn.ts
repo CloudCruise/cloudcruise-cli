@@ -10,11 +10,19 @@ export interface TurnState {
   phase: Phase
   /** The user message that opened the current turn; null before any turn. */
   turnId?: string | null
+  /** Set once the builder has created the workflow; missing from an API that predates the field. */
+  workflowId?: string
   report?: string
   humanInput?: { messageId: string; prompt?: string; fields?: Record<string, unknown>[] }
 }
 
 export const GONE = "This conversation is gone: it was cleared or has expired."
+
+/** How to stop a running turn and how to end a conversation, which the task tools don't do themselves. */
+export const STOP =
+  "To stop a running turn, use call with operation builder.interrupt and arguments { conversationId }; the conversation stays open for another message."
+export const END =
+  "When you're done, call builder.end the same way to close the conversation and its browser; edits the builder hasn't saved are not kept."
 
 /** The builder's path for a conversation. */
 export function builderPath(conversationId: string, action: string): string {

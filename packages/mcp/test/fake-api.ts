@@ -60,6 +60,7 @@ export interface RunRead {
 export interface TurnRead {
   phase: string
   turnId?: string | null
+  workflowId?: string
   report?: string
   humanInput?: { messageId: string; prompt?: string; fields?: Record<string, unknown>[] }
 }

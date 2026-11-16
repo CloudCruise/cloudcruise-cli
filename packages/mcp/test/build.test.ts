@@ -77,6 +77,9 @@ test("build starts a blank conversation, sends the message and returns a handle 
   assert.ok(!result.isError, result.content[0].text)
   const out = result.structuredContent!
   assert.equal(out.handle, `v1:turn:${WORKSPACE}:${STARTED_CONVERSATION}`)
+  assert.equal(out.conversation_id, STARTED_CONVERSATION)
+  // The new workflow isn't saved yet, so its id can't run.
+  assert.equal(out.workflow_id, undefined)
   assert.match(out.after as string, /^t[0-9a-f]{8}\.processing$/)
   assert.deepEqual(
     api.requests.map((r) => [r.method, r.path, r.body]),
@@ -92,8 +95,10 @@ test("build starts a blank conversation, sends the message and returns a handle 
 
 test("build starts from a workflow with its example inputs", async () => {
   api.requests.length = 0
-  await tool("build", { workspace_id: WORKSPACE, message: "Add a logout step", workflow_id: INVOICE })
+  const out = (await tool("build", { workspace_id: WORKSPACE, message: "Add a logout step", workflow_id: INVOICE })).structuredContent!
   assert.deepEqual(sent("/workflow-builder/agent/session/from-workflow")[0].body, { workflowId: INVOICE, useExampleInputs: true })
+  assert.equal(out.conversation_id, STARTED_CONVERSATION)
+  assert.equal(out.workflow_id, INVOICE)
 })
 
 test("build reports progress while the builder starts", async () => {
@@ -151,7 +156,7 @@ test("observe holds through processing and returns the report when the turn comp
   assert.equal(out.report, "Added a login step and saved.")
   assert.equal(out.statusMessage, "Was working on it, now finished the turn.")
   assert.notEqual(out.after, built.after)
-  assert.equal(out.next, "Send the next message with build.")
+  assert.equal(out.next, "Send the next message with build. Or, when you're done, end the conversation: call builder.end with this conversation_id as conversationId.")
 })
 
 test("observe without after returns the turn at once", async () => {
@@ -160,7 +165,45 @@ test("observe without after returns the turn at once", async () => {
   assert.equal(out.status, "processing")
   assert.equal(out.done, false)
   assert.equal(out.statusMessage, "The builder is working on it.")
-  assert.equal(out.next, "Call observe again with the same handle and this after value.")
+  assert.equal(
+    out.next,
+    "Call observe again with the same handle and this after value. To stop the turn, call builder.interrupt with this conversation_id as conversationId."
+  )
+})
+
+test("observe returns the conversation id, and the workflow id once turn-state carries it", async () => {
+  const { id, handle } = conversation([
+    { phase: "processing", turnId: TURN_A },
+    { phase: "completed", turnId: TURN_A, workflowId: INVOICE, report: "Saved." }
+  ])
+  const before = (await tool("observe", { handle })).structuredContent!
+  assert.equal(before.conversation_id, id)
+  // An API that predates the field, or a workflow not saved yet: no workflow_id at all.
+  assert.equal("workflow_id" in before, false)
+  const after = (await tool("observe", { handle, after: before.after })).structuredContent!
+  assert.equal(after.conversation_id, id)
+  assert.equal(after.workflow_id, INVOICE)
+})
+
+test("a phase this server doesn't know gets the stopped-turn hint", async () => {
+  const { handle } = conversation([{ phase: "interrupted", turnId: TURN_A }])
+  const out = (await tool("observe", { handle })).structuredContent!
+  assert.equal(out.next, "Send the next message with build. Or, when you're done, end the conversation: call builder.end with this conversation_id as conversationId.")
+})
+
+test("build and observe say how to stop a turn and end a conversation", async () => {
+  const client = new Client({ name: "test-client", version: "1.0.0" }, { versionNegotiation: { mode: { pin: "2026-07-28" } } })
+  await client.connect(new StreamableHTTPClientTransport(new URL(mcpUrl), { requestInit: { headers: { Authorization: "Bearer good" } } }))
+  try {
+    const { tools } = await client.listTools()
+    for (const name of ["build", "observe"]) {
+      const description = tools.find((t) => t.name === name)!.description!
+      assert.match(description, /operation builder\.interrupt and arguments \{ conversationId \}/, name)
+      assert.match(description, /builder\.end/, name)
+    }
+  } finally {
+    await client.close()
+  }
 })
 
 test("observe returns when the same cursor has nothing new before the wait ends", async () => {
@@ -193,7 +236,10 @@ test("a second question in the same turn is seen", async () => {
   assert.ok(!JSON.stringify(first).includes("q1"), "question id stays with the server")
   const second = (await tool("observe", { handle, after: first.after })).structuredContent!
   assert.equal(second.statusMessage, "The builder asked another question.")
-  assert.equal(second.next, "Answer with build (conversation_id and responses, or a message), then observe again.")
+  assert.equal(
+    second.next,
+    "Answer with build (conversation_id and responses, or a message), then observe again. Or, when you're done, end the conversation: call builder.end with this conversation_id as conversationId."
+  )
 })
 
 test("a secret field is marked for the dashboard, not for responses", async () => {
@@ -257,9 +303,11 @@ test("a cleared conversation: observe ends with its successor, a message follows
   assert.equal(observed.status, "ended")
   assert.equal(observed.done, true)
   assert.equal(observed.successor_conversation_id, SUCCESSOR)
+  assert.equal(observed.conversation_id, id)
 
   const followed = (await tool("build", { workspace_id: WORKSPACE, conversation_id: id, message: "Carry on" })).structuredContent!
   assert.equal(followed.handle, `v1:turn:${WORKSPACE}:${SUCCESSOR}`)
+  assert.equal(followed.conversation_id, SUCCESSOR)
   assert.equal(followed.conversation_cleared, true)
   assert.deepEqual(sent(`/workflow-builder/agent/${SUCCESSOR}/message`).at(-1)!.body, { text: "Carry on" })
 
@@ -285,13 +333,14 @@ test("a new conversation whose first message fails still hands back its handle",
   assert.match(result.content[0].text, /^The conversation started, but the message failed: The CloudCruise API returned 500/)
   assert.match(result.content[0].text, new RegExp(`Send the message again with build and conversation_id ${STARTED_CONVERSATION}`))
   assert.equal(result.structuredContent!.handle, `v1:turn:${WORKSPACE}:${STARTED_CONVERSATION}`)
+  assert.equal(result.structuredContent!.conversation_id, STARTED_CONVERSATION)
 })
 
 test("a reply that names no turn returns the handle without after", async () => {
   const { id, handle } = conversation([{ phase: "processing", turnId: TURN_A }])
   api.replyTo(id, "message", { conversationId: id, messageId: "m1", accepted: true })
   const out = (await tool("build", { workspace_id: WORKSPACE, conversation_id: id, message: "Hi" })).structuredContent!
-  assert.deepEqual(out, { handle, next: "To follow the turn, call observe with this handle, without after." })
+  assert.deepEqual(out, { handle, conversation_id: id, next: "To follow the turn, call observe with this handle, without after." })
 })
 
 test("an answer typed as a message follows the turn it answers", async () => {
