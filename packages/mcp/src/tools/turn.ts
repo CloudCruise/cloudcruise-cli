@@ -22,7 +22,7 @@ export const GONE = "This conversation is gone: it was cleared or has expired."
 export const STOP =
   "To stop a running turn, use call with operation builder.interrupt and arguments { conversationId }; the conversation stays open for another message."
 export const END =
-  "When you're done, call builder.end the same way to close the conversation and its browser; edits the builder hasn't saved are not kept."
+  "When you're done, call builder.end the same way to close the conversation and its browser. Keep the workflow_id first: observe doesn't return it once the conversation has ended, and edits the builder hasn't saved don't become a workflow version."
 
 /** The builder's path for a conversation. */
 export function builderPath(conversationId: string, action: string): string {

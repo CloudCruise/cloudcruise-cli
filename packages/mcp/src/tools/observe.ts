@@ -159,24 +159,25 @@ async function observeTurn(api: StrataClient, ref: Handle, after: string | undef
       fields: fields.map((f) => (f.type === "secret" ? { ...f, enter_in_dashboard: true } : f))
     }
   }
-  out.next = NEXT[state.phase] ?? NEXT.idle
+  let next = NEXT[state.phase] ?? NEXT.idle
   if (fields.some((f) => f.type === "secret")) {
-    out.next = `${out.next} Ask the user to enter each field marked enter_in_dashboard in the CloudCruise dashboard; don't send it yourself.`
+    next = `${next} Ask the user to enter each field marked enter_in_dashboard in the CloudCruise dashboard; don't send it yourself.`
   }
+  out.next = state.phase === "processing" || state.phase === "ended" ? next : `${next} ${ENDING}`
   return structured(out)
 }
 
-const ENDING = "Or, when you're done, end the conversation: call builder.end with this conversation_id as conversationId."
-const STOPPED = `Send the next message with build. ${ENDING}`
+const ENDING =
+  "Or, when you're done, end the conversation: use call with operation builder.end and arguments { conversationId: this conversation_id }."
 
 // A phase this server doesn't know gets idle's hint, which holds for any stopped turn.
 const NEXT: Record<Phase, string> = {
   processing:
-    "Call observe again with the same handle and this after value. To stop the turn, call builder.interrupt with this conversation_id as conversationId.",
-  "awaiting-human-input": `Answer with build (conversation_id and responses, or a message), then observe again. ${ENDING}`,
-  completed: STOPPED,
-  "agent-errored": STOPPED,
-  idle: STOPPED,
+    "Call observe again with the same handle and this after value. To stop the turn, use call with operation builder.interrupt and arguments { conversationId: this conversation_id }.",
+  "awaiting-human-input": "Answer with build (conversation_id and responses, or a message), then observe again.",
+  completed: "Send the next message with build.",
+  "agent-errored": "Send the next message with build.",
+  idle: "Send the next message with build.",
   ended: "This conversation has ended. Start a new one with build."
 }
 
