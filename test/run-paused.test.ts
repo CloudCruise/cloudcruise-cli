@@ -6,7 +6,7 @@ import { createServer } from "node:http"
 import type { AddressInfo } from "node:net"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { buildUnpauseRequests, summarizePausedResources } from "../dist/src/commands/run.js"
+import { buildUnpauseRequests, credentialFilter, summarizePausedResources } from "../dist/src/commands/run.js"
 
 const pausedResponse = {
   pausedWorkflows: {
@@ -32,7 +32,21 @@ const pausedResponse = {
   }
 }
 
-async function startPauseBackend(failCredentialUnpause = false) {
+const withHeldRuns = {
+  ...pausedResponse,
+  heldRuns: {
+    total: 3,
+    unattributed: 1,
+    workflows: {
+      "dispatcher:pause:workflow:ws_1:wf_retired": { count: 2, session_ids: ["sess_new", "sess_old"] }
+    },
+    credentials: {
+      "dispatcher:pause:credential:ws_1:billing-bot:portal.example.com:8443": { count: 1, session_ids: ["sess_new"] }
+    }
+  }
+}
+
+async function startPauseBackend(failCredentialUnpause = false, paused: unknown = pausedResponse) {
   const requests: { method?: string; url?: string; body: unknown }[] = []
   const server = createServer((req, res) => {
     let raw = ""
@@ -46,7 +60,7 @@ async function startPauseBackend(failCredentialUnpause = false) {
         return
       }
       res.writeHead(200, { "content-type": "application/json" })
-      res.end(JSON.stringify(req.url === "/runs/paused" ? pausedResponse : { success: true, resumedRuns: 1 }))
+      res.end(JSON.stringify(req.url === "/runs/paused" ? paused : req.url?.startsWith("/runs?") ? [] : { success: true, resumedRuns: 1 }))
     })
   })
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
@@ -203,6 +217,63 @@ test("run unpause reports the workflows it already unpaused when the credential 
     )
     assert.notEqual(result.code, 0)
     assert.match(result.stderr, /Unpaused before the failure: \[\{"pause_resource":"workflow","resource_ids":\["wf_retired"\]\}\]/)
+  } finally {
+    backend.server.close()
+  }
+})
+
+test("summarizePausedResources gives each workflow and credential the number of runs it holds, and 0 for a pause that holds none, so run paused shows which pause is holding work", () => {
+  const summary = summarizePausedResources(withHeldRuns)
+  assert.deepEqual(summary.held_runs, { total: 3, unattributed: 1 })
+  assert.equal(summary.workflows.find((w) => w.workflow_id === "wf_retired")?.held_runs, 2)
+  assert.equal(summary.workflows.find((w) => w.workflow_id === "wf_window")?.held_runs, 0)
+  assert.equal(summary.credentials[0].held_runs, 1)
+  assert.equal("held_session_ids" in summary.credentials[0], false)
+})
+
+test("summarizePausedResources adds the held session IDs only with runs, keeping the default output short", () => {
+  const summary = summarizePausedResources(withHeldRuns, { runs: true })
+  assert.deepEqual(summary.workflows.find((w) => w.workflow_id === "wf_retired")?.held_session_ids, ["sess_new", "sess_old"])
+  assert.deepEqual(summary.workflows.find((w) => w.workflow_id === "wf_window")?.held_session_ids, [])
+  assert.deepEqual(summary.credentials[0].held_session_ids, ["sess_new"])
+})
+
+test("summarizePausedResources leaves held-run fields out against a backend that does not report them, instead of claiming every pause holds 0 runs", () => {
+  const summary = summarizePausedResources(pausedResponse)
+  assert.equal("held_runs" in summary, false)
+  assert.equal("held_runs" in summary.workflows[0], false)
+})
+
+test("credentialFilter takes the permissioned_user_id out of a credential_id from run paused, and passes a bare permissioned_user_id through, because GET /runs filters by permissioned_user_id", () => {
+  assert.equal(credentialFilter("ws_1:billing-bot:portal.example.com:8443"), "billing-bot")
+  assert.equal(credentialFilter("billing-bot"), "billing-bot")
+})
+
+test("run paused --runs prints the held session IDs through the real command", async () => {
+  const backend = await startPauseBackend(false, withHeldRuns)
+  try {
+    const result = await runCli(["run", "paused", "--runs", "--base-url", backend.baseUrl], { CLOUDCRUISE_API_KEY: "test_key" })
+    assert.equal(result.code, 0)
+    const printed = JSON.parse(result.stdout)
+    assert.equal(printed.held_runs.total, 3)
+    assert.deepEqual(printed.credentials[0].held_session_ids, ["sess_new"])
+  } finally {
+    backend.server.close()
+  }
+})
+
+test("run list --credential with a credential_id sends its permissioned_user_id as credential_id, so paused runs can be listed per paused credential", async () => {
+  const backend = await startPauseBackend()
+  try {
+    const result = await runCli(
+      ["run", "list", "--status", "execution.paused", "--credential", "ws_1:billing-bot:portal.example.com", "--since", "30d", "--base-url", backend.baseUrl],
+      { CLOUDCRUISE_API_KEY: "test_key" }
+    )
+    assert.equal(result.code, 0)
+    const url = new URL(backend.requests[0].url ?? "", "http://x")
+    assert.equal(url.pathname, "/runs")
+    assert.equal(url.searchParams.get("credential_id"), "billing-bot")
+    assert.equal(url.searchParams.get("status"), "execution.paused")
   } finally {
     backend.server.close()
   }

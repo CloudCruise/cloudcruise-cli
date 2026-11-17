@@ -5,6 +5,8 @@
 ### Added
 
 - `run paused` lists what holds runs in `execution.paused`: paused workflows and credentials, with the reason (for example "Paused because the target service is retired" or "Paused because the site says the account is locked"), and workflows held by a closed run window with `resumes_at`. Each credential has a `credential_id` for `run unpause`. It calls `GET /runs/paused`.
+- `run paused` reports the runs each pause holds: every workflow and credential gets `held_runs`, and the top-level `held_runs` gives `total` (each waiting run counted once) and `unattributed` (runs no listed pause holds any more). `--runs` adds `held_session_ids`, most recently paused first, at most 50 per pause. Needs a backend that returns `heldRuns` from `GET /runs/paused`; against an older one the output is unchanged.
+- `run list --credential <id>` filters by vault credential, taking a `permissioned_user_id` or the `credential_id` that `run paused` prints, so `run list --status execution.paused --credential <credential_id> --since 30d` lists the runs a paused credential holds.
 - `run unpause --workflow <id> --credential <credential_id>` (both repeatable) unpauses them so their held runs resume, and `run unpause --all` unpauses everything in the workspace. They call `POST /runs/unpause` and `POST /runs/unpause-all`.
 
 ### Fixed
