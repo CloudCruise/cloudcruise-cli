@@ -203,7 +203,12 @@ function buildPlan(doc: Obj, path: string, method: string, item: Obj, op: Obj): 
   }
 
   const defaults = readDefaults(op["x-strata-defaults"], queryParams)
-  for (const [paramName, value] of Object.entries(defaults)) properties[paramName].default = value
+  for (const [paramName, value] of Object.entries(defaults)) {
+    properties[paramName].default = value
+    // call sends the default, so the caller no longer has to.
+    const at = required.indexOf(paramName)
+    if (at !== -1) required.splice(at, 1)
+  }
 
   const requestBody = deref(doc, op.requestBody)
   const bodySchema = isObj(requestBody) ? jsonContentSchema(requestBody.content) : undefined

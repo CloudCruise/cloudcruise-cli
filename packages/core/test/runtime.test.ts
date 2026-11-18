@@ -215,6 +215,20 @@ test("x-strata-defaults fill in left-out query parameters and show as the schema
   assert.equal(backend.apiCalls[1].url, `${BASE}/workflows?limit=5`)
 })
 
+test("a default on a required query parameter makes it optional for the caller, and the default is sent", async () => {
+  const backend = fakeBackend()
+  backend.spec = editOperation(backend.spec, "/workflows", "get", (op) => {
+    op.parameters[0].required = true
+    op["x-strata-defaults"] = { limit: 50 }
+  })
+  const { strata } = setup()
+
+  const [op] = await strata.search("workflows.list")
+  assert.equal(((op.input.required as string[] | undefined) ?? []).includes("limit"), false)
+  await strata.call("workflows.list", {})
+  assert.equal(backend.apiCalls[0].url, `${BASE}/workflows?limit=50`)
+})
+
 test("x-strata-defaults for a name that is not a query parameter, or a non-scalar value, are ignored", async () => {
   const backend = fakeBackend()
   backend.spec = editOperation(backend.spec, "/workflows/{workflowId}", "get", (op) => {
