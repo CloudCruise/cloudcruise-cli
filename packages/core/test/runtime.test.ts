@@ -194,6 +194,43 @@ test("encodes path values and repeats array query values", async () => {
   assert.equal(backend.apiCalls[1].body, undefined)
 })
 
+test("x-strata-defaults fill in left-out query parameters and show as the schema default; a value the caller sends wins", async () => {
+  const backend = fakeBackend()
+  backend.spec = editOperation(backend.spec, "/workflows", "get", (op) => {
+    op["x-strata-defaults"] = { limit: 50 }
+  })
+  const { strata } = setup()
+
+  const [op] = await strata.search("workflows.list")
+  assert.equal(op.name, "workflows.list")
+  assert.deepEqual((op.input.properties as any).limit, {
+    type: "integer",
+    description: "Most workflows to return.",
+    default: 50
+  })
+
+  await strata.call("workflows.list", {})
+  await strata.call("workflows.list", { limit: 5 })
+  assert.equal(backend.apiCalls[0].url, `${BASE}/workflows?limit=50`)
+  assert.equal(backend.apiCalls[1].url, `${BASE}/workflows?limit=5`)
+})
+
+test("x-strata-defaults for a name that is not a query parameter, or a non-scalar value, are ignored", async () => {
+  const backend = fakeBackend()
+  backend.spec = editOperation(backend.spec, "/workflows/{workflowId}", "get", (op) => {
+    op["x-strata-defaults"] = { workflowId: "wf-default", view: "summary" }
+  })
+  backend.spec = editOperation(backend.spec, "/workflows", "get", (op) => {
+    op["x-strata-defaults"] = { tags: ["x"] }
+  })
+  const { strata } = setup()
+
+  await strata.call("workflows.get", { workflowId: "wf-1" })
+  await strata.call("workflows.list", {})
+  assert.equal(backend.apiCalls[0].url, `${BASE}/workflows/wf-1`)
+  assert.equal(backend.apiCalls[1].url, `${BASE}/workflows`)
+})
+
 test("a 204 returns no data; a text body returns text", async () => {
   const backend = fakeBackend()
   const { strata } = setup({ surface: "cli" })
