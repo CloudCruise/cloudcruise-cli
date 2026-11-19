@@ -205,9 +205,10 @@ function buildPlan(doc: Obj, path: string, method: string, item: Obj, op: Obj): 
   const defaults = readDefaults(op["x-strata-defaults"], queryParams)
   for (const [paramName, value] of Object.entries(defaults)) {
     properties[paramName].default = value
-    // call sends the default, so the caller no longer has to.
+    // call sends the default, so the caller no longer has to, unless a path parameter
+    // shares the name: call never fills a path value from a default.
     const at = required.indexOf(paramName)
-    if (at !== -1) required.splice(at, 1)
+    if (at !== -1 && !pathParams.includes(paramName)) required.splice(at, 1)
   }
 
   const requestBody = deref(doc, op.requestBody)

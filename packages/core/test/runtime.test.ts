@@ -229,6 +229,24 @@ test("a default on a required query parameter makes it optional for the caller, 
   assert.equal(backend.apiCalls[0].url, `${BASE}/workflows?limit=50`)
 })
 
+test("a query default never makes a path parameter of the same name optional, so call can't send undefined in the path", async () => {
+  const backend = fakeBackend()
+  backend.spec = editOperation(backend.spec, "/workflows/{workflowId}", "get", (op) => {
+    op.parameters = [
+      ...(op.parameters ?? []),
+      { name: "workflowId", in: "query", required: false, schema: { type: "string" } }
+    ]
+    op["x-strata-defaults"] = { workflowId: "wf-default" }
+  })
+  const { strata } = setup()
+
+  const [op] = await strata.search("workflows.get")
+  assert.ok((op.input.required as string[]).includes("workflowId"))
+  const err = await callError(strata.call("workflows.get", {}))
+  assert.equal(err.kind, "invalid_arguments")
+  assert.equal(backend.apiCalls.length, 0)
+})
+
 test("x-strata-defaults for a name that is not a query parameter, or a non-scalar value, are ignored", async () => {
   const backend = fakeBackend()
   backend.spec = editOperation(backend.spec, "/workflows/{workflowId}", "get", (op) => {
