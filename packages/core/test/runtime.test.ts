@@ -410,6 +410,21 @@ test("other 4xx return the API's message without a schema", async () => {
   assert.equal(err.operation, undefined)
 })
 
+// The API's machine code tells an agent which kind of failure it hit (NOT_FOUND vs FORBIDDEN), so it travels
+// with the status in the message and on the error.
+test("an error with a code carries it in the message and on the error", async () => {
+  const backend = fakeBackend()
+  const { strata } = setup()
+  backend.api = () =>
+    Response.json({ message: "Workspace w not found or you don't have access", code: "NOT_FOUND" }, { status: 404 })
+
+  const err = await callError(strata.call("workflows.get", { workflowId: "w" }))
+
+  assert.equal(err.status, 404)
+  assert.equal(err.code, "NOT_FOUND")
+  assert.equal(err.message, "workflows.get failed (404 NOT_FOUND): Workspace w not found or you don't have access")
+})
+
 test("a 5xx does not check the spec", async () => {
   const backend = fakeBackend()
   const { strata } = setup()
