@@ -144,11 +144,11 @@ cloudcruise snapshot test '//input[@name="email"]' --file ./snapshots/page.html
 | `components list` | List workflow components (`--full`) |
 | `components get <id>` | Get component (`--version-number`) |
 | `components versions <id>` | List component versions (`--limit`) |
-| `components usage <id>` | List workflows using this component |
+| `components usage <id>` | List workflows that call this component |
 | `components create` | Create component (`--name`, `--file`, `--stdin`) |
 | `components rename <id>` | Rename a component (`--name`) |
-| `components update <id>` | Update component (`--file`, `--stdin`, `--version-note`, `--no-propagate`, `--source-workflow-id`) |
-| `components delete <id>` | Delete a component |
+| `components update <id>` | Update component: creates a new version that `latest` callers pick up on their next run (`--file`, `--stdin`, `--version-note`, `--no-propagate`, `--source-workflow-id`). `--no-propagate` only affects older pasted copies |
+| `components delete <id>` | Delete a component (blocked while a workflow or component calls it) |
 | `error-codes list` | List workspace error codes (`--workflow-id`) |
 | `error-codes get <id>` | Get one workspace error code by id |
 | `error-codes create` | Find-or-create an error code by name (`--code`, `--description`, `--enriched-description`, `--action alert\|retry\|pause_workflow\|pause_credential`, or one JSON object via `--file`/`--stdin`, which also takes `retries` and `retry_after`) |
