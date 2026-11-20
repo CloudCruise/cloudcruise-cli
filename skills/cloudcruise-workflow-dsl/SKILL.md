@@ -1133,6 +1133,31 @@ Set `required: true` on every entry unless the value is genuinely optional. With
 
 **Same origin:** with `credentials: "include"`, the request fires from the page the run is on. If that page's origin (subdomain included) differs from the request's, the fetch fails. Make sure an earlier node (often `START`) lands on the target origin.
 
+### COMPONENT_CALL
+
+Runs a reusable component (a group of nodes with a Start, an End and a declared interface) in its own scope. It is not a selector node and has no `run_if` or execution type.
+
+```json
+{
+  "id": "uuid",
+  "name": "Login",
+  "action": "COMPONENT_CALL",
+  "parameters": {
+    "component": { "type": "local", "ref": "<component id>" },
+    "input_mappings": { "USER": "USER", "query": "{{context.inputs.search_term}}" },
+    "output_mappings": { "result_url": "context.search.url" }
+  }
+}
+```
+
+- `component.type`: `local` = definition in the workflow's `local_components`; `global` = workspace component listed in `component_imports` (`{ "id", "version" }`). `version` (global only) is a number or `"latest"`.
+- `input_mappings`: input name to a literal or `{{…}}` expression. A bare `{{expr}}` keeps its type. `{}` when there are no inputs.
+- `output_mappings`: output name to the caller context path. Default `context.outputs.<name>`.
+- Isolation: the body starts with an empty scope and sees only its declared inputs. Inside, read an input as `{{context.component_inputs.<name>}}`; read a credential input as `{{$lookup(context.inputs, context.component_inputs.<name>).USER_NAME}}`. Return a value by writing `context.component_outputs.<name>` (Transform `SET`) and declaring it in the component's `output_schema`. Anything else the body writes is discarded when the call returns, so extracted data must be exported or the run result and later nodes will not see it.
+- A credential input is marked `"x-cc-type": "credential"` in `input_schema` and takes a vault alias. A credential cannot be returned as an output.
+- A component cannot call itself, directly or indirectly. Failures use `SERVER-E0007` with a `reason`.
+- Edit the interface with `cloudcruise components` (workspace components) or the workflow's `local_components` (local ones). Selecting nodes in the visualizer and choosing "Save as Component" builds the call, inputs and outputs for you.
+
 ## Error Codes
 
 These params take the **id of a workspace error code**: a lowercase UUID. They do not take a code name, a placeholder or a free-text message.
