@@ -28,6 +28,8 @@ const parsePositiveInt = (value: string): number => {
 //     component command. encrypted_keys + loginStructure carry credential
 //     material; proxy_value/proxy_setting are workflow-scoped runtime
 //     config with no place in a reusable component definition.
+//     local_components + component_imports describe which components the
+//     workflow calls, not the component itself.
 const READONLY_FIELDS = [
   "id",
   "component_id",
@@ -41,7 +43,9 @@ const READONLY_FIELDS = [
   "encrypted_keys",
   "loginStructure",
   "proxy_value",
-  "proxy_setting"
+  "proxy_setting",
+  "local_components",
+  "component_imports"
 ]
 
 function assertJsonObject(value: unknown): Record<string, unknown> {
@@ -51,7 +55,7 @@ function assertJsonObject(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>
 }
 
-function extractComponentData(
+export function extractComponentData(
   raw: Record<string, unknown>
 ): Record<string, unknown> {
   const wrapped =
@@ -287,7 +291,7 @@ Examples:
     components
       .command("update <id>")
       .description(
-        "Update component data (creates a new version, propagates to all instances by default)"
+        "Update component data (creates a new version; calls set to latest pick it up on their next run)"
       )
       .option("--file <path>", "Path to component JSON file")
       .option("--stdin", "Read component JSON from stdin")
@@ -297,7 +301,7 @@ Examples:
       )
       .option(
         "--no-propagate",
-        "Do not propagate the update to workflows that use this component"
+        "Only affects older pasted copies of the component: skip updating them. Calls by reference are not affected"
       )
       .option(
         "--source-workflow-id <id>",
