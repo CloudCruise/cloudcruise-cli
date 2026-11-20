@@ -21,7 +21,7 @@ downstream re-asks what the plan already answers.
    Slugify the name silently for the `cc-workflows/<slug>/` directory.
 2. **Stub on disk first.** Write the plan header (goal, config keys) before any
    exploration — an interruption never loses the goal.
-3. **Gather config.** Profile, workspace, `vault_user_id` + `vault_domain`, start URL.
+3. **Gather config.** Profile, workspace, `vault_user_id` (+ `vault_domain` when the user ID has several entries), start URL.
    Ask only for keys the header is missing. Never ask for `workflow_id` — the build
    stage writes it after `builder start`.
 4. **Gather context, draft the skeleton, confirm.** Ask the user which of typed

@@ -67,7 +67,7 @@ Variables use double curly braces: `{{expression}}`.
 
 Variables can be used in: text inputs, XPath selectors, URLs, prompts, data model field names. Prefer variables (`{{context.inputs.*}}`) over hardcoded values.
 
-**Vault credentials** are read through their `vault_schema` alias: `{{context.inputs.<ALIAS>.USER_NAME}}`, `{{context.inputs.<ALIAS>.PASSWORD}}`, and additional fields as `{{context.inputs.<ALIAS>.FIELDS.<name>}}`.
+**Vault credentials** are read through their `vault_schema` alias (`{ "type": "credential", "domain"?: string, "example"?: string }`; `domain` is optional, and without it the run uses the passed user ID's only vault entry, or is rejected with a 400 listing the domains when the user ID has several; `context.inputs.<ALIAS>.DOMAIN` is empty for an entry without a domain): `{{context.inputs.<ALIAS>.USER_NAME}}`, `{{context.inputs.<ALIAS>.PASSWORD}}`, and additional fields as `{{context.inputs.<ALIAS>.FIELDS.<name>}}`.
 
 - Names that are not plain identifiers (spaces, dashes, leading digit) need backticks: ``{{context.inputs.BANK.FIELDS.`Member ID`}}``
 - Address parts: `{{context.inputs.BANK.FIELDS.Home.city}}`

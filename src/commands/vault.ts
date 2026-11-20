@@ -4,6 +4,8 @@ import { ApiClient } from "../core/api-client.js"
 import { encrypt, decrypt, validateHexKey } from "../core/crypto.js"
 import { outputJson } from "../core/output.js"
 import { fail, UsageError } from "../core/exit.js"
+import { withDomainHint } from "../core/vault-domain-hint.js"
+import { registerSiteSettingsCommands } from "./vault-site-settings.js"
 import { addAuthOptions, type AuthOptions } from "../core/auth-options.js"
 import { enforceNoArgSecrets } from "../core/secret-args.js"
 import {
@@ -225,13 +227,13 @@ function parseSecurityQuestions(flag: string, items: unknown[]): SecurityQuestio
   })
 }
 
-function buildPayloadFromFlags(
-  opts: EntryFlags & { userId: string; domain: string }
+export function buildPayloadFromFlags(
+  opts: EntryFlags & { userId: string }
 ): Record<string, unknown> {
   const payload: Record<string, unknown> = {
     permissioned_user_id: opts.userId,
-    domain: opts.domain,
   }
+  if (opts.domain !== undefined) payload.domain = opts.domain
   if (opts.userName !== undefined) payload.user_name = opts.userName
   if (opts.password !== undefined) payload.password = opts.password
   if (opts.userAlias !== undefined) payload.user_alias = opts.userAlias
@@ -459,12 +461,10 @@ async function writeEntry(
   if (input) {
     payload = input
   } else {
-    if (!opts.userId || !opts.domain) {
-      throw new UsageError(
-        "Provide --user-id and --domain, or use --file/--stdin"
-      )
+    if (!opts.userId) {
+      throw new UsageError("Provide --user-id (and --domain), or use --file/--stdin")
     }
-    payload = buildPayloadFromFlags({ ...opts, userId: opts.userId, domain: opts.domain })
+    payload = buildPayloadFromFlags({ ...opts, userId: opts.userId })
     if (needsEncryptionKey) {
       const key = requireEncryptionKey(auth)
       validateHexKey(key)
@@ -472,8 +472,13 @@ async function writeEntry(
     }
   }
 
-  const data = await client[method]<VaultEntry>("/vault", payload)
-  outputJson(data)
+  try {
+    const data = await client[method]<VaultEntry>("/vault", payload)
+    outputJson(data)
+  } catch (err: unknown) {
+    const domain = typeof payload.domain === "string" ? payload.domain : undefined
+    throw withDomainHint(err, domain)
+  }
 }
 
 export function registerVaultCommands(program: Command): void {
@@ -520,12 +525,17 @@ Examples:
       .command("get")
       .description("Get a vault entry by user ID and domain")
       .requiredOption("--user-id <id>", "Permissioned user ID")
-      .requiredOption("--domain <domain>", "Target domain")
+      .option("--domain <domain>", "Domain of the entry. Optional while the user ID has a single entry")
       .option("--decrypt", "Decrypt credential fields client-side, including additional field values and security question answers")
   ).addHelpText("after", `
 Examples:
   $ cloudcruise vault get --user-id f47ac10b-58cc-4372-a567-0e02b2c3d479 --domain "https://app.example.com"
   $ cloudcruise vault get --user-id f47ac10b-58cc-4372-a567-0e02b2c3d479 --domain "https://app.example.com" --decrypt
+  $ cloudcruise vault get --user-id f47ac10b-58cc-4372-a567-0e02b2c3d479
+
+Without --domain the user ID's only entry is returned. When the user ID has
+several entries the API answers 409 and lists their domains; pass --domain
+with one of them. An entry without a domain has "domain": null.
 
 Without --decrypt, additional fields show name and type only, and security
 questions show the encrypted question only. --decrypt adds field values and
@@ -534,7 +544,7 @@ decrypts questions and answers.
     async (
       opts: {
         userId: string
-        domain: string
+        domain?: string
         decrypt?: boolean
       } & AuthOptions
     ) => {
@@ -544,10 +554,8 @@ decrypts questions and answers.
           requireEncryptionKey: Boolean(opts.decrypt),
         })
         const client = new ApiClient(auth)
-        const params = new URLSearchParams({
-          permissioned_user_id: opts.userId,
-          domain: opts.domain,
-        })
+        const params = new URLSearchParams({ permissioned_user_id: opts.userId })
+        if (opts.domain !== undefined) params.set("domain", opts.domain)
         const data = await client.get<VaultEntry>(`/vault?${params}`)
         if (opts.decrypt) {
           const key = requireEncryptionKey(auth)
@@ -557,7 +565,7 @@ decrypts questions and answers.
           outputJson(withoutListValues(data as unknown as Record<string, unknown>))
         }
       } catch (err: unknown) {
-        fail(err)
+        fail(withDomainHint(err, opts.domain))
       }
     }
   )
@@ -566,15 +574,20 @@ decrypts questions and answers.
   addAuthOptions(
     addEntryOptions(
       vault.command("create").description("Create a new vault entry"),
-      "Target domain (valid URI)"
+      "Target domain (valid URI). Optional: an entry without a domain is reached by its user ID alone"
     )
   ).addHelpText("after", `
 Examples:
   $ cloudcruise vault create --user-id f47ac10b-... --domain "https://app.example.com" --user-name "user@example.com" --password "s3cret"
   $ cloudcruise vault create --user-id f47ac10b-... --domain "https://app.example.com" --tfa-method AUTHENTICATOR --tfa-method EMAIL --additional-fields-file fields.json --security-questions-file questions.json
   $ cloudcruise vault create --user-id acme-prod --domain "https://acme.com" --secret-provider-id 25290e80-bbd5-41b3-861e-dea30cc26e27 --secret-ref "op://vaultId/itemId"
+  $ cloudcruise vault create --user-id f47ac10b-... --user-name "user@example.com" --password "s3cret"
   $ cloudcruise vault create --file payload.json
   $ cat payload.json | cloudcruise vault create --stdin
+
+--domain is optional: an entry without a domain is addressed by its user ID
+alone. Creating a second entry for a user ID answers 409 when the first has no
+domain (give it one first) or the new one has none.
 ${ENTRY_LISTS_HELP}`).action(async (opts: EntryFlags & JsonObjectSource & AuthOptions) => {
     try {
       await writeEntry("post", opts)
@@ -587,7 +600,7 @@ ${ENTRY_LISTS_HELP}`).action(async (opts: EntryFlags & JsonObjectSource & AuthOp
   const update = addAuthOptions(
     addEntryOptions(
       vault.command("update").description("Update an existing vault entry"),
-      "Target domain"
+      "Domain of the entry. Optional while the user ID has a single entry"
     ).option("--no-tfa-method", "Remove every TFA method from the entry")
   )
   const tfaMethodFlags = new Set<string>()
@@ -599,8 +612,12 @@ Examples:
   $ cat fields.json | cloudcruise vault update --user-id f47ac10b-... --domain "https://app.example.com" --additional-fields-stdin
   $ cloudcruise vault update --user-id f47ac10b-... --domain "https://app.example.com" --no-tfa-method
   $ cloudcruise vault update --user-id acme-prod --domain "https://acme.com" --secret-provider-id 25290e80-bbd5-41b3-861e-dea30cc26e27 --secret-ref "op://vaultId/itemId"
+  $ cloudcruise vault update --user-id f47ac10b-... --password "new_pass"
   $ cloudcruise vault update --file payload.json
   $ cat payload.json | cloudcruise vault update --stdin
+
+Without --domain the user ID's only entry is updated; with several entries the
+API answers 409 and lists their domains.
 ${ENTRY_LISTS_HELP}`).action(async (opts: EntryFlags & JsonObjectSource & AuthOptions) => {
     try {
       if (tfaMethodFlags.size > 1) {
@@ -618,7 +635,7 @@ ${ENTRY_LISTS_HELP}`).action(async (opts: EntryFlags & JsonObjectSource & AuthOp
       .command("tfa-code")
       .description("Get the current 2FA code of a vault entry")
       .requiredOption("--user-id <id>", "Permissioned user ID")
-      .requiredOption("--domain <domain>", "Target domain")
+      .option("--domain <domain>", "Domain of the entry. Optional while the user ID has a single entry")
       .option("--method <method>", "TFA method to read: AUTHENTICATOR or EMAIL. Required when the entry has several methods")
       .option("--field <name>", "Name of a Totp additional field to generate the code from instead of the built-in TFA secret")
   ).addHelpText("after", `
@@ -626,27 +643,29 @@ Examples:
   $ cloudcruise vault tfa-code --user-id f47ac10b-... --domain "https://app.example.com"
   $ cloudcruise vault tfa-code --user-id f47ac10b-... --domain "https://app.example.com" --method EMAIL
   $ cloudcruise vault tfa-code --user-id f47ac10b-... --domain "https://app.example.com" --field "Backup OTP"
+  $ cloudcruise vault tfa-code --user-id f47ac10b-...
+
+Without --domain the user ID's only entry is used; with several entries the API
+answers 409 and lists their domains.
 
 AUTHENTICATOR returns a fresh code with expires_in_seconds. EMAIL returns the
 latest received code with received_at, or 404 when none arrived recently.
 SMS and MAGIC_LINK codes cannot be read (409).
 `).action(
     async (
-      opts: { userId: string; domain: string; method?: string; field?: string } & AuthOptions
+      opts: { userId: string; domain?: string; method?: string; field?: string } & AuthOptions
     ) => {
       try {
         if (opts.method !== undefined) assertTfaMethod("--method", opts.method)
         const auth = await resolveAuth(opts)
         const client = new ApiClient(auth)
-        const params = new URLSearchParams({
-          permissioned_user_id: opts.userId,
-          domain: opts.domain,
-        })
+        const params = new URLSearchParams({ permissioned_user_id: opts.userId })
+        if (opts.domain !== undefined) params.set("domain", opts.domain)
         if (opts.method !== undefined) params.set("method", opts.method)
         if (opts.field !== undefined) params.set("field", opts.field)
         outputJson(await client.get(`/vault/tfa-code?${params}`))
       } catch (err: unknown) {
-        fail(err)
+        fail(withDomainHint(err, opts.domain))
       }
     }
   )
@@ -657,12 +676,16 @@ SMS and MAGIC_LINK codes cannot be read (409).
       .command("clear-state")
       .description("Clear stored browser state (cookies, localStorage, sessionStorage) for a vault entry")
       .requiredOption("--user-id <id>", "Permissioned user ID")
-      .requiredOption("--domain <domain>", "Target domain")
+      .option("--domain <domain>", "Domain of the entry. Optional while the user ID has a single entry")
   ).addHelpText("after", `
 Examples:
   $ cloudcruise vault clear-state --user-id f47ac10b-... --domain "https://app.example.com"
+  $ cloudcruise vault clear-state --user-id f47ac10b-...
+
+Without --domain the user ID's only entry is used; with several entries the API
+answers 409 and lists their domains.
 `).action(
-    async (opts: { userId: string; domain: string } & AuthOptions) => {
+    async (opts: { userId: string; domain?: string } & AuthOptions) => {
       try {
         const auth = await resolveAuth(opts)
         const client = new ApiClient(auth)
@@ -670,15 +693,17 @@ Examples:
           "/vault/clear-browser-state",
           {
             permissioned_user_id: opts.userId,
-            domain: opts.domain,
+            ...(opts.domain !== undefined && { domain: opts.domain }),
           }
         )
         outputJson(data)
       } catch (err: unknown) {
-        fail(err)
+        fail(withDomainHint(err, opts.domain))
       }
     }
   )
+
+  registerSiteSettingsCommands(vault)
 
   // vault encrypt
   addAuthOptions(

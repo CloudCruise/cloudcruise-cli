@@ -32,7 +32,8 @@ export interface VaultSecurityQuestion {
 export interface VaultEntry {
   id: string
   permissioned_user_id: string
-  domain: string
+  /** Null for an entry without a domain. */
+  domain: string | null
   user_name: string | null
   password: string | null
   secret_provider_id: string | null
@@ -77,7 +78,7 @@ export interface VaultEntry {
 export interface VaultEntryPayload {
   id?: string
   permissioned_user_id: string
-  domain: string
+  domain?: string
   user_name?: string
   password?: string
   secret_provider_id?: string
@@ -122,4 +123,74 @@ export interface VaultCookie {
   session: boolean
   storeId: string
   sameSite: string
+}
+
+/** The settings a domain sets for every vault entry on it; the keys an entry can override. */
+export const SITE_SETTING_KEYS = [
+  "max_concurrency",
+  "allow_multiple_sessions",
+  "prevent_concurrency_during_login",
+  "expiry_time_from_last_use",
+  "expiry_time_from_session_data_set",
+  "persist_cookies",
+  "persist_local_storage",
+  "persist_session_storage",
+  "skip_csrf_cookies",
+  "cookie_domain_to_store",
+  "login_workflow_id",
+] as const
+
+export type SiteSettingKey = (typeof SITE_SETTING_KEYS)[number]
+
+/** A null value means the domain sets nothing and the platform default applies. */
+export interface SiteSettingsValues {
+  max_concurrency: number | null
+  allow_multiple_sessions: boolean | null
+  prevent_concurrency_during_login: boolean | null
+  expiry_time_from_last_use: string | null
+  expiry_time_from_session_data_set: string | null
+  persist_cookies: boolean | null
+  persist_local_storage: boolean | null
+  persist_session_storage: boolean | null
+  skip_csrf_cookies: boolean | null
+  cookie_domain_to_store: string | null
+  login_workflow_id: string | null
+}
+
+export interface SiteSettings {
+  id: string
+  domain: string
+  settings: Partial<SiteSettingsValues>
+  /** Entries in the workspace on this domain. */
+  entry_count: number
+  /** For each setting, how many entries on the domain set their own value. */
+  overrides: Record<string, number>
+}
+
+/** Body of PATCH /vault/site-settings: only the listed settings change, null clears one. */
+export type SiteSettingsUpdate = { domain: string } & Partial<SiteSettingsValues>
+
+export interface SiteSettingsEntry {
+  id: string
+  /** User ID of the vault entry. */
+  permissioned_user_id: string
+  /** Settings the entry sets itself; every other setting is read from the domain. */
+  overridden: string[]
+}
+
+export interface ApplySiteSettingsDefaultsRequest {
+  domain: string
+  entry_ids?: string[]
+}
+
+export interface SiteSettingsEntryOverrides {
+  id: string
+  domain: string | null
+  overridden: string[]
+}
+
+export interface ClearSiteSettingsOverridesRequest {
+  permissioned_user_id: string
+  domain?: string
+  keys: SiteSettingKey[]
 }
