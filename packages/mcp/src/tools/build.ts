@@ -2,7 +2,7 @@ import { ApiError, type StrataClient } from "@cloudcruise/strata"
 import type { CallToolResult, McpServer, ServerContext } from "@modelcontextprotocol/server"
 import * as z from "zod/v4"
 import { apiFailure, client, errorResult, formatHandle, structured, workspaceIdInput, type ToolContext } from "./common.js"
-import { GONE, builderPath, formatTurnCursor, isGone, successorOf, turnCursor, type TurnState } from "./turn.js"
+import { END, GONE, STOP, builderPath, formatTurnCursor, isGone, successorOf, turnCursor, type TurnState } from "./turn.js"
 
 /** How often build reports progress while the builder browser starts; tests pass a shorter one. */
 export interface BuildTiming {
@@ -33,8 +33,7 @@ export function registerBuild(server: McpServer, tool: ToolContext, timing: Buil
     "build",
     {
       title: "Build a workflow",
-      description:
-        "Send a message to the CloudCruise workflow builder agent, starting a new builder conversation or continuing one, or answer its question. The builder works in a live browser and edits the workflow. Returns a handle; to follow the turn, use observe.",
+      description: `Send a message to the CloudCruise workflow builder agent, starting a new builder conversation or continuing one, or answer its question. The builder works in a live browser and edits the workflow. Returns the conversation_id and a handle; to follow the turn, use observe, which returns the workflow_id once the builder has saved the workflow. ${STOP} ${END}`,
       inputSchema: input,
       annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
       _meta: { "anthropic/alwaysLoad": true }
@@ -75,7 +74,9 @@ export function registerBuild(server: McpServer, tool: ToolContext, timing: Buil
           }
           turnId = sent
         }
-        const out: Record<string, unknown> = { handle: handle(id) }
+        const out: Record<string, unknown> = { handle: handle(id), conversation_id: id }
+        // A new conversation's workflow isn't saved yet, so its id can't run; one started from a workflow can.
+        if (args.workflow_id) out.workflow_id = args.workflow_id
         if (turnId) {
           out.after = formatTurnCursor(turnCursor({ phase: "processing", turnId }))
           out.next = "To follow the turn, call observe with this handle and after."
@@ -189,7 +190,7 @@ async function answer(
 // The conversation exists but the message didn't reach it: an error that still carries the handle.
 function keptHandle(handle: string, what: string, id: string, err: unknown): CallToolResult {
   const reason = failure(err).content.map((c) => (c.type === "text" ? c.text : "")).join(" ")
-  const out = { handle, next: `Send the message again with build and conversation_id ${id}.` }
+  const out = { handle, conversation_id: id, next: `Send the message again with build and conversation_id ${id}.` }
   return {
     isError: true,
     content: [{ type: "text", text: `${what}: ${reason} ${out.next} ${JSON.stringify(out)}` }],

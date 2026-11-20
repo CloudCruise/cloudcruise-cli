@@ -61,6 +61,7 @@ export interface TurnRead {
   phase: string
   turnId?: string | null
   interrupted?: true
+  workflowId?: string
   report?: string
   humanInput?: { messageId: string; prompt?: string; fields?: Record<string, unknown>[] }
 }

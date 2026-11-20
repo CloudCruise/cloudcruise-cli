@@ -96,6 +96,7 @@ test("run starts the workflow in the workspace and returns a handle naming both"
   assert.equal(result.isError, undefined)
   const out = result.structuredContent!
   assert.match(String(out.handle), new RegExp(`^v1:run:${WORKSPACE}:run_[0-9a-f]+$`))
+  assert.equal(out.handle, `v1:run:${WORKSPACE}:${out.run_id}`)
   assert.match(String(out.next), /observe/)
   assert.equal(api.requests.length, 1)
   assert.equal(api.requests[0].path, "/run")
@@ -105,6 +106,7 @@ test("run starts the workflow in the workspace and returns a handle naming both"
   // The handle it returns is one observe accepts.
   const observed = await tool("observe", { handle: out.handle })
   assert.equal(observed.structuredContent!.status, "execution.queued")
+  assert.equal(observed.structuredContent!.run_id, out.run_id)
 })
 
 test("run without a workspace, or with a workflow id that isn't one, sends nothing", async () => {
