@@ -18,14 +18,21 @@ export class CallError extends Error {
   readonly kind: CallErrorKind
   /** HTTP status, when the API answered. */
   readonly status?: number
+  /** The API's machine code, when it sent one (e.g. NOT_FOUND). */
+  readonly code?: string
   /** The operation as it is now, when the message includes its schema. */
   readonly operation?: Operation
 
-  constructor(kind: CallErrorKind, message: string, extra: { status?: number; operation?: Operation } = {}) {
+  constructor(
+    kind: CallErrorKind,
+    message: string,
+    extra: { status?: number; code?: string; operation?: Operation } = {}
+  ) {
     super(message)
     this.name = "CallError"
     this.kind = kind
     this.status = extra.status
+    this.code = extra.code
     this.operation = extra.operation
   }
 }
@@ -128,14 +135,15 @@ export class Strata {
         if (current.inputKey !== plan.inputKey) throw changed(current)
       }
       const detail = apiMessage(err)
+      const status = err.code ? `${err.status} ${err.code}` : `${err.status}`
       if (err.status === 400 || err.status === 422) {
         throw new CallError(
           "api_error",
-          `The API rejected the arguments for ${name} (${err.status}): ${detail}. Schema: ${schemaText(operation)}`,
-          { status: err.status, operation }
+          `The API rejected the arguments for ${name} (${status}): ${detail}. Schema: ${schemaText(operation)}`,
+          { status: err.status, code: err.code, operation }
         )
       }
-      throw new CallError("api_error", `${name} failed (${err.status}): ${detail}`, { status: err.status })
+      throw new CallError("api_error", `${name} failed (${status}): ${detail}`, { status: err.status, code: err.code })
     }
   }
 
