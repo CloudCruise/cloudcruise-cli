@@ -233,7 +233,7 @@ function buildRequest(plan: Plan, args: Record<string, unknown>): { path: string
   }
   const query = new URLSearchParams()
   for (const key of plan.queryParams) {
-    const value = args[key]
+    const value = args[key] ?? plan.defaults[key]
     if (value === undefined) continue
     for (const v of Array.isArray(value) ? value : [value]) query.append(key, String(v))
   }

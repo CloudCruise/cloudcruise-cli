@@ -32,6 +32,8 @@ export interface Plan {
   path: string
   pathParams: string[]
   queryParams: string[]
+  /** Query values sent when the caller leaves the parameter out, from `x-strata-defaults`. */
+  defaults: Record<string, string | number | boolean>
   /** JSON of `input`, compared before and after a refresh to detect a change. */
   inputKey: string
   /** The operation's OpenAPI tags. */
@@ -133,6 +135,16 @@ function readHints(value: unknown): Hints {
   return Object.fromEntries(keys.map((k) => [k, value[k]])) as unknown as Hints
 }
 
+/** The scalar defaults for this operation's own query parameters; anything else is ignored. */
+function readDefaults(value: unknown, queryParams: string[]): Record<string, string | number | boolean> {
+  if (!isObj(value)) return {}
+  return Object.fromEntries(
+    Object.entries(value).filter(
+      ([key, v]) => queryParams.includes(key) && ["string", "number", "boolean"].includes(typeof v)
+    )
+  ) as Record<string, string | number | boolean>
+}
+
 function jsonContentSchema(content: unknown): unknown {
   return isObj(content) && isObj(content["application/json"])
     ? content["application/json"].schema
@@ -190,6 +202,15 @@ function buildPlan(doc: Obj, path: string, method: string, item: Obj, op: Obj): 
     }
   }
 
+  const defaults = readDefaults(op["x-strata-defaults"], queryParams)
+  for (const [paramName, value] of Object.entries(defaults)) {
+    properties[paramName].default = value
+    // call sends the default, so the caller no longer has to, unless a path parameter
+    // shares the name: call never fills a path value from a default.
+    const at = required.indexOf(paramName)
+    if (at !== -1 && !pathParams.includes(paramName)) required.splice(at, 1)
+  }
+
   const requestBody = deref(doc, op.requestBody)
   const bodySchema = isObj(requestBody) ? jsonContentSchema(requestBody.content) : undefined
   if (bodySchema !== undefined) {
@@ -218,6 +239,7 @@ function buildPlan(doc: Obj, path: string, method: string, item: Obj, op: Obj): 
     path,
     pathParams,
     queryParams,
+    defaults,
     inputKey: JSON.stringify(input),
     tags,
     keywords: keywords(path, properties, tags)

@@ -21,6 +21,8 @@ A client sends only what its constructor was given. Build one client per caller.
 
 `Strata` reads the API's OpenAPI spec at run time and reaches the operations tagged for one surface (`cli` or `mcp`) through `x-strata-surfaces`, by their `x-strata-name`.
 
+An operation can set `x-strata-defaults` to values for its own query parameters, such as `{"limit": 50}`. `call` sends a default when the caller leaves that parameter out, and the operation's input schema shows it as the parameter's `default`.
+
 ```ts
 import { SpecCache, Strata, StrataClient, CallError } from "@cloudcruise/strata"
 
