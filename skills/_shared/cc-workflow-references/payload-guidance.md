@@ -23,8 +23,8 @@ off is invalid.
   multi-selects, or the forced constant the rule states.
 - Vault aliases are required fields. In a payload file, the value is the literal placeholder
   string `<alias>` (e.g. `"login": "<login>"`). Never null an alias; never invent a
-  credential value. The real credential binds at session creation — `--vault-user-id` +
-  `--vault-domain`, or `builder edit --input '{"<alias>": "<permissioned_user_id>"}'` for
+  credential value. The real credential binds at session creation — `--vault-user-id`
+  (+ `--vault-domain` when the user ID has several entries), or `builder edit --input '{"<alias>": "<permissioned_user_id>"}'` for
   multi-credential workflows.
 
 ## The envelope

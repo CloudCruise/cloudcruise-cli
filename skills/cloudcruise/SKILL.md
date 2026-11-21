@@ -308,6 +308,7 @@ cloudcruise snapshot test "<xpath>" <sid> <nid> --count            # Only return
 cloudcruise vault list                                              # List all vault entries (summary)
 cloudcruise vault list --full                                       # List with all fields
 cloudcruise vault get --user-id <id> --domain <domain>              # Get entry (encrypted fields; field names/types only)
+cloudcruise vault get --user-id <id>                                # Domain omitted: the user ID's only entry (409 lists domains if several)
 cloudcruise vault get --user-id <id> --domain <domain> --decrypt    # Get entry (plaintext, incl. field values and answers)
 cloudcruise vault create --user-id <id> --domain <domain> \
   --user-name <name> --password <pass>                              # Create with auto-encrypt
@@ -324,6 +325,16 @@ cloudcruise vault tfa-code --user-id <id> --domain <domain> \
 cloudcruise vault tfa-code --user-id <id> --domain <domain> \
   --field "Backup OTP"                                              # Code of a Totp additional field
 cloudcruise vault clear-state --user-id <id> --domain <domain>       # Clear browser state (force fresh login)
+cloudcruise vault site-settings list                                # Domain settings: defaults every entry on a domain inherits
+cloudcruise vault site-settings update --domain <domain> \
+  --max-concurrency 2 --persist-cookies true                        # Set domain defaults (only the flags you pass change)
+cloudcruise vault site-settings update --domain <domain> \
+  --clear max_concurrency                                           # Remove a domain default (sends null)
+cloudcruise vault site-settings entries --domain <domain>           # Entries on the domain and the settings each overrides
+cloudcruise vault site-settings apply-defaults --domain <domain>    # Entries read every setting from the domain (--entry-id <uuid> to limit)
+cloudcruise vault site-settings overrides --user-id <id>            # Settings one entry sets itself (--domain optional)
+cloudcruise vault site-settings reset-overrides --user-id <id> \
+  --key max_concurrency --key persist_cookies                       # Entry reads those settings from the domain again
 cloudcruise vault encrypt "plaintext"                               # Encrypt a value (no API call)
 cloudcruise vault decrypt "ciphertext"                              # Decrypt a value (no API call)
 echo "secret" | cloudcruise vault encrypt --stdin                   # Encrypt from stdin
@@ -397,7 +408,7 @@ cloudcruise builder interrupt   # Stop the agent's current processing
 cloudcruise builder end         # End the conversation and clean up
 ```
 
-**Credentials for builder sessions.** A workflow with a non-empty `vault_schema` needs its credential supplied, or login fails at the password step. Both `builder start` and `builder edit` take `--vault-user-id <permissioned_user_id>` + `--vault-domain <domain>` (both-or-neither) for a single credential; edit matches the domain to the workflow's `vault_schema` alias. For a multi-credential workflow, bind extra aliases via `builder edit --input '{"<alias>":"<permissioned_user_id>"}'`. `builder edit` also takes `--use-example-inputs` to pre-fill non-credential inputs from the workflow's `input_schema` examples (server-side).
+**Credentials for builder sessions.** A workflow with a non-empty `vault_schema` needs its credential supplied, or login fails at the password step. Both `builder start` and `builder edit` take `--vault-user-id <permissioned_user_id>` and optionally `--vault-domain <domain>` for a single credential (`--vault-domain` alone is a usage error). Leave the domain out for an entry without a domain or a user ID with a single entry; pass it when the user ID has several entries. Edit matches the domain to the workflow's `vault_schema` alias. For a multi-credential workflow, bind extra aliases via `builder edit --input '{"<alias>":"<permissioned_user_id>"}'`. `builder edit` also takes `--use-example-inputs` to pre-fill non-credential inputs from the workflow's `input_schema` examples (server-side).
 
 **Editing a branch or version.** `builder edit --workflow <workflow_id> --branch fix-login` edits that branch's latest version, and the session's saves go to that branch. `--version 2.1.0` (or a range) starts from that version instead. Without either, the default branch is edited. A protected branch rejects the builder's saves: create a branch first (`branches create`), edit it, then open a pull request.
 
@@ -625,11 +636,11 @@ Raw `--encryption-key <hex>` and `--api-key <key>` flags are **rejected by defau
 **Important details:**
 
 - The API field is `user_name` (not `username`). Use the `--user-name` flag.
-- Vault entries are looked up by `--user-id` + `--domain`, not by UUID.
+- Vault entries are looked up by `--user-id` + `--domain`, not by UUID. `--domain` is optional: an entry without a domain (`"domain": null`) is reached by its user ID alone, and so is any user ID with a single entry. A user ID with several entries and no `--domain` gets a 409 listing the domains; pass one.
 - `vault list` returns summary fields only. Use `--full` for all fields (additional fields and security questions as in `vault get`).
 - `vault get` returns encrypted fields by default. Add `--decrypt` for plaintext.
 - The `--domain` must be a valid URL. `localhost` domains are rejected -- use `http://127.0.0.1:<port>` instead.
-- The vault_schema `domain` and the vault entry `domain` must match exactly.
+- The vault_schema `domain` and the vault entry `domain` must match exactly. `domain` is optional in a `vault_schema` entry (`{ "type": "credential" }`): the run then uses the passed user ID's only entry, or is rejected with a 400 listing the domains when it has several.
 - Session/persistence fields (`cookies`, `local_storage`, `persist_*`, concurrency, expiry) have no dedicated flags -- use `--file`/`--stdin` with full JSON. `vault get` output lacks field values and answers: drop `additional_fields` and `security_questions` from it before sending, or the API answers 400.
 - Secret flags (`--password`, `--user-name`, `--tfa-secret`) are visible in `ps` output. Use `--stdin` or `--file` for sensitive values.
 
@@ -658,6 +669,15 @@ Raw `--encryption-key <hex>` and `--api-key <key>` flags are **rejected by defau
 
 **2FA codes.** `vault tfa-code` prints the entry's current code: `{type, code, expires_in_seconds}` for `AUTHENTICATOR`, `{type, code, received_at}` for the latest `EMAIL` code (404 if none arrived recently). An entry with several methods needs `--method` (400 otherwise). `--field <name>` generates the code of a `Totp` additional field. `SMS` and `MAGIC_LINK` codes cannot be read (409).
 
+**Domain settings.** Session persistence, concurrency, expiry and the login workflow can be set once per domain with `vault site-settings`; every entry on the domain inherits them. An entry stores a value only for a setting it sets itself, and its own value wins over the domain's.
+
+- Settings: `max_concurrency`, `allow_multiple_sessions`, `prevent_concurrency_during_login`, `expiry_time_from_last_use`, `expiry_time_from_session_data_set`, `persist_cookies`, `persist_local_storage`, `persist_session_storage`, `skip_csrf_cookies`, `cookie_domain_to_store`, `login_workflow_id`. A `null` domain setting means the platform default applies.
+- `site-settings update --domain <domain>` creates the domain's settings when it has none and changes only the flags you pass (booleans take `true` or `false`; intervals look like `"7 days"`). `--clear <setting>` removes a default by sending `null`. Entries that set their own value keep it.
+- `site-settings list` shows each domain's `entry_count` and `overrides` (per setting, how many entries override it); `entries --domain` lists the entries and what each overrides.
+- `apply-defaults --domain <domain>` removes every setting the entries set themselves so they read the domain again: all entries on the domain, or those named with `--entry-id` (repeatable). `reset-overrides --user-id <id> --key <setting>` does it for chosen settings of one entry, and prints what it still overrides.
+- A value on an entry that equals the domain's stays inherited unless pinned: `vault create`/`vault update --pin <setting>` (repeatable, same keys) stores it as the entry's own value so a later change to the domain default does not reach it. A pinned setting with no value is ignored.
+- On an entry (set through `vault update --file`/`--stdin`), `max_concurrency: -1` or a zero interval (`"0 seconds"`) for the two expiry fields means the limit is turned off although the domain sets a value; `null` means inherit.
+
 ## Credential Setup for Workflows
 
 Pattern for creating vault credentials and wiring them into a workflow:
@@ -673,6 +693,7 @@ cloudcruise vault create \
 # 2. Wire the credential into the workflow's vault_schema and run_input_variables
 #    vault_schema maps an alias to a domain:
 #      { "USER": { "type": "credential", "domain": "app.example.com" } }
+#    domain is optional: { "USER": { "type": "credential" } } uses the passed user ID's only entry
 #    run_input_variables maps the alias to a permissioned_user_id:
 #      { "USER": "f47ac10b-58cc-4372-a567-0e02b2c3d479" }
 

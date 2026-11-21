@@ -104,9 +104,9 @@ export function editCredentialFields(opts: {
   vaultUserId?: string
   vaultDomain?: string
 }): { permissionedUserId?: string; authUrl?: string } {
-  if (Boolean(opts.vaultUserId) !== Boolean(opts.vaultDomain)) {
+  if (opts.vaultDomain && !opts.vaultUserId) {
     throw new UsageError(
-      "--vault-user-id and --vault-domain must be used together. Pass both to pre-configure login, or omit both to let the builder prompt for credentials."
+      "--vault-domain needs --vault-user-id. Pass --vault-user-id alone for an entry without a domain or a user ID with a single entry, or both to pick one of several entries."
     )
   }
   const fields: { permissionedUserId?: string; authUrl?: string } = {}
@@ -474,11 +474,11 @@ export function registerBuilderCommands(program: Command): void {
       .option("--description <text>", "Session description")
       .option(
         "--vault-user-id <id>",
-        "Vault entry's permissioned_user_id to log in with (requires --vault-domain; see `vault list`)"
+        "Vault entry's permissioned_user_id to log in with (see `vault list`). Without --vault-domain the user ID's only entry is used"
       )
       .option(
         "--vault-domain <domain>",
-        "Vault entry's domain (required with --vault-user-id; must match the domain from `vault list`)"
+        "Vault entry's domain, as `vault list` shows it. Needs --vault-user-id; optional while the user ID has a single entry or the entry has no domain"
       )
       .option("--credential <id>", "[Deprecated] Alias for --vault-user-id")
       .option("--auth-url <url>", "[Deprecated] Alias for --vault-domain")
@@ -525,9 +525,9 @@ export function registerBuilderCommands(program: Command): void {
 
         const vaultUserId = opts.vaultUserId ?? opts.credential
         const vaultDomain = opts.vaultDomain ?? opts.authUrl
-        if (Boolean(vaultUserId) !== Boolean(vaultDomain)) {
+        if (vaultDomain && !vaultUserId) {
           throw new UsageError(
-            "--vault-user-id and --vault-domain must be used together. Pass both to pre-configure login, or omit both to let the builder prompt for credentials."
+            "--vault-domain needs --vault-user-id. Pass --vault-user-id alone for an entry without a domain or a user ID with a single entry, or both to pick one of several entries."
           )
         }
 
@@ -585,11 +585,11 @@ export function registerBuilderCommands(program: Command): void {
       )
       .option(
         "--vault-user-id <id>",
-        "Vault entry's permissioned_user_id to log in with (requires --vault-domain; see `vault list`)"
+        "Vault entry's permissioned_user_id to log in with (see `vault list`). Without --vault-domain the user ID's only entry is used"
       )
       .option(
         "--vault-domain <domain>",
-        "Vault entry's domain (required with --vault-user-id; must match the domain from `vault list`)"
+        "Vault entry's domain, as `vault list` shows it. Needs --vault-user-id; optional while the user ID has a single entry or the entry has no domain"
       )
       .option(
         "--use-last-browser-state",

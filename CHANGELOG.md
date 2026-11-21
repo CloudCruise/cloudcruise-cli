@@ -9,6 +9,16 @@
 - `run list --credential <id>` filters by vault credential, taking a `permissioned_user_id` or the `credential_id` that `run paused` prints, so `run list --status execution.paused --credential <credential_id> --since 30d` lists the runs a paused credential holds.
 - `run unpause --workflow <id> --credential <credential_id>` (both repeatable) unpauses them so their held runs resume, and `run unpause --all` unpauses everything in the workspace. They call `POST /runs/unpause` and `POST /runs/unpause-all`.
 
+- `vault site-settings` manages domain settings, the defaults every vault entry on a domain inherits: `list` (`GET /vault/site-settings`), `update --domain <domain>` (`PATCH /vault/site-settings`), `entries --domain <domain>` (`GET /vault/site-settings/entries`), `apply-defaults --domain <domain>` (`PATCH /vault/site-settings/entries`), `overrides --user-id <id>` (`GET /vault/site-settings/overrides`) and `reset-overrides --user-id <id> --key <setting>` (`PATCH /vault/site-settings/overrides`). `update` takes one flag per setting and sends only those you pass; `--clear <setting>` (repeatable) sends an explicit `null` to remove a domain's default. `apply-defaults` takes `--entry-id` (repeatable) and resets every entry on the domain without it.
+
+- `vault create` and `vault update` take `--pin <setting>` (repeatable), sent as `pinned_settings`: the setting is stored on the entry as its own value even when it equals the domain's, so a later change to the domain default does not reach it. A value equal to the domain's otherwise stays inherited. Settings are the `vault site-settings` keys; a pinned setting without a value is ignored by the API.
+
+### Changed
+
+- `--domain` is optional on `vault get`, `vault create`, `vault update`, `vault tfa-code` and `vault clear-state`, and `--vault-user-id` on `builder start` and `builder edit` no longer needs `--vault-domain`. The field is not sent when the flag is absent: the API uses the user ID's only entry, or answers 409 listing the domains when the user ID has several, and the CLI adds a hint to pass `--domain`. `--vault-domain` without `--vault-user-id` is still a usage error.
+- A vault entry's `domain` is `null` when it has none; `vault get`, `vault list` and `--file` payloads carry it through as `null`. Workflow `vault_schema` entries may omit `domain`.
+- The `cloudcruise` and `cloudcruise-workflow-dsl` skills document optional domains, `vault site-settings`, and that on an entry `max_concurrency: -1` or a zero interval (`"0 seconds"`) for the two expiry fields turns the limit off although the domain sets a value, while `null` inherits.
+
 ### Fixed
 
 - `error-codes create` and `error-codes update` list the actions the API accepts: `alert`, `retry`, `pause_workflow` and `pause_credential`. The help and the `cloudcruise` skill listed `cancel` and `pause`, which the API rejects with a 400. The `--file`/`--stdin` help and the README name the `retries` and `retry_after` fields, and the help no longer says `retry` only labels the error; a retry requeues the run.
