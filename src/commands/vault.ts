@@ -5,7 +5,7 @@ import { encrypt, decrypt, validateHexKey } from "../core/crypto.js"
 import { outputJson } from "../core/output.js"
 import { fail, UsageError } from "../core/exit.js"
 import { withDomainHint } from "../core/vault-domain-hint.js"
-import { registerSiteSettingsCommands } from "./vault-site-settings.js"
+import { assertSettingKey, registerSiteSettingsCommands } from "./vault-site-settings.js"
 import { addAuthOptions, type AuthOptions } from "../core/auth-options.js"
 import { enforceNoArgSecrets } from "../core/secret-args.js"
 import {
@@ -174,6 +174,7 @@ type EntryFlags = {
   secretProviderId?: string
   secretRef?: string
   secretCacheTtlSeconds?: string
+  pin?: string[] | false
   proxyEnable?: boolean
   proxyIp?: string
   proxy?: string
@@ -264,6 +265,10 @@ export function buildPayloadFromFlags(
       throw new UsageError("--secret-cache-ttl-seconds must be a non-negative integer")
     }
     payload.secret_cache_ttl_seconds = ttl
+  }
+  if (opts.pin && opts.pin.length > 0) {
+    for (const key of opts.pin) assertSettingKey("--pin", key)
+    payload.pinned_settings = [...new Set(opts.pin)]
   }
   if (opts.proxy !== undefined) {
     if (!PROXY_SETTINGS.includes(opts.proxy as (typeof PROXY_SETTINGS)[number])) {
@@ -369,6 +374,7 @@ const FIELD_FLAGS = {
   secretProviderId: "--secret-provider-id",
   secretRef: "--secret-ref",
   secretCacheTtlSeconds: "--secret-cache-ttl-seconds",
+  pin: "--pin",
   proxyEnable: "--proxy-enable",
   proxyIp: "--proxy-ip",
   proxy: "--proxy",
@@ -416,6 +422,7 @@ function addEntryOptions(command: Command, domainHelp: string): Command {
     .option("--secret-provider-id <id>", "Secret-provider connection ID for provider-backed credentials")
     .option("--secret-ref <ref>", "Secret-provider item reference, for example op://vaultId/itemId")
     .option("--secret-cache-ttl-seconds <seconds>", "Override provider cache TTL for this credential")
+    .option("--pin <setting>", "Store this setting on the entry as its own value even when it equals its domain's, so a later change to the domain default does not reach it. Repeatable; a setting without a value is ignored", collect)
     .option("--proxy-enable", "Enable proxy for this entry")
     .option("--proxy-ip <ip>", "Target IP for proxy assignment")
     .option("--proxy <setting>", "Proxy setting: random, static, country, or custom")

@@ -630,3 +630,34 @@ test("vault site-settings reset-overrides needs at least one valid --key", async
     assert.equal(requests.length, 0)
   })
 })
+
+// pinned_settings is request-only and only meaningful when non-empty, so the field must be absent without --pin.
+test("vault create and update send pinned_settings from repeated --pin, once each, and nothing without --pin", async () => {
+  await withBackend({}, async ({ baseUrl, requests }) => {
+    const pins = ["--pin", "max_concurrency", "--pin", "persist_cookies", "--pin", "max_concurrency"]
+    const create = await runCli(["vault", "create", ...ENTRY, ...pins, "--base-url", baseUrl])
+    const update = await runCli(["vault", "update", ...ENTRY, "--pin", "login_workflow_id", "--base-url", baseUrl])
+    const plain = await runCli(["vault", "update", ...ENTRY, "--user-alias", "a", "--base-url", baseUrl])
+    assert.equal(create.code, 0, create.stderr)
+    assert.equal(update.code, 0, update.stderr)
+    assert.equal(plain.code, 0, plain.stderr)
+    assert.deepEqual((requests[0].body as Record<string, unknown>).pinned_settings, ["max_concurrency", "persist_cookies"])
+    assert.deepEqual((requests[1].body as Record<string, unknown>).pinned_settings, ["login_workflow_id"])
+    assert.equal("pinned_settings" in (requests[2].body as object), false)
+  })
+})
+
+test("vault create refuses a --pin that is not a site setting without calling the API", async () => {
+  await withBackend({}, async ({ baseUrl, requests }) => {
+    const result = await runCli(["vault", "create", ...ENTRY, "--pin", "pigeon", "--base-url", baseUrl])
+    assert.equal(result.code, 2)
+    assert.match(result.stderr, /pigeon/)
+    assert.equal(requests.length, 0)
+  })
+})
+
+test("assertFlagsOrPayload rejects --pin combined with --file", () => {
+  assert.throws(() => assertFlagsOrPayload({ file: "entry.json", pin: ["persist_cookies"] }), {
+    name: "UsageError", message: /\(got --pin\)/
+  })
+})

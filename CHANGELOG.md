@@ -11,6 +11,8 @@
 
 - `vault site-settings` manages domain settings, the defaults every vault entry on a domain inherits: `list` (`GET /vault/site-settings`), `update --domain <domain>` (`PATCH /vault/site-settings`), `entries --domain <domain>` (`GET /vault/site-settings/entries`), `apply-defaults --domain <domain>` (`PATCH /vault/site-settings/entries`), `overrides --user-id <id>` (`GET /vault/site-settings/overrides`) and `reset-overrides --user-id <id> --key <setting>` (`PATCH /vault/site-settings/overrides`). `update` takes one flag per setting and sends only those you pass; `--clear <setting>` (repeatable) sends an explicit `null` to remove a domain's default. `apply-defaults` takes `--entry-id` (repeatable) and resets every entry on the domain without it.
 
+- `vault create` and `vault update` take `--pin <setting>` (repeatable), sent as `pinned_settings`: the setting is stored on the entry as its own value even when it equals the domain's, so a later change to the domain default does not reach it. A value equal to the domain's otherwise stays inherited. Settings are the `vault site-settings` keys; a pinned setting without a value is ignored by the API.
+
 ### Changed
 
 - `--domain` is optional on `vault get`, `vault create`, `vault update`, `vault tfa-code` and `vault clear-state`, and `--vault-user-id` on `builder start` and `builder edit` no longer needs `--vault-domain`. The field is not sent when the flag is absent: the API uses the user ID's only entry, or answers 409 listing the domains when the user ID has several, and the CLI adds a hint to pass `--domain`. `--vault-domain` without `--vault-user-id` is still a usage error.

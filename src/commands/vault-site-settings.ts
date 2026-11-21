@@ -29,7 +29,7 @@ function parseBoolean(flag: string, value: string): boolean {
   throw new UsageError(`${flag} must be true or false (got "${value}")`)
 }
 
-function assertSettingKey(flag: string, key: string): asserts key is SiteSettingKey {
+export function assertSettingKey(flag: string, key: string): asserts key is SiteSettingKey {
   if (!SITE_SETTING_KEYS.includes(key as SiteSettingKey)) {
     throw new UsageError(
       `Invalid ${flag} value "${key}". Must be one of: ${SITE_SETTING_KEYS.join(", ")}.`

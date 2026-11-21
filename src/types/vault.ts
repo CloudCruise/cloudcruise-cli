@@ -75,6 +75,24 @@ export interface VaultEntry {
   security_question_warnings?: { question: string; reason: string }[]
 }
 
+/** The settings a domain sets for every vault entry on it; the keys an entry can override. */
+export const SITE_SETTING_KEYS = [
+  "max_concurrency",
+  "allow_multiple_sessions",
+  "prevent_concurrency_during_login",
+  "expiry_time_from_last_use",
+  "expiry_time_from_session_data_set",
+  "persist_cookies",
+  "persist_local_storage",
+  "persist_session_storage",
+  "skip_csrf_cookies",
+  "cookie_domain_to_store",
+  "login_workflow_id",
+] as const
+
+
+export type SiteSettingKey = (typeof SITE_SETTING_KEYS)[number]
+
 export interface VaultEntryPayload {
   id?: string
   permissioned_user_id: string
@@ -109,6 +127,8 @@ export interface VaultEntryPayload {
   }
   proxy_setting?: "random" | "static" | "country" | "custom"
   proxy_value?: string
+  /** Request only: settings stored on the entry as its own value even when equal to the domain's. */
+  pinned_settings?: SiteSettingKey[]
 }
 
 export interface VaultCookie {
@@ -124,23 +144,6 @@ export interface VaultCookie {
   storeId: string
   sameSite: string
 }
-
-/** The settings a domain sets for every vault entry on it; the keys an entry can override. */
-export const SITE_SETTING_KEYS = [
-  "max_concurrency",
-  "allow_multiple_sessions",
-  "prevent_concurrency_during_login",
-  "expiry_time_from_last_use",
-  "expiry_time_from_session_data_set",
-  "persist_cookies",
-  "persist_local_storage",
-  "persist_session_storage",
-  "skip_csrf_cookies",
-  "cookie_domain_to_store",
-  "login_workflow_id",
-] as const
-
-export type SiteSettingKey = (typeof SITE_SETTING_KEYS)[number]
 
 /** A null value means the domain sets nothing and the platform default applies. */
 export interface SiteSettingsValues {
