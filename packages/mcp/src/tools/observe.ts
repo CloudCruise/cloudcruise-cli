@@ -14,7 +14,9 @@ import {
   type Wait
 } from "./common.js"
 import {
+  END,
   GONE,
+  STOP,
   formatTurnCursor,
   isGone,
   parseTurnCursor,
@@ -70,7 +72,7 @@ export function registerObserve(server: McpServer, tool: ToolContext, timing: Ob
     {
       title: "Follow a run or builder turn",
       description:
-        "Follow a run started with run, or a builder turn started with build. Without after, returns the current state at once. With after (pass the after value from the last result), waits until something changes, then returns what changed. If nothing changes before the wait ends, or the call is cut off, call observe again with the same handle and after.",
+        `Follow a run started with run, or a builder turn started with build. Without after, returns the current state at once. With after (pass the after value from the last result), waits until something changes, then returns what changed. If nothing changes before the wait ends, or the call is cut off, call observe again with the same handle and after. A run's result carries its run_id; a builder turn's carries the conversation_id, and the workflow_id once the builder has saved the workflow. ${STOP} ${END}`,
       inputSchema: z.object({
         handle: z.string().describe("The handle run or build returned"),
         after: z.string().optional().describe("The after value from the last result"),
@@ -108,6 +110,7 @@ async function observeRun(api: StrataClient, ref: Handle, after: string | undefi
   if (cursor && cursor.retries > retries(run)) cursor = undefined
   const done = !!run.finalized_at
   const out: Record<string, unknown> = {
+    run_id: ref.id,
     status: run.status,
     statusMessage: statusMessage(run, cursor),
     attempt: retries(run) + 1,
@@ -133,17 +136,24 @@ async function observeTurn(api: StrataClient, ref: Handle, after: string | undef
   try {
     state = await readTurn(api, ref.id, cursor, wait)
   } catch (err) {
-    if (isGone(err)) return structured(gone(successorOf(err)))
+    if (isGone(err)) return structured({ conversation_id: ref.id, ...gone(successorOf(err)) })
     return apiFailure(err)
   }
   const now = turnCursor(state)
   const out: Record<string, unknown> = {
+    conversation_id: ref.id,
     status: state.phase,
     statusMessage: turnMessage(now, cursor),
     done: state.phase !== "processing",
     after: formatTurnCursor(now)
   }
+  // Left out when the API doesn't send it: before the builder saves, or from an API that predates the field.
+  if (typeof state.workflowId === "string" && state.workflowId) out.workflow_id = state.workflowId
   if (after !== undefined && !cursor) out.history_reset = true
+  if (state.interrupted) {
+    out.interrupted = true
+    out.statusMessage = `${out.statusMessage} Its last turn was interrupted.`
+  }
   if (state.phase === "completed" && state.report) out.report = state.report
   const fields = state.phase === "awaiting-human-input" ? (state.humanInput?.fields ?? []) : []
   if (state.phase === "awaiting-human-input" && state.humanInput) {
@@ -153,15 +163,21 @@ async function observeTurn(api: StrataClient, ref: Handle, after: string | undef
       fields: fields.map((f) => (f.type === "secret" ? { ...f, enter_in_dashboard: true } : f))
     }
   }
-  out.next = NEXT[state.phase] ?? NEXT.idle
+  let next = NEXT[state.phase] ?? NEXT.idle
   if (fields.some((f) => f.type === "secret")) {
-    out.next = `${out.next} Ask the user to enter each field marked enter_in_dashboard in the CloudCruise dashboard; don't send it yourself.`
+    next = `${next} Ask the user to enter each field marked enter_in_dashboard in the CloudCruise dashboard; don't send it yourself.`
   }
+  out.next = state.phase === "processing" || state.phase === "ended" ? next : `${next} ${ENDING}`
   return structured(out)
 }
 
+const ENDING =
+  "Or, when you're done, end the conversation: use call with operation builder.end and arguments { conversationId: this conversation_id }."
+
+// A phase this server doesn't know gets idle's hint, which holds for any stopped turn.
 const NEXT: Record<Phase, string> = {
-  processing: "Call observe again with the same handle and this after value.",
+  processing:
+    "Call observe again with the same handle and this after value. To stop the turn, use call with operation builder.interrupt and arguments { conversationId: this conversation_id }.",
   "awaiting-human-input": "Answer with build (conversation_id and responses, or a message), then observe again.",
   completed: "Send the next message with build.",
   "agent-errored": "Send the next message with build.",

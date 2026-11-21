@@ -46,6 +46,7 @@ const CONVERSATIONS_BASE = "/workflow-builder/conversations"
 export interface AwaitTurnState {
   conversationId?: string
   phase: string
+  interrupted?: boolean
   report?: string
   humanInput?: unknown
 }
@@ -89,7 +90,9 @@ export function classifyTurnState(state: AwaitTurnState): AwaitTurnOutcome | nul
         kind: "fail",
         exitCode: ExitCode.FAILURE,
         json: state,
-        message: `await-turn: conversation ${state.phase} before a turn completed`
+        message: state.interrupted
+          ? "await-turn: the turn was interrupted before it completed"
+          : `await-turn: conversation ${state.phase} before a turn completed`
       }
     default:
       // `processing` or an unrecognized future phase: keep polling.
@@ -1178,7 +1181,8 @@ code — the whole contract is the exit code, so a driver never parses stdout:
   7   awaiting-human-input  stdout = { phase, humanInput } (feed 'builder respond')
   8   agent-errored      stdout = the turn-state JSON
   9   timed out still processing (raise --timeout-seconds or re-run)
-  1   idle / ended before a turn completed, or completed with no report
+  1   idle / ended before a turn completed (including an interrupted turn),
+      or completed with no report
   2   bad --poll-seconds / --timeout-seconds
 Other codes are the underlying API error (3 auth, 4 not-found, …), passed through.
 `).action(awaitTurnAction)

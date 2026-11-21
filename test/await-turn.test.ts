@@ -61,6 +61,17 @@ test("idle does not masquerade as completed (exit 1)", () => {
   assert.match(o?.kind === "fail" ? o.message : "", /idle/)
 })
 
+// An interrupted turn reads as idle with interrupted: true. It is still not a
+// completed turn, so the exit stays 1, but the message says why the turn
+// stopped instead of the vaguer "idle before a turn completed".
+test("an interrupted turn exits 1 and says it was interrupted", () => {
+  const state = { phase: "idle", interrupted: true, conversationId: "c1" }
+  const o = classifyTurnState(state)
+  assert.equal(o?.exitCode, ExitCode.FAILURE)
+  assert.match(o?.kind === "fail" ? o.message : "", /interrupted/)
+  assert.deepEqual(o?.kind === "fail" ? o.json : null, state)
+})
+
 test("ended does not masquerade as completed (exit 1)", () => {
   const o = classifyTurnState({ phase: "ended", conversationId: "c1" })
   assert.equal(o?.exitCode, ExitCode.FAILURE)
