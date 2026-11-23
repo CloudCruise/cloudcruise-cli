@@ -9,6 +9,14 @@
 - `run list --credential <id>` filters by vault credential, taking a `permissioned_user_id` or the `credential_id` that `run paused` prints, so `run list --status execution.paused --credential <credential_id> --since 30d` lists the runs a paused credential holds.
 - `run unpause --workflow <id> --credential <credential_id>` (both repeatable) unpauses them so their held runs resume, and `run unpause --all` unpauses everything in the workspace. They call `POST /runs/unpause` and `POST /runs/unpause-all`.
 
+- `vault site-settings` manages domain settings, the defaults every vault entry on a domain inherits: `list` (`GET /vault/site-settings`), `update --domain <domain>` (`PATCH /vault/site-settings`), `entries --domain <domain>` (`GET /vault/site-settings/entries`), `apply-defaults --domain <domain>` (`PATCH /vault/site-settings/entries`), `overrides --user-id <id>` (`GET /vault/site-settings/overrides`) and `reset-overrides --user-id <id> --key <setting>` (`PATCH /vault/site-settings/overrides`). `update` takes one flag per setting and sends only those you pass; `--clear <setting>` (repeatable) sends an explicit `null` to remove a domain's default. `apply-defaults` takes `--entry-id` (repeatable) and resets every entry on the domain without it.
+
+- `vault create` and `vault update` take `--pin <setting>` (repeatable) together with `--file` or `--stdin`, merged into the payload as `pinned_settings` next to the setting's value (a pin for a setting the payload gives no value for is a usage error): the setting is stored on the entry as its own value even when it equals the domain's, so a later change to the domain default does not reach it. A value equal to the domain's otherwise stays inherited. Settings are the `vault site-settings` keys;
+
+### Changed
+
+- The `cloudcruise` skill documents `vault site-settings` and that on an entry `max_concurrency: -1` or a zero interval (`"0 seconds"`) for the two expiry fields turns the limit off although the domain sets a value, while `null` inherits.
+
 ### Fixed
 
 - MCP `call` errors carry the API's error code next to the status, e.g. `workflows.list failed (404 NOT_FOUND): Workspace … not found or you don't have access`, and `CallError` exposes it as `code`.

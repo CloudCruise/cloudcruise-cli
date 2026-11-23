@@ -88,6 +88,7 @@ async function withBackend<T>(
 }
 
 const ENTRY = ["--user-id", "u1", "--domain", "https://bank.example.com"]
+const ENTRY_BODY = { permissioned_user_id: "u1", domain: "https://bank.example.com" }
 
 // An entry can use several TFA methods; the API takes them as the tfa_methods list.
 test("vault create with --tfa-method repeated sends every method as tfa_methods", async () => {
@@ -399,6 +400,197 @@ test("vault tfa-code refuses an unknown --method without calling the API", async
     const result = await runCli(["vault", "tfa-code", ...ENTRY, "--method", "Email", "--base-url", baseUrl])
     assert.equal(result.code, 2)
     assert.match(result.stderr, /Invalid --method value \\"Email\\"/)
+    assert.equal(requests.length, 0)
+  })
+})
+
+const USER = ["--user-id", "u1"]
+
+function query(url: string | undefined): Record<string, string> {
+  return Object.fromEntries(new URL(url ?? "", "http://x").searchParams)
+}
+
+const DOMAIN = ["--domain", "app.example.com"]
+const ENTRY_UUID = "3f1c0d7e-4a5b-4c6d-8e9f-0a1b2c3d4e5f"
+const WORKFLOW_UUID = "9a2b4c6d-1e3f-4a5b-8c7d-6e5f4a3b2c1d"
+
+test("vault site-settings list calls GET /vault/site-settings and prints the response", async () => {
+  const response = [{ id: ENTRY_UUID, domain: "app.example.com", settings: { max_concurrency: 2 }, entry_count: 3, overrides: { max_concurrency: 1 } }]
+  await withBackend(response, async ({ baseUrl, requests }) => {
+    const result = await runCli(["vault", "site-settings", "list", "--base-url", baseUrl])
+    assert.equal(result.code, 0, result.stderr)
+    assert.equal(requests[0].method, "GET")
+    assert.equal(requests[0].url, "/vault/site-settings")
+    assert.deepEqual(JSON.parse(result.stdout), response)
+  })
+})
+
+// PATCH changes only the keys in the body, so unset flags must be absent and --clear must send an explicit null.
+test("vault site-settings update sends typed values for given flags and null for --clear, nothing for the rest", async () => {
+  await withBackend({}, async ({ baseUrl, requests }) => {
+    const result = await runCli([
+      "vault", "site-settings", "update", ...DOMAIN,
+      "--max-concurrency", "2", "--persist-cookies", "false", "--allow-multiple-sessions", "true",
+      "--expiry-time-from-last-use", "7 days", "--login-workflow-id", WORKFLOW_UUID,
+      "--clear", "cookie_domain_to_store", "--clear", "skip_csrf_cookies",
+      "--base-url", baseUrl
+    ])
+    assert.equal(result.code, 0, result.stderr)
+    assert.equal(requests[0].method, "PATCH")
+    assert.equal(requests[0].url, "/vault/site-settings")
+    assert.deepEqual(requests[0].body, {
+      domain: "app.example.com",
+      max_concurrency: 2,
+      persist_cookies: false,
+      allow_multiple_sessions: true,
+      expiry_time_from_last_use: "7 days",
+      login_workflow_id: WORKFLOW_UUID,
+      cookie_domain_to_store: null,
+      skip_csrf_cookies: null
+    })
+  })
+})
+
+test("vault site-settings update rejects invalid values and empty updates before calling the API", async () => {
+  await withBackend({}, async ({ baseUrl, requests }) => {
+    const run = (...args: string[]) =>
+      runCli(["vault", "site-settings", "update", ...DOMAIN, ...args, "--base-url", baseUrl])
+    assert.equal((await run()).code, 2)
+    assert.equal((await run("--max-concurrency", "0")).code, 2)
+    assert.equal((await run("--max-concurrency", "-1")).code, 2)
+    assert.equal((await run("--persist-cookies", "yes")).code, 2)
+    assert.equal((await run("--login-workflow-id", "not-a-uuid")).code, 2)
+    assert.equal((await run("--clear", "pigeon")).code, 2)
+    assert.equal((await run("--max-concurrency", "2", "--clear", "max_concurrency")).code, 2)
+    assert.equal(requests.length, 0)
+  })
+})
+
+test("vault site-settings entries sends the domain as a query parameter", async () => {
+  await withBackend([{ id: ENTRY_UUID, permissioned_user_id: "u1", overridden: ["max_concurrency"] }], async ({ baseUrl, requests }) => {
+    const result = await runCli(["vault", "site-settings", "entries", ...DOMAIN, "--base-url", baseUrl])
+    assert.equal(result.code, 0, result.stderr)
+    assert.equal(requests[0].method, "GET")
+    assert.equal(new URL(requests[0].url ?? "", "http://x").pathname, "/vault/site-settings/entries")
+    assert.deepEqual(query(requests[0].url), { domain: "app.example.com" })
+    assert.deepEqual(JSON.parse(result.stdout)[0].overridden, ["max_concurrency"])
+  })
+})
+
+// Without entry_ids the API resets every entry on the domain, so the field must be omitted rather than sent empty.
+test("vault site-settings apply-defaults omits entry_ids for the whole domain and sends them when --entry-id is repeated", async () => {
+  await withBackend({}, async ({ baseUrl, requests }) => {
+    const all = await runCli(["vault", "site-settings", "apply-defaults", ...DOMAIN, "--base-url", baseUrl])
+    const some = await runCli([
+      "vault", "site-settings", "apply-defaults", ...DOMAIN, "--entry-id", ENTRY_UUID, "--entry-id", WORKFLOW_UUID, "--base-url", baseUrl
+    ])
+    assert.equal(all.code, 0, all.stderr)
+    assert.equal(some.code, 0, some.stderr)
+    assert.equal(requests[0].method, "PATCH")
+    assert.equal(requests[0].url, "/vault/site-settings/entries")
+    assert.deepEqual(requests[0].body, { domain: "app.example.com" })
+    assert.deepEqual(requests[1].body, { domain: "app.example.com", entry_ids: [ENTRY_UUID, WORKFLOW_UUID] })
+  })
+})
+
+test("vault site-settings apply-defaults rejects an --entry-id that is not a UUID", async () => {
+  await withBackend({}, async ({ baseUrl, requests }) => {
+    const result = await runCli(["vault", "site-settings", "apply-defaults", ...DOMAIN, "--entry-id", "nope", "--base-url", baseUrl])
+    assert.equal(result.code, 2)
+    assert.equal(requests.length, 0)
+  })
+})
+
+test("vault site-settings overrides queries by user ID and domain", async () => {
+  await withBackend({ id: ENTRY_UUID, domain: "app.example.com", overridden: [] }, async ({ baseUrl, requests }) => {
+    const result = await runCli(["vault", "site-settings", "overrides", ...USER, ...DOMAIN, "--base-url", baseUrl])
+    assert.equal(result.code, 0, result.stderr)
+    assert.equal(new URL(requests[0].url ?? "", "http://x").pathname, "/vault/site-settings/overrides")
+    assert.deepEqual(query(requests[0].url), { permissioned_user_id: "u1", domain: "app.example.com" })
+  })
+})
+
+test("vault site-settings overrides and reset-overrides require --domain", async () => {
+  await withBackend({}, async ({ baseUrl, requests }) => {
+    const overrides = await runCli(["vault", "site-settings", "overrides", ...USER, "--base-url", baseUrl])
+    const reset = await runCli(["vault", "site-settings", "reset-overrides", ...USER, "--key", "max_concurrency", "--base-url", baseUrl])
+    assert.notEqual(overrides.code, 0)
+    assert.notEqual(reset.code, 0)
+    assert.match(overrides.stderr, /--domain/)
+    assert.match(reset.stderr, /--domain/)
+    assert.equal(requests.length, 0)
+  })
+})
+
+test("vault site-settings reset-overrides sends the user ID, domain and every --key", async () => {
+  await withBackend({ id: ENTRY_UUID, domain: "app.example.com", overridden: [] }, async ({ baseUrl, requests }) => {
+    const result = await runCli([
+      "vault", "site-settings", "reset-overrides", ...USER, ...DOMAIN,
+      "--key", "max_concurrency", "--key", "persist_cookies", "--base-url", baseUrl
+    ])
+    assert.equal(result.code, 0, result.stderr)
+    assert.equal(requests[0].method, "PATCH")
+    assert.equal(requests[0].url, "/vault/site-settings/overrides")
+    assert.deepEqual(requests[0].body, {
+      permissioned_user_id: "u1", domain: "app.example.com", keys: ["max_concurrency", "persist_cookies"]
+    })
+  })
+})
+
+test("vault site-settings reset-overrides needs at least one valid --key", async () => {
+  await withBackend({}, async ({ baseUrl, requests }) => {
+    const none = await runCli(["vault", "site-settings", "reset-overrides", ...USER, ...DOMAIN, "--base-url", baseUrl])
+    const bad = await runCli(["vault", "site-settings", "reset-overrides", ...USER, ...DOMAIN, "--key", "pigeon", "--base-url", baseUrl])
+    assert.equal(none.code, 2)
+    assert.equal(bad.code, 2)
+    assert.equal(requests.length, 0)
+  })
+})
+
+// A pin only takes effect together with the entry's value in the same request, and only --file/--stdin carry
+// setting values, so the pin is merged into that payload.
+test("vault create --file and update --stdin merge deduplicated pinned_settings next to the values", async () => {
+  await withBackend({}, async ({ baseUrl, requests }) => {
+    const dir = mkdtempSync(join(tmpdir(), "vault-pin-"))
+    const file = join(dir, "entry.json")
+    writeFileSync(file, JSON.stringify({ ...ENTRY_BODY, max_concurrency: 2, persist_cookies: true }))
+    const create = await runCli(["vault", "create", "--file", file, "--pin", "max_concurrency", "--pin", "persist_cookies", "--pin", "max_concurrency", "--base-url", baseUrl])
+    const update = await runCli(["vault", "update", "--stdin", "--pin", "persist_cookies", "--base-url", baseUrl], JSON.stringify({ ...ENTRY_BODY, persist_cookies: false }))
+    assert.equal(create.code, 0, create.stderr)
+    assert.equal(update.code, 0, update.stderr)
+    assert.deepEqual(requests[0].body, { ...ENTRY_BODY, max_concurrency: 2, persist_cookies: true, pinned_settings: ["max_concurrency", "persist_cookies"] })
+    assert.deepEqual(requests[1].body, { ...ENTRY_BODY, persist_cookies: false, pinned_settings: ["persist_cookies"] })
+  })
+})
+
+test("vault update --stdin without --pin sends no pinned_settings", async () => {
+  await withBackend({}, async ({ baseUrl, requests }) => {
+    const result = await runCli(["vault", "update", "--stdin", "--base-url", baseUrl], JSON.stringify(ENTRY_BODY))
+    assert.equal(result.code, 0, result.stderr)
+    assert.equal("pinned_settings" in (requests[0].body as object), false)
+  })
+})
+
+// Pinning a setting the payload gives no value for would be silently ignored by the API, so it is refused up front.
+test("vault --pin is a usage error for an unknown setting, a setting without a value, and without --file/--stdin", async () => {
+  await withBackend({}, async ({ baseUrl, requests }) => {
+    const body = JSON.stringify({ ...ENTRY_BODY, max_concurrency: 2 })
+    const unknown = await runCli(["vault", "create", "--stdin", "--pin", "pigeon", "--base-url", baseUrl], body)
+    const noValue = await runCli(["vault", "create", "--stdin", "--pin", "persist_cookies", "--base-url", baseUrl], body)
+    const flagsOnly = await runCli(["vault", "create", ...ENTRY, "--pin", "max_concurrency", "--base-url", baseUrl])
+    assert.equal(unknown.code, 2)
+    assert.equal(noValue.code, 2)
+    assert.match(noValue.stderr, /persist_cookies/)
+    assert.equal(flagsOnly.code, 2)
+    assert.equal(requests.length, 0)
+  })
+})
+
+test("vault create refuses a --pin that is not a site setting without calling the API", async () => {
+  await withBackend({}, async ({ baseUrl, requests }) => {
+    const result = await runCli(["vault", "create", ...ENTRY, "--pin", "pigeon", "--base-url", baseUrl])
+    assert.equal(result.code, 2)
+    assert.match(result.stderr, /pigeon/)
     assert.equal(requests.length, 0)
   })
 })

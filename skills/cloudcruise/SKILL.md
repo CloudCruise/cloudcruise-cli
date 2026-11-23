@@ -324,6 +324,17 @@ cloudcruise vault tfa-code --user-id <id> --domain <domain> \
 cloudcruise vault tfa-code --user-id <id> --domain <domain> \
   --field "Backup OTP"                                              # Code of a Totp additional field
 cloudcruise vault clear-state --user-id <id> --domain <domain>       # Clear browser state (force fresh login)
+cloudcruise vault site-settings list                                # Domain settings: defaults every entry on a domain inherits
+cloudcruise vault site-settings update --domain <domain> \
+  --max-concurrency 2 --persist-cookies true                        # Set domain defaults (only the flags you pass change)
+cloudcruise vault site-settings update --domain <domain> \
+  --clear max_concurrency                                           # Remove a domain default (sends null)
+cloudcruise vault site-settings entries --domain <domain>           # Entries on the domain and the settings each overrides
+cloudcruise vault site-settings apply-defaults --domain <domain>    # Entries read every setting from the domain (--entry-id <uuid> to limit)
+cloudcruise vault site-settings overrides --user-id <id> \
+  --domain <domain>                                                 # Settings one entry sets itself
+cloudcruise vault site-settings reset-overrides --user-id <id> \
+  --domain <domain> --key max_concurrency --key persist_cookies                       # Entry reads those settings from the domain again
 cloudcruise vault encrypt "plaintext"                               # Encrypt a value (no API call)
 cloudcruise vault decrypt "ciphertext"                              # Decrypt a value (no API call)
 echo "secret" | cloudcruise vault encrypt --stdin                   # Encrypt from stdin
@@ -657,6 +668,15 @@ Raw `--encryption-key <hex>` and `--api-key <key>` flags are **rejected by defau
 - `vault get` shows fields as `{name, type}` and questions as their ciphertext, without answers. `--decrypt` shows values, questions and answers.
 
 **2FA codes.** `vault tfa-code` prints the entry's current code: `{type, code, expires_in_seconds}` for `AUTHENTICATOR`, `{type, code, received_at}` for the latest `EMAIL` code (404 if none arrived recently). An entry with several methods needs `--method` (400 otherwise). `--field <name>` generates the code of a `Totp` additional field. `SMS` and `MAGIC_LINK` codes cannot be read (409).
+
+**Domain settings.** Session persistence, concurrency, expiry and the login workflow can be set once per domain with `vault site-settings`; every entry on the domain inherits them. An entry stores a value only for a setting it sets itself, and its own value wins over the domain's.
+
+- Settings: `max_concurrency`, `allow_multiple_sessions`, `prevent_concurrency_during_login`, `expiry_time_from_last_use`, `expiry_time_from_session_data_set`, `persist_cookies`, `persist_local_storage`, `persist_session_storage`, `skip_csrf_cookies`, `cookie_domain_to_store`, `login_workflow_id`. A `null` domain setting means the platform default applies.
+- `site-settings update --domain <domain>` creates the domain's settings when it has none and changes only the flags you pass (booleans take `true` or `false`; intervals look like `"7 days"`). `--clear <setting>` removes a default by sending `null`. Entries that set their own value keep it.
+- `site-settings list` shows each domain's `entry_count` and `overrides` (per setting, how many entries override it); `entries --domain` lists the entries and what each overrides.
+- `apply-defaults --domain <domain>` removes every setting the entries set themselves so they read the domain again: all entries on the domain, or those named with `--entry-id` (repeatable). `reset-overrides --user-id <id> --key <setting>` does it for chosen settings of one entry, and prints what it still overrides.
+- A value on an entry that equals the domain's stays inherited unless pinned: `vault create`/`vault update --pin <setting>` (repeatable, same keys; only with `--file`/`--stdin`, whose payload must carry that setting's value, otherwise a usage error) stores it as the entry's own value so a later change to the domain default does not reach it.
+- On an entry (set through `vault update --file`/`--stdin`), `max_concurrency: -1` or a zero interval (`"0 seconds"`) for the two expiry fields means the limit is turned off although the domain sets a value; `null` means inherit.
 
 ## Credential Setup for Workflows
 

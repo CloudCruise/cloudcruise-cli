@@ -171,14 +171,20 @@ cloudcruise snapshot test '//input[@name="email"]' --file ./snapshots/page.html
 | `snapshot test <xpath> [sid] [nid]` | Test XPath against snapshot (`--file`, `--count`) |
 | `vault list` | List vault entries (`--full`) |
 | `vault get` | Get vault entry (`--user-id`, `--domain`, `--decrypt`); additional fields as name and type unless `--decrypt` |
-| `vault create` | Create vault entry (`--user-id`, `--domain`, `--user-name`, `--password`, `--tfa-method` (repeatable), `--additional-fields-file`, `--security-questions-file`, `--secret-provider-id`, `--secret-ref`) |
-| `vault update` | Update vault entry fields, including provider-backed bindings; `--no-tfa-method` removes every TFA method |
+| `vault create` | Create vault entry (`--user-id`, `--domain`, `--user-name`, `--password`, `--tfa-method` (repeatable), `--additional-fields-file`, `--security-questions-file`, `--secret-provider-id`, `--secret-ref`, `--pin` (repeatable, with `--file`/`--stdin`)) |
+| `vault update` | Update vault entry fields, including provider-backed bindings; `--pin <setting>` (repeatable, with `--file`/`--stdin` whose payload carries the value) stores a setting as the entry's own value even when it equals its domain's; `--no-tfa-method` removes every TFA method |
 | `vault tfa-code` | Current 2FA code of an entry (`--user-id`, `--domain`, `--method`, `--field`) |
-| `vault clear-state` | Clear browser state for a credential |
+| `vault clear-state` | Clear browser state for a credential (`--user-id`, `--domain`) |
+| `vault site-settings list` | List domain settings: the defaults every vault entry on a domain inherits, with `entry_count` and per-setting override counts |
+| `vault site-settings update` | Set a domain's defaults (`--domain`, `--max-concurrency`, `--allow-multiple-sessions`, `--prevent-concurrency-during-login`, `--expiry-time-from-last-use`, `--expiry-time-from-session-data-set`, `--persist-cookies`, `--persist-local-storage`, `--persist-session-storage`, `--skip-csrf-cookies`, `--cookie-domain-to-store`, `--login-workflow-id`); `--clear <setting>` (repeatable) removes a default by sending `null` |
+| `vault site-settings entries` | List the entries on a domain and the settings each sets itself (`--domain`) |
+| `vault site-settings apply-defaults` | Make entries read every setting from the domain (`--domain`, `--entry-id` repeatable; every entry on the domain without it) |
+| `vault site-settings overrides` | Show the settings an entry sets itself (`--user-id`, `--domain`) |
+| `vault site-settings reset-overrides` | Make an entry read the listed settings from its domain again (`--user-id`, `--domain`, `--key` repeatable) |
 | `vault encrypt` / `decrypt` | Encrypt or decrypt values locally |
 | `secret-providers list` | List secret-provider connections |
 | `secret-providers items <provider-id>` | List items visible to a secret-provider connection |
-| `builder start` | Start builder conversation (`--start-url`, `--name`, `--vault-user-id`) |
+| `builder start` | Start builder conversation (`--start-url`, `--name`, `--vault-user-id`, `--vault-domain`) |
 | `builder send <message>` | Send instruction to builder agent |
 | `builder respond` | Reply to agent input requests (`--message-id`, `--value-stdin`) |
 | `builder status` | Check conversation status (`/status` taxonomy + keepalive; exit code encodes the state — 0/7/8/9) |
