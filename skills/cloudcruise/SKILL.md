@@ -362,7 +362,7 @@ cloudcruise builder start --start-url "https://app.example.com" --open-builder \
 
 # ── Interact with the builder agent ──
 cloudcruise builder send "Click the login button"              # Returns immediately
-cloudcruise builder status                                     # Check status (hits /status; also the keepalive)
+cloudcruise builder status                                     # Check status (hits /status)
 # status returns: { status: "processing"|"awaiting-human-input"|"agent-errored"|"completed"|"idle"|"ended", terminal, isProcessing, workflowId?, ... }
 # and its exit code encodes that status so a driver can switch on $?:
 #   0 proceed (completed/idle/ended) · 7 answer (awaiting-human-input) · 8 intervene (agent-errored) · 9 tick+re-arm (processing)
@@ -407,7 +407,7 @@ cloudcruise builder end         # End the conversation and clean up
 
 - `builder send` returns immediately — use `builder status` to check for completion
 - Break complex tasks into small steps (e.g. "log in", then "navigate to X", then "search for Y")
-- Poll `builder status` in a loop — if it returns `processing`, wait a few seconds and call it again. `status` also keeps the session alive (it hits `/status`), so keep polling rather than letting an idle session get reaped.
+- Poll `builder status` in a loop — if it returns `processing`, wait a few seconds and call it again. Polling does not keep a session alive: sessions end after inactivity, and only `send`, `respond`, `interrupt`, `save` or a running turn count as activity.
 - **`awaiting-human-input` is how the builder asks for information it needs** (e.g. email, password, 2FA code). When you see it, relay the question to the user, then pass their answer back with `builder respond`. The agent may request multiple inputs at once — check `humanInput.fields` for the full list and pipe a JSON object keyed by field name to `--responses-stdin`. Never pre-emptively browse the site or ask the user for form values — let the builder discover what it needs.
 - For a human-input field with `type: "error"`, respond with a structured JSON object, never a primitive such as `"accepted"`. To accept the proposed code, send `{"kind":"accept_suggestion"}`. To choose another workspace code, send `{"kind":"existing","error_code_id":"<id>"}`. To confirm removal, send `{"kind":"remove_confirmed"}`. Use `--value-stdin` for a single field or place the object under the field's name with `--responses-stdin` for multiple fields.
 - Treat `terminal: true` as "this turn has settled; stop polling," then branch on `status`: respond to `awaiting-human-input`, proceed after `completed`, intervene after `agent-errored`, or stop after `ended`. Only fall back to direct DSL editing after `completed`, `agent-errored`, or `ended` — not while input is pending.

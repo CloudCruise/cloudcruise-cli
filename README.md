@@ -181,7 +181,7 @@ cloudcruise snapshot test '//input[@name="email"]' --file ./snapshots/page.html
 | `builder start` | Start builder conversation (`--start-url`, `--name`, `--vault-user-id`) |
 | `builder send <message>` | Send instruction to builder agent |
 | `builder respond` | Reply to agent input requests (`--message-id`, `--value-stdin`) |
-| `builder status` | Check conversation status (`/status` taxonomy + keepalive; exit code encodes the state — 0/7/8/9) |
+| `builder status` | Check conversation status (`/status` taxonomy; exit code encodes the state — 0/7/8/9) |
 | `builder conversations list` | List live builder conversations for the workspace |
 | `builder conversations get [id]` | Get an archived conversation transcript, live or ended (`--limit` tails, `0` for metadata only; `--snapshot`, `--include-system`, `--output`) |
 | `builder workflow` | Get current workflow definition |
