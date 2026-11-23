@@ -479,6 +479,7 @@ async function writeEntry(
       )
     }
     if (opts.pin && opts.pin.length > 0) {
+      for (const key of opts.pin) assertSettingKey("--pin", key)
       throw new UsageError(
         "--pin needs the entry's value for the setting in the same request: pass the payload with --file or --stdin"
       )

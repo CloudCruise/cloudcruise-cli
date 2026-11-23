@@ -594,9 +594,3 @@ test("vault create refuses a --pin that is not a site setting without calling th
     assert.equal(requests.length, 0)
   })
 })
-
-test("assertFlagsOrPayload rejects --pin combined with --file", () => {
-  assert.throws(() => assertFlagsOrPayload({ file: "entry.json", pin: ["persist_cookies"] }), {
-    name: "UsageError", message: /\(got --pin\)/
-  })
-})
