@@ -30,7 +30,7 @@ A workflow is a directed graph of nodes (actions) connected by edges. The browse
 
 `id`, `version_id`, `version`, `major`, `minor`, `patch`, `bump_type`, `default_branch_id`, `parent_version_id`, `merge_parent_version_id`, `generation`, `created_at`, `created_by`, `updated_at`, `workspace_id`, `workflow_id`, `conversation_id`
 
-Leave them in the body you read; a save ignores them. `version` is the semver string (`"2.1.0"`); workflows have no `version_number`. `branch_id` is the branch the body was read from and the save goes to. To have a save rejected when someone else saved in between, send the `version_id` you read as `base_version_id`. `id`, `workflow_id` and `workspace_id` must match the target workflow.
+Leave them in the body you read; a save ignores them. `version` is the semver string (`"2.1.0"`). `branch_id` is the branch the body was read from and the save goes to. To have a save rejected when someone else saved in between, send the `version_id` you read as `base_version_id`. A PUT saves to the workflow in its path. A POST with an `id` or `workflow_id` saves to that workflow, and returns 409 `WorkflowIdTaken` if another workspace owns it; without either it creates a new workflow.
 
 ### Mutable Fields (accepted by PUT)
 
@@ -40,7 +40,7 @@ Leave them in the body you read; a save ignores them. `version` is the semver st
 
 `max_retries` is the recovery budget, not a retry count: the number of error-recovery attempts (healing, popup/login recovery, requeue) a run may use. `0` means no recovery will happen: nothing is healed or recovered, the run is not requeued, and the first failure ends it. Use `0` only when the user explicitly wants no AI touching execution; otherwise leave it at 1 or more.
 
-`manual_captcha_solve` is `true` on new workflows: captchas are solved only at `CAPTCHA` nodes. `false` also runs the automatic solver before each step that acts on the page. Deprecated: automatic solving will be removed, so use `CAPTCHA` nodes. Existing workflows keep their setting; most created before manual solving became the default have `false`. On a save, omitting the field keeps the current value.
+`manual_captcha_solve` is `true` on new workflows: captchas are solved only at `CAPTCHA` nodes. `false` also runs the automatic solver before each step that acts on the page. Deprecated: automatic solving will be removed, so use `CAPTCHA` nodes. Many existing workflows have `false`. On a save, omitting the field keeps the current value.
 
 Run video is always recorded and cannot be disabled, and input actions always use native OS input; there are no settings for either.
 
@@ -233,7 +233,7 @@ Every node has:
 }
 ```
 
-**IMPORTANT:** The `id` field must be a valid UUID (e.g., `"f47ac10b-58cc-4372-a567-0e02b2c3d479"`). Do not use natural language IDs like `"click-submit-button"`.
+**IMPORTANT:** The `id` field must be a valid UUID (e.g., `"f47ac10b-58cc-4372-a567-0e02b2c3d479"`). Do not use natural language IDs like `"click-submit-button"`. Generate a new UUID v4 for every node (`uuidgen`, `crypto.randomUUID()`); never reuse the example.
 
 Optional base fields: `description`
 
