@@ -11,6 +11,7 @@
 
 ### Fixed
 
+- MCP `call` errors carry the API's error code next to the status, e.g. `workflows.list failed (404 NOT_FOUND): Workspace … not found or you don't have access`, and `CallError` exposes it as `code`.
 - `error-codes create` and `error-codes update` list the actions the API accepts: `alert`, `retry`, `pause_workflow` and `pause_credential`. The help and the `cloudcruise` skill listed `cancel` and `pause`, which the API rejects with a 400. The `--file`/`--stdin` help and the README name the `retries` and `retry_after` fields, and the help no longer says `retry` only labels the error; a retry requeues the run.
 
 ## 1.17.0

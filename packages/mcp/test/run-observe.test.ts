@@ -125,7 +125,7 @@ test("run passes the API's refusal through", async () => {
   assert.equal(result.isError, true)
   assert.match(result.content[0].text, /404.*Workflow not found/)
   const foreign = await tool("run", { workflow_id: INVOICE, workspace_id: OTHER_WORKSPACE })
-  assert.match(foreign.content[0].text, /403.*Access denied to this workspace/)
+  assert.match(foreign.content[0].text, /404 \(NOT_FOUND\): Workspace .* not found or you don't have access/)
 })
 
 test("observe without after returns the current state at once, with a cursor", async () => {
@@ -273,7 +273,7 @@ test("observe reads in the handle's workspace", async () => {
   api.requests.length = 0
   const result = await tool("observe", { handle: `v1:run:${OTHER_WORKSPACE}:run_8f2c` })
   assert.equal(api.requests[0].headers["x-workspace-id"], OTHER_WORKSPACE)
-  assert.match(result.content[0].text, /403.*Access denied/)
+  assert.match(result.content[0].text, /404 \(NOT_FOUND\): Workspace .* not found or you don't have access/)
 })
 
 test("a handle from one instance is served by another", async () => {
