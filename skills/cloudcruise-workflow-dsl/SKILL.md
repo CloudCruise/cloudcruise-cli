@@ -30,13 +30,13 @@ A workflow is a directed graph of nodes (actions) connected by edges. The browse
 
 `id`, `version_id`, `version`, `major`, `minor`, `patch`, `bump_type`, `default_branch_id`, `parent_version_id`, `merge_parent_version_id`, `generation`, `created_at`, `created_by`, `updated_at`, `workspace_id`, `workflow_id`, `conversation_id`
 
-Leave them in the body you read; a save ignores them. `version` is the semver string (`"2.1.0"`). `branch_id` is the branch the body was read from and the save goes to. To have a save rejected when someone else saved in between, send the `version_id` you read as `base_version_id`. A PUT saves to the workflow in its path. A POST with an `id` or `workflow_id` saves to that workflow, and returns 409 `WorkflowIdTaken` if another workspace owns it; without either it creates a new workflow.
+Leave them in the body you read; a save ignores them, except that `id`, `workflow_id` and `workspace_id` must match the target workflow, or the save returns 409 `ReadOnlyFieldConflict`. `version` is the semver string (`"2.1.0"`). `branch_id` is the branch the body was read from and the save goes to. To have a save rejected when someone else saved in between, send the `version_id` you read as `base_version_id`. `PUT /workflows/{id}` saves to an existing workflow. `POST /workflows` always creates one: an `id` only chooses the new workflow's id, and an id that already exists, in any workspace, returns 409 `WorkflowIdTaken`.
 
 ### Mutable Fields (accepted by PUT)
 
 **Required:** `nodes`, `edges`, `name`, `input_schema`, `output_schema`, `max_retries`
 
-**Optional:** `description`, `version_note`, `extract_network_urls`, `popup_xpaths`, `vault_schema`, `enable_popup_handling`, `enable_action_timing_recovery`, `enable_xpath_recovery`, `enable_error_code_generation`, `enable_service_unavailable_recovery`, `enable_incorrect_form_input_recovery`, `enable_password_update_recovery`, `enable_tfa_setup_recovery`, `enable_node_description_enrichment`, `allow_requeue`, `deny_requeue_past_dry_run_marker`, `enable_decision_required_recovery` (default true; false stops the recovery agent from asking a person on this workflow), `decision_timeout_seconds` (30-600; seconds a human has to answer a decision-required card; a value above 600 is stored as unset), `decision_operating_hours` (`{timezone, windows:[{days:[0-6], start:"HH:MM", end:"HH:MM"}]}`; outside these hours a decision fails instead of asking), `decision_mention_slack_ids` (Slack user or group ids to mention; a workspace-level value takes precedence), `proxy_setting`, `proxy_value`, `enable_network_listener`, `manual_captcha_solve`
+**Optional:** `description`, `version_note`, `extract_network_urls`, `popup_xpaths`, `vault_schema`, `enable_popup_handling`, `enable_action_timing_recovery`, `enable_xpath_recovery`, `enable_error_code_generation`, `enable_service_unavailable_recovery`, `enable_incorrect_form_input_recovery`, `enable_password_update_recovery`, `enable_tfa_setup_recovery`, `enable_node_description_enrichment`, `allow_requeue`, `deny_requeue_past_dry_run_marker`, `enable_decision_required_recovery` (default false; true lets the recovery agent ask a person on this workflow), `decision_timeout_seconds` (30-600; seconds a human has to answer a decision-required card; a value above 600 is stored as unset), `decision_operating_hours` (`{timezone, windows:[{days:[0-6], start:"HH:MM", end:"HH:MM"}]}`; outside these hours a decision fails instead of asking), `decision_mention_slack_ids` (Slack user or group ids to mention; a workspace-level value takes precedence), `proxy_setting`, `proxy_value`, `enable_network_listener`, `manual_captcha_solve`
 
 `max_retries` is the recovery budget, not a retry count: the number of error-recovery attempts (healing, popup/login recovery, requeue) a run may use. `0` means no recovery will happen: nothing is healed or recovered, the run is not requeued, and the first failure ends it. Use `0` only when the user explicitly wants no AI touching execution; otherwise leave it at 1 or more.
 
@@ -720,7 +720,7 @@ Solve one captcha at this point in the run. This is how a workflow solves Turnst
 
 Outcome: no captcha of that type on the page → the node passes and the run continues. Captcha present and solved → passes. Captcha present and not solved → the node fails with error code `CAPTCHA-E0001`, so the workflow's error-code actions (alert, retry, pause_workflow, pause_credential) apply. Detection finds the widget's iframe or container in the top page only. A captcha on a page embedded in another iframe is not detected, and the node passes as if no captcha were present.
 
-Choosing `text` or `custom` for a challenge the user types an answer to: use `text` for a distorted-character image or a short sum with a text box. It needs only `captcha_type`: the node finds the image and the box, reads it, types the answer, submits it and retries a rejected read itself, so add no retry loop, no read-and-retype nodes and no click on the captcha's own Submit. On an inline form with no Submit of its own, follow the node with a `CLICK` on the form's button. Use `custom` for a challenge `text` does not read, such as counting or naming objects or dice values: it needs `selector` and `input_selector`, does not submit, and the workflow clicks the site's Submit and loops back to the node with a `BOOL_CONDITION` when the answer is rejected. Text captchas are solved only by this node, never automatically, whatever `manual_captcha_solve` is.
+Choosing `text` or `custom` for a challenge the user types an answer to: use `text` for a distorted-character image or a short sum with a text box. It needs only `captcha_type`: the node finds the image and the box, reads it, types the answer, submits it and retries a rejected read itself, so add no retry loop, no read-and-retype nodes and no click on the captcha's own Submit. On an inline form with no Submit of its own, follow the node with a `CLICK` on the form's button. Use `custom` for a challenge `text` does not read, such as counting or naming objects or dice values: it needs `selector` and `input_selector`, does not submit, and the workflow clicks the site's Submit and loops back to the node with a `BOOL_CONDITION` when the answer is rejected. Automatic captcha solving does not handle text captchas by default, so add this node for every text captcha.
 
 For `hcaptcha` and `aws_waf`, when that captcha is on the page but no challenge is showing yet, the node waits up to 15 seconds for one to open. That is what makes it work right after a `CLICK` on a site's own checkbox that opens the challenge: the challenge appears a few seconds after the click. An `hcaptcha` node also passes as soon as the widget has a token. For AWS's full-page "Human Verification" page, don't click its Begin button: the `aws_waf` node presses it.
 
@@ -1003,7 +1003,7 @@ Intercept XHR/Fetch requests and extract data from responses.
 
 Path syntax: `$` (root), `$.field` (direct), `$.parent.child` (nested), `$[0]` (array index).
 
-**No matching request.** By default the node fails with `EXTRACT-E0001` once `wait_time` runs out. When the page fires the request only some of the time, set `allow_empty_on_no_match: true`: the node then extracts from `{}`, every field comes back empty, and the run continues. Branch on the result with a BOOL_CONDITION (`IS_NULL` on an extracted field). The flag covers only the request: a `selector` that never appears still fails the node.
+**No matching request.** By default the node fails with `EXTRACT-E0001` once `wait_time` runs out. When the page fires the request only some of the time, set `allow_empty_on_no_match: true`: the node then extracts from `{}`, every field comes back as `[]`, and the run continues. Gate later nodes with a `run_if` using `IS_NULL` on an extracted field, which treats `[]` as absent. The flag covers only the request: a `selector` that never appears still fails the node.
 
 ### API_FLOW
 
@@ -1148,6 +1148,31 @@ Set `required: true` on every entry unless the value is genuinely optional. With
 **Value flow:** pass values between steps with an inline `{{ steps.<id>.<name> }}` ref in `url`, `query`, `headers`, or a `body` leaf. There is no bindings list. Refs must name a step in the same node. Keep refs to `steps.*` and `context.*` plain paths: operators like `&` or `$count(...)` over them are rejected at save.
 
 **Same origin:** with `credentials: "include"`, the request fires from the page the run is on. If that page's origin (subdomain included) differs from the request's, the fetch fails. Make sure an earlier node (often `START`) lands on the target origin.
+
+### COMPONENT_CALL
+
+Runs a reusable component (a group of nodes with a Start, an End and a declared interface) in its own scope. It is not a selector node and has no `run_if` or execution type.
+
+```json
+{
+  "id": "uuid",
+  "name": "Login",
+  "action": "COMPONENT_CALL",
+  "parameters": {
+    "component": { "type": "local", "ref": "<component id>" },
+    "input_mappings": { "USER": "USER", "query": "{{context.inputs.search_term}}" },
+    "output_mappings": { "result_url": "context.search.url" }
+  }
+}
+```
+
+- `component.type`: `local` = definition in the workflow's `local_components`; `global` = workspace component listed in `component_imports` (`{ "id", "version" }`). `version` (global only) is a number or `"latest"`.
+- `input_mappings`: input name to a literal or `{{…}}` expression. A bare `{{expr}}` keeps its type. `{}` when there are no inputs.
+- `output_mappings`: output name to the caller context path. Default `context.outputs.<name>`.
+- Isolation: the body starts with an empty scope and sees only its declared inputs. Inside, read an input as `{{context.component_inputs.<name>}}`; read a credential input as `{{$lookup(context.inputs, context.component_inputs.<name>).USER_NAME}}`. Return a value by writing `context.component_outputs.<name>` (Transform `SET`) and declaring it in the component's `output_schema`. Anything else the body writes is discarded when the call returns, so extracted data must be exported or the run result and later nodes will not see it.
+- A credential input is marked `"x-cc-type": "credential"` in `input_schema` and takes a vault alias. A credential cannot be returned as an output.
+- A component cannot call itself, directly or indirectly. Failures use `SERVER-E0007` with a `reason`.
+- Edit the interface with `PUT /workflow-components/{component_id}` (workspace components) or the workflow's `local_components` (local ones). Selecting nodes in the visualizer and choosing "Save as Component" builds the call, inputs and outputs for you.
 
 ## Error Codes
 
