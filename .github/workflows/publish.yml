@@ -60,6 +60,10 @@ jobs:
         if: steps.check.outputs.publish_strata == 'true'
         run: npm publish -w @cloudcruise/strata --access public
 
+      - name: Check the bundled remote skills match docs.cloudcruise.com
+        if: steps.check.outputs.publish == 'true'
+        run: node scripts/sync-remote-skills.mjs --check
+
       - name: Publish @cloudcruise/cli
         if: steps.check.outputs.publish == 'true'
         run: npm publish --access public

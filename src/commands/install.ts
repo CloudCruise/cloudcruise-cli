@@ -2,7 +2,7 @@ import { Command } from "commander";
 import { existsSync } from "fs";
 import { join } from "path";
 import { outputJson, outputError } from "../core/output.js";
-import { installPacksToRoot } from "../core/skill-install.js";
+import { installSkills } from "../core/skill-install.js";
 
 // Each target agent reads skills from its own project-level dir. Several agents
 // share the cross-agent `.agents/skills/` convention (Codex, Devin, and Cursor as
@@ -63,7 +63,7 @@ Examples:
   $ cloudcruise install --skills --target codex
 `,
     )
-    .action((opts: { skills?: boolean; target: string }) => {
+    .action(async (opts: { skills?: boolean; target: string }) => {
       if (!opts.skills) {
         outputError(
           "No install target specified. Use --skills to install skill files.",
@@ -83,10 +83,10 @@ Examples:
         // Dedupe by resolved root so aliases sharing a root (codex/devin/agents,
         // or `all`) install it once.
         const roots = [...new Set(relRoots.map((r) => join(cwd, r)))];
-        const installed: string[] = [];
-        for (const root of roots) {
-          installed.push(...installPacksToRoot(root));
-        }
+        const { installed, skipped } = await installSkills(roots, {
+          env: process.env,
+          stderr: process.stderr,
+        });
 
         const notes = relRoots.some((r) => r === join(".cursor", "skills"))
           ? staleCursorRuleNotes(cwd)
@@ -95,6 +95,7 @@ Examples:
         outputJson({
           status: "ok",
           installed,
+          ...(skipped.length ? { skipped } : {}),
           ...(notes.length ? { notes } : {}),
         });
       } catch (err: unknown) {

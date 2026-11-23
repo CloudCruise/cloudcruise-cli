@@ -30,15 +30,17 @@ A workflow is a directed graph of nodes (actions) connected by edges. The browse
 
 `id`, `version_id`, `version`, `major`, `minor`, `patch`, `bump_type`, `default_branch_id`, `parent_version_id`, `merge_parent_version_id`, `generation`, `created_at`, `created_by`, `updated_at`, `workspace_id`, `workflow_id`, `conversation_id`
 
-Leave them in the body from `workflows get`; `workflows update` sends it as-is. `version_id` drives the stale check: the update fails with exit 13 if a newer version exists on the branch (`--force` overrides). `version` is the semver string (`"2.1.0"`); workflows have no `version_number`. `branch_id` is the branch the body was read from and the update saves to (`--branch` overrides it). `id`, `workflow_id` and `workspace_id` must match the target workflow.
+Leave them in the body you read; a save ignores them. `version` is the semver string (`"2.1.0"`); workflows have no `version_number`. `branch_id` is the branch the body was read from and the save goes to. To have a save rejected when someone else saved in between, send the `version_id` you read as `base_version_id`. `id`, `workflow_id` and `workspace_id` must match the target workflow.
 
 ### Mutable Fields (accepted by PUT)
 
 **Required:** `nodes`, `edges`, `name`, `input_schema`, `output_schema`, `max_retries`
 
-**Optional:** `description`, `version_note` (on `workflows update`, set via `--version-note` only), `extract_network_urls`, `popup_xpaths`, `vault_schema`, `enable_popup_handling`, `enable_action_timing_recovery`, `enable_xpath_recovery`, `enable_error_code_generation`, `enable_service_unavailable_recovery`, `enable_incorrect_form_input_recovery`, `enable_password_update_recovery`, `enable_tfa_setup_recovery`, `enable_node_description_enrichment`, `allow_requeue`, `deny_requeue_past_dry_run_marker`, `proxy_setting`, `proxy_value`, `enable_network_listener`, `manual_captcha_solve`
+**Optional:** `description`, `version_note`, `extract_network_urls`, `popup_xpaths`, `vault_schema`, `enable_popup_handling`, `enable_action_timing_recovery`, `enable_xpath_recovery`, `enable_error_code_generation`, `enable_service_unavailable_recovery`, `enable_incorrect_form_input_recovery`, `enable_password_update_recovery`, `enable_tfa_setup_recovery`, `enable_node_description_enrichment`, `allow_requeue`, `deny_requeue_past_dry_run_marker`, `enable_decision_required_recovery` (default true; false stops the recovery agent from asking a person on this workflow), `decision_timeout_seconds` (30-600; seconds a human has to answer a decision-required card; a value above 600 is stored as unset), `decision_operating_hours` (`{timezone, windows:[{days:[0-6], start:"HH:MM", end:"HH:MM"}]}`; outside these hours a decision fails instead of asking), `decision_mention_slack_ids` (Slack user or group ids to mention; a workspace-level value takes precedence), `proxy_setting`, `proxy_value`, `enable_network_listener`, `manual_captcha_solve`
 
-`manual_captcha_solve` is `true` on new workflows: captchas are solved only at `CAPTCHA` nodes. `false` also runs the automatic solver before each step that acts on the page. Deprecated: automatic solving will be removed, so use `CAPTCHA` nodes. Existing workflows keep their setting; most created before manual solving became the default have `false`. On `workflows update`, omitting the field keeps the current value.
+`max_retries` is the recovery budget, not a retry count: the number of error-recovery attempts (healing, popup/login recovery, requeue) a run may use. `0` means no recovery will happen: nothing is healed or recovered, the run is not requeued, and the first failure ends it. Use `0` only when the user explicitly wants no AI touching execution; otherwise leave it at 1 or more.
+
+`manual_captcha_solve` is `true` on new workflows: captchas are solved only at `CAPTCHA` nodes. `false` also runs the automatic solver before each step that acts on the page. Deprecated: automatic solving will be removed, so use `CAPTCHA` nodes. Existing workflows keep their setting; most created before manual solving became the default have `false`. On a save, omitting the field keeps the current value.
 
 Run video is always recorded and cannot be disabled, and input actions always use native OS input; there are no settings for either.
 
@@ -69,7 +71,7 @@ Variables can be used in: text inputs, XPath selectors, URLs, prompts, data mode
 
 **Vault credentials** are read through their `vault_schema` alias: `{{context.inputs.<ALIAS>.USER_NAME}}`, `{{context.inputs.<ALIAS>.PASSWORD}}`, and additional fields as `{{context.inputs.<ALIAS>.FIELDS.<name>}}`.
 
-- Names that are not plain identifiers (spaces, dashes, leading digit) need backticks: ``{{context.inputs.BANK.FIELDS.`Member ID`}}``
+- Names that are not plain identifiers (spaces, dashes, leading digit) need backticks: ``{{context.inputs.BANK.FIELDS.`Tenant subdomain`}}``
 - Address parts: `{{context.inputs.BANK.FIELDS.Home.city}}`
 - A `Totp` field is not readable through `FIELDS`. Use it as `tfa_field` of an `AUTHENTICATOR` TFA node
 - Agents (workflow builder, recovery) see field names and types, never values
@@ -84,12 +86,15 @@ When creating an `input_schema` property, every leaf input must include:
 
 Also include `enum` when the valid values are a fixed set, such as dropdown options, and `pattern` with an anchored regular expression when a string has a required format, such as a date.
 
+If the user gives a schema or sample payload for the workflow's inputs, use its field names, nesting and formats for `input_schema` instead of names from the page, and convert formats to what the page needs in the node with JSONata.
+
 **Data transformation and logic** uses [JSONata](https://jsonata.org/) expressions inside `{{}}`. Use JSONata for complex string operations, conditional logic, array filtering, and data formatting instead of adding extra nodes.
 
 Common patterns:
 
 ```
 {{$fromMillis($toMillis(context.inputs.date, "[Y0001]-[M01]-[D01]"), "[M01]/[D01]/[Y0001]")}}
+{{$fromMillis($toMillis(context.inputs.BirthDate), "[M01]/[D01]/[Y0001]")}}
 {{$uppercase(context.inputs.name)}}
 {{$trim(context.inputs.value)}}
 {{$substring(context.inputs.phone, 0, 3)}}
@@ -228,7 +233,7 @@ Every node has:
 }
 ```
 
-**IMPORTANT:** The `id` field must be a valid UUID (e.g., `"f47ac10b-58cc-4372-a567-0e02b2c3d479"`). Do not use natural language IDs like `"click-submit-button"`. Generate UUIDs with `cloudcruise utils uuid`.
+**IMPORTANT:** The `id` field must be a valid UUID (e.g., `"f47ac10b-58cc-4372-a567-0e02b2c3d479"`). Do not use natural language IDs like `"click-submit-button"`.
 
 Optional base fields: `description`
 
@@ -693,7 +698,7 @@ To wait after an action, raise the **next** node's `wait_time` (ms; it waits unt
 
 ### CAPTCHA
 
-Solve one captcha at this point in the run. This is how a workflow solves Turnstile, reCAPTCHA v2, hCaptcha and AWS WAF CAPTCHA. Put it immediately before the action that needs the captcha cleared.
+Solve one captcha at this point in the run. This is how a workflow solves Turnstile, reCAPTCHA v2, hCaptcha, AWS WAF CAPTCHA, text captchas and a site's own challenge (`custom`). Put it immediately before the action that needs the captcha cleared. It runs whether or not the workflow's automatic captcha solving is on.
 
 ```json
 {
@@ -704,11 +709,18 @@ Solve one captcha at this point in the run. This is how a workflow solves Turnst
 }
 ```
 
-| Parameter      | Type   | Required | Description                                                                                    |
-| -------------- | ------ | -------- | ---------------------------------------------------------------------------------------------- |
-| `captcha_type` | string | Yes      | `turnstile` (Cloudflare Turnstile), `recaptcha_v2`, `hcaptcha`, or `aws_waf` (AWS WAF CAPTCHA) |
+| Parameter      | Type   | Required | Description                                          |
+| -------------- | ------ | -------- | ---------------------------------------------------- |
+| `captcha_type` | string | Yes      | `turnstile` (Cloudflare Turnstile), `recaptcha_v2`, `hcaptcha`, `aws_waf` (AWS WAF CAPTCHA), `text` (distorted characters or a short sum, found and read automatically, no other parameters), or `custom` (the site's own challenge) |
+| `selector` | string | For `custom` | XPath of the element that shows the challenge, usually its image |
+| `input_selector` | string | For `custom` | XPath of the text box the answer is typed into |
+| `question_selector` | string | No | `custom` only. XPath of the instructions, when they sit outside the challenge element |
+| `wait_time` | number | No | `custom` only. Milliseconds to wait for the XPaths to appear. Default `15000` |
+| `selector_error_message` | string | No | `custom` only. Error code raised when an XPath is not found |
 
-Outcome: no captcha of that type on the page → the node passes and the run continues. Captcha present and solved → passes. Captcha present and not solved → the node fails with error code `CAPTCHA-E0001`, so the workflow's error-code actions (retry, alert, pause) apply. Detection finds the widget's iframe or container in the top page only. A captcha on a page embedded in another iframe is not detected, and the node passes as if no captcha were present.
+Outcome: no captcha of that type on the page → the node passes and the run continues. Captcha present and solved → passes. Captcha present and not solved → the node fails with error code `CAPTCHA-E0001`, so the workflow's error-code actions (alert, retry, pause_workflow, pause_credential) apply. Detection finds the widget's iframe or container in the top page only. A captcha on a page embedded in another iframe is not detected, and the node passes as if no captcha were present.
+
+Choosing `text` or `custom` for a challenge the user types an answer to: use `text` for a distorted-character image or a short sum with a text box. It needs only `captcha_type`: the node finds the image and the box, reads it, types the answer, submits it and retries a rejected read itself, so add no retry loop, no read-and-retype nodes and no click on the captcha's own Submit. On an inline form with no Submit of its own, follow the node with a `CLICK` on the form's button. Use `custom` for a challenge `text` does not read, such as counting or naming objects or dice values: it needs `selector` and `input_selector`, does not submit, and the workflow clicks the site's Submit and loops back to the node with a `BOOL_CONDITION` when the answer is rejected. Text captchas are solved only by this node, never automatically, whatever `manual_captcha_solve` is.
 
 For `hcaptcha` and `aws_waf`, when that captcha is on the page but no challenge is showing yet, the node waits up to 15 seconds for one to open. That is what makes it work right after a `CLICK` on a site's own checkbox that opens the challenge: the challenge appears a few seconds after the click. An `hcaptcha` node also passes as soon as the widget has a token. For AWS's full-page "Human Verification" page, don't click its Begin button: the `aws_waf` node presses it.
 
@@ -881,7 +893,6 @@ Capture a file. By default, the node waits for a download triggered by a previou
   "action": "FILE_DOWNLOAD",
   "parameters": {
     "metadata": { "invoice_id": "{{context.invoice_id}}" },
-    "selector": "//body",
     "timeout_seconds": 120
   }
 }
@@ -890,7 +901,6 @@ Capture a file. By default, the node waits for a download triggered by a previou
 | Parameter                     | Type    | Required | Description                                                                                  |
 | ----------------------------- | ------- | -------- | -------------------------------------------------------------------------------------------- |
 | `metadata`                    | object  | Yes      | Metadata attached to the download for identification (`{}` if none)                          |
-| `selector`                    | string  | Yes      | XPath; required by API validation (`//body` works)                                           |
 | `trigger_print`               | boolean | No       | Save the current page as PDF instead of waiting for a download. Default: unset               |
 | `continue_on_failed_download` | boolean | No       | Continue if download times out                                                               |
 | `timeout_seconds`             | number  | No       | Max seconds to wait. Default: 60 (range 5-300)                                               |
@@ -919,8 +929,10 @@ Upload a file to a file input. The OS file dialog must already be open (trigger 
 
 | Parameter         | Type   | Required | Description                                             |
 | ----------------- | ------ | -------- | ------------------------------------------------------- |
-| `signed_file_url` | string | Yes      | Pre-authenticated URL to the file                       |
+| `signed_file_url` | string | Yes      | Pre-authenticated URL to the file, or a `data:` URL holding the file |
 | `file_name`       | string | No       | Custom file name (with extension) to use when uploading |
+
+When the page or an API hands you the file as a `data:` URL (e.g. `data:image/jpeg;base64,...` captured with EXTRACT_NETWORK), pass it straight to `signed_file_url`. The file type and extension are read from the data itself, so a mislabelled `data:` header or a contradicting `file_name` extension is corrected. Don't open a `data:` URL with NAVIGATE or TAB_MANAGEMENT to get at it: Chrome blocks in-place `data:` navigations, and no node can run on a `data:` tab.
 
 ### USER_INTERACTION
 
@@ -952,7 +964,7 @@ Pause for human input. Triggers `interaction.waiting` webhook.
 | `timeout`            | number | No       | Max ms to wait for response. Default: 180000, max: 270000     |
 | `error_message`      | string | No       | Error code id (UUID) to fail with on timeout. See Error Codes |
 
-The submitted data becomes available to later nodes via `{{context.<key>}}`. While a run is paused on this node, submit it with `cloudcruise run respond <session_id> --data '{"approval_code":"123456"}'` (keys must match `expected_datamodel`).
+The submitted data becomes available to later nodes via `{{context.<key>}}`. While a run is paused on this node, submit the data with `POST /run/{session_id}/user_interaction`, body `{"approval_code":"123456"}` (keys must match `expected_datamodel`).
 
 ### EXTRACT_NETWORK
 
@@ -1080,11 +1092,11 @@ Replay a chain of HTTP (XHR/fetch) requests as one atomic node — not a UI inte
 | `expected_status`       | object | No       | `{ "range": "2xx" }` (default) or `{ "values": [200, 201] }`                                                                                                                            |
 | `graphql_error_policy`  | string | No       | GraphQL only: `fail_on_any` (default)                                                                                                                                                   |
 | `protocol_hint`         | string | No       | `rest`, `graphql`, or `other`. UI hint only                                                                                                                                             |
-| `save_response_as_file` | object | No       | Store the PDF response as a run file; see below                                                                                                                                         |
+| `save_response_as_file` | object | No       | Store the response as a run file (PDF, HTML, XML, images, Office files and more); see below                                                                                             |
 
 Other per-step fields (`mutation_severity`, `is_auth_refresh`, `response_type`, `retry`, `timeout_ms`, `max_response_bytes`) have method-derived defaults. Leave them out unless needed. A per-step `redirect_policy` overrides the node's. `retry` is not allowed on `POST`/`PATCH`; `retry.max_attempts` ≤ 5.
 
-**Saving the response as a file.** `save_response_as_file` stores the target step's PDF response as a run file.
+**Saving the response as a file.** `save_response_as_file` stores the target step's response as a run file. Supported types: `.pdf`, `.html`, `.htm`, `.xml`, `.json`, `.txt`, `.csv`, `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, `.docx`, `.xls`, `.xlsx`, `.zip`.
 
 ```json
 "save_response_as_file": {
@@ -1094,11 +1106,15 @@ Other per-step fields (`mutation_severity`, `is_auth_refresh`, `response_type`, 
 }
 ```
 
-- `file_name` (required): ends in `.pdf`. Letters, digits, spaces, `.`, `_`, `-` and `{{ context.* }}` templates; no `{{ steps.* }}`.
+- `file_name` (required): ends in a supported extension, or in a `{{ context.* }}` template that resolves to a name with one (to name each file of a mixed-type loop from its content type). Letters, digits, spaces, `.`, `_`, `-` and `{{ context.* }}` templates; no `{{ steps.* }}`.
 - `metadata` (optional): object stored with the file.
 - `continue_on_empty_response` (optional): skip the upload instead of failing on an empty body (e.g. a 204).
 
-Target step only, and not with `extract`, `repeat`, `credentials: "omit"` or `redirect_policy: "manual"`. The step then publishes only `status` and `body`: `{ "saved_file": "<name>" }`, or `null` if skipped.
+Files up to 100 MiB are accepted. Leave `max_response_bytes` out on this step; it defaults to that limit.
+
+Target step only, and not with `extract`, `repeat`, `credentials: "omit"` or `redirect_policy: "manual"`. The step then publishes `status`, `saved` (`true` or `false`), `skip_reason` when nothing was saved, and `body`: `{ "saved_file": "<name>" }`, or `null` if skipped.
+
+A non-2xx response never carries the file. To carry on when a document may be missing, list that code in `expected_status` (e.g. `{ "values": [200, 404] }`): the upload is then skipped with `skip_reason` `"non_2xx_status"` instead of failing the node. An empty body skipped by `continue_on_empty_response` reports `"empty_body"`. Codes not listed still fail, and a 2xx that does not match the extension always fails: a `.pdf` without a `%PDF` header, an image or Office file without its byte signature, or an HTML page (usually an expired session's login page) saved under any extension other than `.html`/`.htm`. When downloading a list of documents, record skips per document in `field_json_map` (e.g. `"downloadError": steps.file.saved ? null : ("HTTP " & $string(steps.file.status) & " " & steps.file.skip_reason)`) rather than dropping them.
 
 **`extract` entries** (unique `name` per step):
 
@@ -1143,17 +1159,9 @@ These params take the **id of a workspace error code**: a lowercase UUID. They d
 | `error_on_false_message` | `BOOL_CONDITION`                                                                                   |
 | `error_message`          | `USER_INTERACTION`                                                                                 |
 
-```bash
-# Find-or-create by name: returns the existing code if the name is taken ("created": false)
-cloudcruise error-codes create --code CLAIM_NOT_FOUND --description "Claim not found in the portal"
-# → {"id":"3f2b9c1e-...","error_code":"CLAIM_NOT_FOUND","created":true,...}
+Create a code with `POST /error-codes`, body `{"error_code": "CLAIM_NOT_FOUND", "description": "Claim not found in the portal"}`. The call is find-or-create by name: when the name is taken, it returns the existing code with `"created": false`. `GET /error-codes` lists the workspace's codes; `workflow_id` narrows the list to one workflow's codes.
 
-cloudcruise error-codes list                          # All workspace codes
-cloudcruise error-codes list --workflow-id <id>       # Codes linked to one workflow
-cloudcruise error-codes get <id>                      # One code by id
-```
-
-Put the returned `id` in the node param and save with `workflows update`. Saving links the code to the workflow; any other value is rejected with a 400.
+Put the returned `id` in the node param and save the workflow. Saving links the code to the workflow; any other value is rejected with a 400.
 
 ## Best Practices
 

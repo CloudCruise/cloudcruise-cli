@@ -1,7 +1,9 @@
-import { existsSync, lstatSync, readdirSync, readFileSync } from "fs"
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "fs"
+import { homedir } from "os"
 import { basename, join, relative } from "path"
 import { CLI_VERSION } from "./version.js"
-import { hashPack, installPack, listSourcePacks } from "./skill-install.js"
+import { hashPack, installPack, listRemotePacks, listSourcePacks } from "./skill-install.js"
+import { fetchServedSkill, fetchSkillIndex, skillsBaseUrl, type IndexEntry } from "./remote-skills.js"
 import type { CliSettings } from "./config.js"
 import { LEGACY_SKILL_HASHES } from "./legacy-skill-hashes.js"
 import type { StderrLike } from "./update-notice.js"
@@ -24,7 +26,8 @@ import { SkillsIncompatibleError, fail } from "./exit.js"
  *
  * Scoped to the command groups the skill family actually drives
  * (builder/run/workflows); every other command is untouched. A pack with no
- * manifest (e.g. a hand-edited dev symlink pointing at source) is invisible.
+ * manifest (e.g. a hand-edited dev symlink pointing at source) is invisible,
+ * and so are remote packs: they follow the docs site, not the CLI version.
  */
 
 // Installed skills stamped from a CLI older than this are treated as INCOMPATIBLE
@@ -48,6 +51,8 @@ export interface SkillManifest {
   requiresCli?: string
   installedAt?: string
   contentHash?: string
+  source?: "remote" | "bundled"
+  digest?: string
 }
 
 export interface SkillsStatus {
@@ -130,7 +135,9 @@ function readManifest(packDir: string): SkillManifest | undefined {
 export function computeSkillsStatus(cwd: string): SkillsStatus {
   const status: SkillsStatus = { stale: [], cliBehind: [], incompatible: [] }
   let oldest: string | undefined
+  const remote = new Set(listRemotePacks())
   for (const m of readInstalledManifests(cwd)) {
+    if (remote.has(m.pack)) continue
     const c = compareVersions(m.cliVersion, CLI_VERSION)
     if (c < 0) status.stale.push(m.pack)
     else if (c > 0) status.cliBehind.push(m.pack)
@@ -216,26 +223,47 @@ export interface AutoRefreshOptions {
   env: Record<string, string | undefined>
   settings: CliSettings
   stderr: StderrLike
+  stateDir?: string
+  now?: () => number
+}
+
+// How long a check of the docs site's skills index is trusted, failed checks
+// included, so commands stay offline in between.
+const INDEX_CACHE_MS = 6 * 60 * 60 * 1000
+const INDEX_CACHE_FILE = "skills-index.json"
+const REFRESH_TIMEOUT_MS = 1500
+
+interface InstalledPack {
+  root: string
+  pack: string
+  dir: string
+  manifest: SkillManifest
 }
 
 /**
- * Reinstall every CLI-managed pack (one carrying a manifest) that an older CLI
- * stamped, so skills follow a CLI upgrade without a manual
- * `cloudcruise install --skills`. Packs edited since install are left to an
- * explicit `install --skills`. Never throws; a pack that is skipped or fails
- * stays as it was, and the staleness warning still fires for it.
+ * Reinstall the CLI-managed packs (ones carrying a manifest) that are out of
+ * date, so skills follow without a manual `cloudcruise install --skills`:
+ * - a CLI pack is out of date when an older CLI stamped it;
+ * - a remote pack is out of date when the docs site's index lists another
+ *   digest than the one it was installed with. The index is checked at most
+ *   once per cache window, and only when a remote pack is installed.
+ * Packs edited since install are left to an explicit `install --skills`.
+ * Never throws; a pack that is skipped or fails stays as it was.
  */
-export function autoRefreshSkills(options: AutoRefreshOptions): string[] {
+export async function autoRefreshSkills(options: AutoRefreshOptions): Promise<string[]> {
   const { cwd, stderr } = options
   if (!skillsAutoUpdateEnabled(options) || !anySkillsRoot(cwd)) return []
-  const refreshed: { path: string; pack: string; from: string }[] = []
+  const refreshed: { path: string; pack: string; from?: string }[] = []
   const keptEdited: string[] = []
   let shipped: Set<string>
+  let remote: Set<string>
   try {
     shipped = new Set(listSourcePacks())
+    remote = new Set(listRemotePacks())
   } catch {
     return []
   }
+  const remoteInstalls: InstalledPack[] = []
   for (const root of skillsRoots(cwd)) {
     let entries: string[]
     try {
@@ -248,9 +276,12 @@ export function autoRefreshSkills(options: AutoRefreshOptions): string[] {
         const packDir = join(root, entry)
         if (!shipped.has(entry) || lstatSync(packDir).isSymbolicLink()) continue
         const manifest = readManifest(packDir)
-        if (!manifest || compareVersions(manifest.cliVersion, CLI_VERSION) >= 0) {
+        if (!manifest) continue
+        if (remote.has(entry)) {
+          remoteInstalls.push({ root, pack: entry, dir: packDir, manifest })
           continue
         }
+        if (compareVersions(manifest.cliVersion, CLI_VERSION) >= 0) continue
         if (!isUnedited(packDir, manifest)) {
           keptEdited.push(relative(cwd, packDir))
           continue
@@ -262,18 +293,78 @@ export function autoRefreshSkills(options: AutoRefreshOptions): string[] {
       }
     }
   }
+  if (remoteInstalls.length) {
+    const index = await servedIndex(options)
+    for (const installed of remoteInstalls) {
+      try {
+        const served = index.get(installed.pack)
+        if (!served || served.digest === installed.manifest.digest) continue
+        if (!isUnedited(installed.dir, installed.manifest)) {
+          keptEdited.push(relative(cwd, installed.dir))
+          continue
+        }
+        const skill = await fetchServedSkill(installed.pack, index, REFRESH_TIMEOUT_MS)
+        const path = installPack(installed.root, installed.pack, skill)
+        refreshed.push({ path, pack: installed.pack })
+      } catch {
+        continue
+      }
+    }
+  }
   if (refreshed.length) {
     const fromVersion = refreshed
-      .map((r) => r.from)
+      .flatMap((r) => (r.from ? [r.from] : []))
       .sort(compareVersions)[0]
     reportRefresh(stderr, {
-      fromVersion,
+      ...(fromVersion ? { fromVersion } : {}),
       packs: [...new Set(refreshed.map((r) => r.pack))].sort(),
       paths: refreshed.map((r) => r.path),
       keptEdited
     })
   }
   return refreshed.map((r) => r.path)
+}
+
+// The docs site's skills index, from the cache while it is fresh. A failed
+// check is cached as an empty index.
+async function servedIndex(options: AutoRefreshOptions): Promise<Map<string, IndexEntry>> {
+  const stateDir = options.stateDir ?? join(homedir(), ".cloudcruise")
+  const file = join(stateDir, INDEX_CACHE_FILE)
+  const baseUrl = skillsBaseUrl(options.env)
+  const now = (options.now ?? Date.now)()
+  try {
+    const cached = JSON.parse(readFileSync(file, "utf-8")) as {
+      baseUrl?: string
+      checkedAt?: number
+      skills?: Record<string, IndexEntry>
+    }
+    if (
+      cached.baseUrl === baseUrl &&
+      typeof cached.checkedAt === "number" &&
+      now - cached.checkedAt < INDEX_CACHE_MS &&
+      now >= cached.checkedAt
+    ) {
+      return new Map(Object.entries(cached.skills ?? {}))
+    }
+  } catch {
+    // No usable cache: check the site.
+  }
+  let index = new Map<string, IndexEntry>()
+  try {
+    index = await fetchSkillIndex(baseUrl, REFRESH_TIMEOUT_MS)
+  } catch {
+    // Offline or the site is down: try again after the cache window.
+  }
+  try {
+    mkdirSync(stateDir, { recursive: true, mode: 0o700 })
+    writeFileSync(
+      file,
+      `${JSON.stringify({ baseUrl, checkedAt: now, skills: Object.fromEntries(index) })}\n`
+    )
+  } catch {
+    // Unwritable state dir: the next command checks again.
+  }
+  return index
 }
 
 // True when the pack's files are exactly what the stamping CLI installed.
@@ -299,7 +390,7 @@ function skillsAutoUpdateEnabled(
 function reportRefresh(
   stderr: StderrLike,
   refresh: {
-    fromVersion: string
+    fromVersion?: string
     packs: string[]
     paths: string[]
     keptEdited: string[]
@@ -307,8 +398,11 @@ function reportRefresh(
 ): void {
   const { keptEdited, ...refreshed } = refresh
   if (stderr.isTTY) {
+    const versions = refresh.fromVersion
+      ? ` (v${refresh.fromVersion} → v${CLI_VERSION})`
+      : ""
     stderr.write(
-      `✓ cloudcruise skills refreshed (v${refresh.fromVersion} → v${CLI_VERSION}): ${refresh.packs.join(", ")}\n`
+      `✓ cloudcruise skills refreshed${versions}: ${refresh.packs.join(", ")}\n`
     )
     if (keptEdited.length) {
       stderr.write(`  kept, edited since install: ${keptEdited.join(", ")}\n`)
