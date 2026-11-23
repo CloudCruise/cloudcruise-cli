@@ -6,9 +6,10 @@ import { skillsBaseUrl, syncRemoteSkills } from "../dist/src/core/remote-skills.
 
 const check = process.argv.includes("--check")
 const skillsDir = join(import.meta.dirname, "..", "skills")
-const baseUrl = skillsBaseUrl(process.env)
+let baseUrl
 
 try {
+  baseUrl = skillsBaseUrl(process.env)
   const { updated, stale } = await syncRemoteSkills({ skillsDir, baseUrl, check })
   if (stale.length) {
     console.error(
@@ -18,6 +19,6 @@ try {
   }
   console.log(updated.length ? `Synced from ${baseUrl}: ${updated.join(", ")}` : `Up to date with ${baseUrl}`)
 } catch (err) {
-  console.error(`Skills sync from ${baseUrl} failed: ${err instanceof Error ? err.message : err}`)
+  console.error(`Skills sync from ${baseUrl ?? "the docs site"} failed: ${err instanceof Error ? err.message : err}`)
   process.exit(1)
 }

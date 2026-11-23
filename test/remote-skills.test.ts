@@ -16,6 +16,7 @@ interface DocsSite {
   url: string
   requests: string[]
   serve(content: string, digest?: string): void
+  beforeSkillResponse(hook: () => void): void
   close(): Promise<void>
 }
 
@@ -29,6 +30,7 @@ async function docsSite(): Promise<DocsSite> {
   let skill = "served skill\n"
   let digest = sha256(skill)
   const requests: string[] = []
+  let hook = () => {}
   const server: Server = createServer((req, res) => {
     requests.push(req.url ?? "")
     if (req.url === "/.well-known/agent-skills/index.json") {
@@ -48,6 +50,7 @@ async function docsSite(): Promise<DocsSite> {
         })
       )
     } else if (req.url === `/.well-known/agent-skills/${DSL}/skill.md`) {
+      hook()
       res.end(skill)
     } else {
       res.statusCode = 404
@@ -63,6 +66,9 @@ async function docsSite(): Promise<DocsSite> {
     serve(content, servedDigest) {
       skill = content
       digest = servedDigest ?? sha256(content)
+    },
+    beforeSkillResponse(next) {
+      hook = next
     },
     close: () => new Promise((resolve) => server.close(() => resolve()))
   }
@@ -250,6 +256,84 @@ test("a DSL skill stamped by an older CLI is neither refreshed nor reported stal
   assert.deepEqual(manifestOf(dir), aged)
   assert.deepEqual(stderr.lines, [])
   assert.ok(!computeSkillsStatus(cwd).stale.includes(DSL))
+})
+
+// The download takes up to the refresh timeout; an edit made meanwhile is the
+// user's work just like one made before the refresh started.
+test("auto-refresh keeps a DSL skill edited while the new version downloads", async (t) => {
+  const site = await docsSite()
+  t.after(() => site.close())
+  const { dir, refresh } = await installedFrom(site)
+  site.serve("served skill v3\n")
+  site.beforeSkillResponse(() => writeFileSync(join(dir, "SKILL.md"), "my edits\n"))
+
+  await refresh()
+
+  assert.equal(readFileSync(join(dir, "SKILL.md"), "utf-8"), "my edits\n")
+})
+
+function skillDownloads(site: DocsSite): number {
+  return site.requests.filter((r) => r.endsWith("/skill.md")).length
+}
+
+// Every CLI command runs the refresh. A skill file that fails to download must
+// not cost each command another request per skills root until the index is
+// checked again.
+test("a failed DSL download is tried once for all skills roots and not again until the index is checked again", async (t) => {
+  const site = await docsSite()
+  t.after(() => site.close())
+  const cwd = project()
+  const stateDir = mkdtempSync(join(tmpdir(), "remote-skills-state-"))
+  const env = { CLOUDCRUISE_SKILLS_BASE_URL: site.url }
+  const roots = [join(cwd, ".claude", "skills"), join(cwd, ".agents", "skills")]
+  await installSkills(roots, { env, stderr: fakeStderr() })
+  const downloadsAfterInstall = skillDownloads(site)
+  site.serve("tampered\n", sha256("promised\n"))
+  const start = Date.now()
+  const refresh = (now: number) =>
+    autoRefreshSkills({ cwd, env, settings: {}, stderr: fakeStderr(), stateDir, now: () => now })
+
+  await refresh(start)
+  await refresh(start + HOUR)
+
+  assert.equal(skillDownloads(site), downloadsAfterInstall + 1)
+
+  site.serve("served skill v3\n")
+  await refresh(start + 7 * HOUR)
+
+  for (const root of roots) {
+    assert.equal(readFileSync(join(root, DSL, "SKILL.md"), "utf-8"), "served skill v3\n")
+  }
+})
+
+// The base URL decides where agent instructions come from; a value that is not
+// an http(s) URL is a misconfiguration to report, not a reason to fall back.
+test("install --skills fails and names the variable when CLOUDCRUISE_SKILLS_BASE_URL is not an http(s) URL", async () => {
+  for (const value of ["docs.cloudcruise.com", "file:///etc"]) {
+    const root = join(project(), ".claude", "skills")
+    await assert.rejects(
+      installSkills([root], { env: { CLOUDCRUISE_SKILLS_BASE_URL: value }, stderr: fakeStderr() }),
+      /CLOUDCRUISE_SKILLS_BASE_URL/
+    )
+  }
+})
+
+test("auto-refresh with an invalid CLOUDCRUISE_SKILLS_BASE_URL leaves installed skills alone and does not throw", async (t) => {
+  const site = await docsSite()
+  t.after(() => site.close())
+  const { cwd, dir } = await installedFrom(site)
+  const before = readFileSync(join(dir, "SKILL.md"), "utf-8")
+
+  const refreshed = await autoRefreshSkills({
+    cwd,
+    env: { CLOUDCRUISE_SKILLS_BASE_URL: "not a url" },
+    settings: {},
+    stderr: fakeStderr(),
+    stateDir: mkdtempSync(join(tmpdir(), "remote-skills-state-"))
+  })
+
+  assert.deepEqual(refreshed, [])
+  assert.equal(readFileSync(join(dir, "SKILL.md"), "utf-8"), before)
 })
 
 // Stamps written before the DSL skill came from the docs site carry no digest.

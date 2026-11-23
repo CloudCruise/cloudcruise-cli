@@ -20,7 +20,20 @@ export interface ServedSkill {
 }
 
 export function skillsBaseUrl(env: Record<string, string | undefined>): string {
-  return env.CLOUDCRUISE_SKILLS_BASE_URL || DEFAULT_SKILLS_BASE_URL;
+  const value = env.CLOUDCRUISE_SKILLS_BASE_URL;
+  if (!value) return DEFAULT_SKILLS_BASE_URL;
+  let url: URL | undefined;
+  try {
+    url = new URL(value);
+  } catch {
+    url = undefined;
+  }
+  if (url?.protocol !== "https:" && url?.protocol !== "http:") {
+    throw new Error(
+      `CLOUDCRUISE_SKILLS_BASE_URL must be an http(s) URL, got "${value}"`,
+    );
+  }
+  return value;
 }
 
 export function sha256Digest(content: Buffer | string): string {

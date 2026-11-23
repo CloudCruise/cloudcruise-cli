@@ -3,7 +3,13 @@ import { homedir } from "os"
 import { basename, join, relative } from "path"
 import { CLI_VERSION } from "./version.js"
 import { hashPack, installPack, listRemotePacks, listSourcePacks } from "./skill-install.js"
-import { fetchServedSkill, fetchSkillIndex, skillsBaseUrl, type IndexEntry } from "./remote-skills.js"
+import {
+  fetchServedSkill,
+  fetchSkillIndex,
+  skillsBaseUrl,
+  type IndexEntry,
+  type ServedSkill
+} from "./remote-skills.js"
 import type { CliSettings } from "./config.js"
 import { LEGACY_SKILL_HASHES } from "./legacy-skill-hashes.js"
 import type { StderrLike } from "./update-notice.js"
@@ -294,16 +300,38 @@ export async function autoRefreshSkills(options: AutoRefreshOptions): Promise<st
     }
   }
   if (remoteInstalls.length) {
-    const index = await servedIndex(options)
+    let index: ServedIndex | undefined
+    try {
+      index = await servedIndex(options)
+    } catch {
+      index = undefined
+    }
+    const downloads = new Map<string, Promise<ServedSkill | undefined>>()
+    const download = (served: ServedIndex, pack: string) => {
+      let pending = downloads.get(pack)
+      if (!pending) {
+        pending = fetchServedSkill(pack, served.skills, REFRESH_TIMEOUT_MS).catch(() => {
+          served.forget(pack)
+          return undefined
+        })
+        downloads.set(pack, pending)
+      }
+      return pending
+    }
     for (const installed of remoteInstalls) {
       try {
-        const served = index.get(installed.pack)
-        if (!served || served.digest === installed.manifest.digest) continue
+        const entry = index?.skills.get(installed.pack)
+        if (!index || !entry || entry.digest === installed.manifest.digest) continue
         if (!isUnedited(installed.dir, installed.manifest)) {
           keptEdited.push(relative(cwd, installed.dir))
           continue
         }
-        const skill = await fetchServedSkill(installed.pack, index, REFRESH_TIMEOUT_MS)
+        const skill = await download(index, installed.pack)
+        if (!skill) continue
+        if (!isUnedited(installed.dir, installed.manifest)) {
+          keptEdited.push(relative(cwd, installed.dir))
+          continue
+        }
         const path = installPack(installed.root, installed.pack, skill)
         refreshed.push({ path, pack: installed.pack })
       } catch {
@@ -325,13 +353,22 @@ export async function autoRefreshSkills(options: AutoRefreshOptions): Promise<st
   return refreshed.map((r) => r.path)
 }
 
+interface ServedIndex {
+  skills: Map<string, IndexEntry>
+  // Drop a skill whose file failed to download, so commands stop retrying it
+  // until the index is checked again.
+  forget(pack: string): void
+}
+
 // The docs site's skills index, from the cache while it is fresh. A failed
 // check is cached as an empty index.
-async function servedIndex(options: AutoRefreshOptions): Promise<Map<string, IndexEntry>> {
+async function servedIndex(options: AutoRefreshOptions): Promise<ServedIndex> {
   const stateDir = options.stateDir ?? join(homedir(), ".cloudcruise")
   const file = join(stateDir, INDEX_CACHE_FILE)
   const baseUrl = skillsBaseUrl(options.env)
   const now = (options.now ?? Date.now)()
+  let checkedAt = now
+  let skills: Map<string, IndexEntry> | undefined
   try {
     const cached = JSON.parse(readFileSync(file, "utf-8")) as {
       baseUrl?: string
@@ -344,27 +381,40 @@ async function servedIndex(options: AutoRefreshOptions): Promise<Map<string, Ind
       now - cached.checkedAt < INDEX_CACHE_MS &&
       now >= cached.checkedAt
     ) {
-      return new Map(Object.entries(cached.skills ?? {}))
+      skills = new Map(Object.entries(cached.skills ?? {}))
+      checkedAt = cached.checkedAt
     }
   } catch {
     // No usable cache: check the site.
   }
-  let index = new Map<string, IndexEntry>()
-  try {
-    index = await fetchSkillIndex(baseUrl, REFRESH_TIMEOUT_MS)
-  } catch {
-    // Offline or the site is down: try again after the cache window.
+  const save = (index: Map<string, IndexEntry>) => {
+    try {
+      mkdirSync(stateDir, { recursive: true, mode: 0o700 })
+      writeFileSync(
+        file,
+        `${JSON.stringify({ baseUrl, checkedAt, skills: Object.fromEntries(index) })}\n`
+      )
+    } catch {
+      // Unwritable state dir: the next command checks again.
+    }
   }
-  try {
-    mkdirSync(stateDir, { recursive: true, mode: 0o700 })
-    writeFileSync(
-      file,
-      `${JSON.stringify({ baseUrl, checkedAt: now, skills: Object.fromEntries(index) })}\n`
-    )
-  } catch {
-    // Unwritable state dir: the next command checks again.
+  if (!skills) {
+    skills = new Map()
+    try {
+      skills = await fetchSkillIndex(baseUrl, REFRESH_TIMEOUT_MS)
+    } catch {
+      // Offline or the site is down: try again after the cache window.
+    }
+    save(skills)
   }
-  return index
+  const index = skills
+  return {
+    skills: index,
+    forget(pack) {
+      index.delete(pack)
+      save(index)
+    }
+  }
 }
 
 // True when the pack's files are exactly what the stamping CLI installed.
