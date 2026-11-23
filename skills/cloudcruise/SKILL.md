@@ -308,7 +308,6 @@ cloudcruise snapshot test "<xpath>" <sid> <nid> --count            # Only return
 cloudcruise vault list                                              # List all vault entries (summary)
 cloudcruise vault list --full                                       # List with all fields
 cloudcruise vault get --user-id <id> --domain <domain>              # Get entry (encrypted fields; field names/types only)
-cloudcruise vault get --user-id <id>                                # Domain omitted: the user ID's only entry (409 lists domains if several)
 cloudcruise vault get --user-id <id> --domain <domain> --decrypt    # Get entry (plaintext, incl. field values and answers)
 cloudcruise vault create --user-id <id> --domain <domain> \
   --user-name <name> --password <pass>                              # Create with auto-encrypt
@@ -332,9 +331,10 @@ cloudcruise vault site-settings update --domain <domain> \
   --clear max_concurrency                                           # Remove a domain default (sends null)
 cloudcruise vault site-settings entries --domain <domain>           # Entries on the domain and the settings each overrides
 cloudcruise vault site-settings apply-defaults --domain <domain>    # Entries read every setting from the domain (--entry-id <uuid> to limit)
-cloudcruise vault site-settings overrides --user-id <id>            # Settings one entry sets itself (--domain optional)
+cloudcruise vault site-settings overrides --user-id <id> \
+  --domain <domain>                                                 # Settings one entry sets itself
 cloudcruise vault site-settings reset-overrides --user-id <id> \
-  --key max_concurrency --key persist_cookies                       # Entry reads those settings from the domain again
+  --domain <domain> --key max_concurrency --key persist_cookies                       # Entry reads those settings from the domain again
 cloudcruise vault encrypt "plaintext"                               # Encrypt a value (no API call)
 cloudcruise vault decrypt "ciphertext"                              # Decrypt a value (no API call)
 echo "secret" | cloudcruise vault encrypt --stdin                   # Encrypt from stdin
@@ -408,7 +408,7 @@ cloudcruise builder interrupt   # Stop the agent's current processing
 cloudcruise builder end         # End the conversation and clean up
 ```
 
-**Credentials for builder sessions.** A workflow with a non-empty `vault_schema` needs its credential supplied, or login fails at the password step. Both `builder start` and `builder edit` take `--vault-user-id <permissioned_user_id>` and optionally `--vault-domain <domain>` for a single credential (`--vault-domain` alone is a usage error). Leave the domain out for an entry without a domain or a user ID with a single entry; pass it when the user ID has several entries. Edit matches the domain to the workflow's `vault_schema` alias. For a multi-credential workflow, bind extra aliases via `builder edit --input '{"<alias>":"<permissioned_user_id>"}'`. `builder edit` also takes `--use-example-inputs` to pre-fill non-credential inputs from the workflow's `input_schema` examples (server-side).
+**Credentials for builder sessions.** A workflow with a non-empty `vault_schema` needs its credential supplied, or login fails at the password step. Both `builder start` and `builder edit` take `--vault-user-id <permissioned_user_id>` + `--vault-domain <domain>` (both-or-neither) for a single credential; edit matches the domain to the workflow's `vault_schema` alias. For a multi-credential workflow, bind extra aliases via `builder edit --input '{"<alias>":"<permissioned_user_id>"}'`. `builder edit` also takes `--use-example-inputs` to pre-fill non-credential inputs from the workflow's `input_schema` examples (server-side).
 
 **Editing a branch or version.** `builder edit --workflow <workflow_id> --branch fix-login` edits that branch's latest version, and the session's saves go to that branch. `--version 2.1.0` (or a range) starts from that version instead. Without either, the default branch is edited. A protected branch rejects the builder's saves: create a branch first (`branches create`), edit it, then open a pull request.
 
@@ -636,11 +636,11 @@ Raw `--encryption-key <hex>` and `--api-key <key>` flags are **rejected by defau
 **Important details:**
 
 - The API field is `user_name` (not `username`). Use the `--user-name` flag.
-- Vault entries are looked up by `--user-id` + `--domain`, not by UUID. `--domain` is optional: an entry without a domain (`"domain": null`) is reached by its user ID alone, and so is any user ID with a single entry. A user ID with several entries and no `--domain` gets a 409 listing the domains; pass one.
+- Vault entries are looked up by `--user-id` + `--domain`, not by UUID.
 - `vault list` returns summary fields only. Use `--full` for all fields (additional fields and security questions as in `vault get`).
 - `vault get` returns encrypted fields by default. Add `--decrypt` for plaintext.
 - The `--domain` must be a valid URL. `localhost` domains are rejected -- use `http://127.0.0.1:<port>` instead.
-- The vault_schema `domain` and the vault entry `domain` must match exactly. `domain` is optional in a `vault_schema` entry (`{ "type": "credential" }`): the run then uses the passed user ID's only entry, or is rejected with a 400 listing the domains when it has several.
+- The vault_schema `domain` and the vault entry `domain` must match exactly.
 - Session/persistence fields (`cookies`, `local_storage`, `persist_*`, concurrency, expiry) have no dedicated flags -- use `--file`/`--stdin` with full JSON. `vault get` output lacks field values and answers: drop `additional_fields` and `security_questions` from it before sending, or the API answers 400.
 - Secret flags (`--password`, `--user-name`, `--tfa-secret`) are visible in `ps` output. Use `--stdin` or `--file` for sensitive values.
 
@@ -693,7 +693,6 @@ cloudcruise vault create \
 # 2. Wire the credential into the workflow's vault_schema and run_input_variables
 #    vault_schema maps an alias to a domain:
 #      { "USER": { "type": "credential", "domain": "app.example.com" } }
-#    domain is optional: { "USER": { "type": "credential" } } uses the passed user ID's only entry
 #    run_input_variables maps the alias to a permissioned_user_id:
 #      { "USER": "f47ac10b-58cc-4372-a567-0e02b2c3d479" }
 

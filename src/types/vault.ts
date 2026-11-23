@@ -32,8 +32,7 @@ export interface VaultSecurityQuestion {
 export interface VaultEntry {
   id: string
   permissioned_user_id: string
-  /** Null for an entry without a domain. */
-  domain: string | null
+  domain: string
   user_name: string | null
   password: string | null
   secret_provider_id: string | null
@@ -96,7 +95,7 @@ export type SiteSettingKey = (typeof SITE_SETTING_KEYS)[number]
 export interface VaultEntryPayload {
   id?: string
   permissioned_user_id: string
-  domain?: string
+  domain: string
   user_name?: string
   password?: string
   secret_provider_id?: string
@@ -188,12 +187,12 @@ export interface ApplySiteSettingsDefaultsRequest {
 
 export interface SiteSettingsEntryOverrides {
   id: string
-  domain: string | null
+  domain: string
   overridden: string[]
 }
 
 export interface ClearSiteSettingsOverridesRequest {
   permissioned_user_id: string
-  domain?: string
+  domain: string
   keys: SiteSettingKey[]
 }

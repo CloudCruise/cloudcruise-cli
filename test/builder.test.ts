@@ -29,12 +29,11 @@ test("editCredentialFields returns {} when neither flag is set", () => {
   assert.deepEqual(editCredentialFields({}), {})
 })
 
-// The builder API takes a user ID without authUrl for an entry without a domain
-// or a user ID with a single entry, so the domain is optional.
-test("editCredentialFields sends only permissionedUserId when --vault-user-id is given without a domain", () => {
-  assert.deepEqual(editCredentialFields({ vaultUserId: "user-123" }), {
-    permissionedUserId: "user-123"
-  })
+test("editCredentialFields throws UsageError when only --vault-user-id is set", () => {
+  assert.throws(
+    () => editCredentialFields({ vaultUserId: "user-123" }),
+    UsageError
+  )
 })
 
 test("editCredentialFields throws UsageError when only --vault-domain is set", () => {

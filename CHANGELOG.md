@@ -15,9 +15,7 @@
 
 ### Changed
 
-- `--domain` is optional on `vault get`, `vault create`, `vault update`, `vault tfa-code` and `vault clear-state`, and `--vault-user-id` on `builder start` and `builder edit` no longer needs `--vault-domain`. The field is not sent when the flag is absent: the API uses the user ID's only entry, or answers 409 listing the domains when the user ID has several, and the CLI adds a hint to pass `--domain`. `--vault-domain` without `--vault-user-id` is still a usage error.
-- A vault entry's `domain` is `null` when it has none; `vault get`, `vault list` and `--file` payloads carry it through as `null`. Workflow `vault_schema` entries may omit `domain`.
-- The `cloudcruise` and `cloudcruise-workflow-dsl` skills document optional domains, `vault site-settings`, and that on an entry `max_concurrency: -1` or a zero interval (`"0 seconds"`) for the two expiry fields turns the limit off although the domain sets a value, while `null` inherits.
+- The `cloudcruise` skill documents `vault site-settings` and that on an entry `max_concurrency: -1` or a zero interval (`"0 seconds"`) for the two expiry fields turns the limit off although the domain sets a value, while `null` inherits.
 
 ### Fixed
 

@@ -4,7 +4,6 @@ import { ApiClient } from "../core/api-client.js"
 import { outputJson } from "../core/output.js"
 import { fail, UsageError } from "../core/exit.js"
 import { addAuthOptions, type AuthOptions } from "../core/auth-options.js"
-import { withDomainHint } from "../core/vault-domain-hint.js"
 import {
   SITE_SETTING_KEYS,
   type ApplySiteSettingsDefaultsRequest,
@@ -129,7 +128,7 @@ export function buildApplyDefaultsBody(opts: {
 
 export function buildClearOverridesBody(opts: {
   userId: string
-  domain?: string
+  domain: string
   key: string[] | false
 }): ClearSiteSettingsOverridesRequest {
   const keys = opts.key || []
@@ -141,7 +140,7 @@ export function buildClearOverridesBody(opts: {
   for (const key of keys) assertSettingKey("--key", key)
   return {
     permissioned_user_id: opts.userId,
-    ...(opts.domain !== undefined && { domain: opts.domain }),
+    domain: opts.domain,
     keys: keys as SiteSettingKey[],
   }
 }
@@ -265,25 +264,25 @@ Prints the updated domain settings.
       .command("overrides")
       .description("Show the settings a vault entry sets itself")
       .requiredOption("--user-id <id>", "Permissioned user ID")
-      .option("--domain <domain>", "Domain of the entry. Optional while the user ID has a single entry")
+      .requiredOption("--domain <domain>", "Domain of the entry")
   ).addHelpText("after", `
 Examples:
   $ cloudcruise vault site-settings overrides --user-id f47ac10b-... --domain app.example.com
-  $ cloudcruise vault site-settings overrides --user-id f47ac10b-...
 
-Prints the entry id, its domain (null for an entry without one) and overridden:
-the settings the entry stores itself. Every other setting is read from the domain.
-With several entries for the user ID the API answers 409 and lists their domains.
-`).action(async (opts: { userId: string; domain?: string } & AuthOptions) => {
+Prints the entry id, its domain and overridden: the settings the entry stores
+itself. Every other setting is read from the domain.
+`).action(async (opts: { userId: string; domain: string } & AuthOptions) => {
     try {
       const client = new ApiClient(await resolveAuth(opts))
-      const params = new URLSearchParams({ permissioned_user_id: opts.userId })
-      if (opts.domain !== undefined) params.set("domain", opts.domain)
+      const params = new URLSearchParams({
+        permissioned_user_id: opts.userId,
+        domain: opts.domain,
+      })
       outputJson(
         await client.get<SiteSettingsEntryOverrides>(`/vault/site-settings/overrides?${params}`)
       )
     } catch (err: unknown) {
-      fail(withDomainHint(err, opts.domain))
+      fail(err)
     }
   })
 
@@ -292,7 +291,7 @@ With several entries for the user ID the API answers 409 and lists their domains
       .command("reset-overrides")
       .description("Stop a vault entry from overriding settings, so it reads them from its domain again")
       .requiredOption("--user-id <id>", "Permissioned user ID")
-      .option("--domain <domain>", "Domain of the entry. Optional while the user ID has a single entry")
+      .requiredOption("--domain <domain>", "Domain of the entry")
       .option("--key <setting>", "Setting the entry stops overriding. Repeatable, at least one", collect)
   ).addHelpText("after", `
 Examples:
@@ -300,7 +299,7 @@ Examples:
 
 Prints the settings the entry still overrides.
 ${SETTINGS_HELP}`).action(
-    async (opts: { userId: string; domain?: string; key: string[] | false } & AuthOptions) => {
+    async (opts: { userId: string; domain: string; key: string[] | false } & AuthOptions) => {
       try {
         const body = buildClearOverridesBody(opts)
         const client = new ApiClient(await resolveAuth(opts))
@@ -308,7 +307,7 @@ ${SETTINGS_HELP}`).action(
           await client.patch<SiteSettingsEntryOverrides>("/vault/site-settings/overrides", body)
         )
       } catch (err: unknown) {
-        fail(withDomainHint(err, opts.domain))
+        fail(err)
       }
     }
   )

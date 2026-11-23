@@ -37,14 +37,14 @@ const KEY = "11".repeat(32)
 
 type Recorded = { method?: string; url?: string; body: unknown }
 
-async function startVaultBackend(response: unknown = {}, status = 200) {
+async function startVaultBackend(response: unknown = {}) {
   const requests: Recorded[] = []
   const server = createServer((req, res) => {
     let raw = ""
     req.on("data", (chunk) => (raw += chunk))
     req.on("end", () => {
       requests.push({ method: req.method, url: req.url, body: raw ? JSON.parse(raw) : undefined })
-      res.writeHead(status, { "content-type": "application/json" })
+      res.writeHead(200, { "content-type": "application/json" })
       res.end(JSON.stringify(response))
     })
   })
@@ -77,10 +77,9 @@ function runCli(args: string[], stdin?: string, env: Record<string, string | und
 
 async function withBackend<T>(
   response: unknown,
-  fn: (backend: Awaited<ReturnType<typeof startVaultBackend>>) => Promise<T>,
-  status = 200
+  fn: (backend: Awaited<ReturnType<typeof startVaultBackend>>) => Promise<T>
 ): Promise<T> {
-  const backend = await startVaultBackend(response, status)
+  const backend = await startVaultBackend(response)
   try {
     return await fn(backend)
   } finally {
@@ -410,94 +409,6 @@ function query(url: string | undefined): Record<string, string> {
   return Object.fromEntries(new URL(url ?? "", "http://x").searchParams)
 }
 
-// Without --domain the API picks the user ID's only entry, so the query must not carry a domain at all.
-test("vault get with only --user-id queries by user ID and sends no domain", async () => {
-  await withBackend({ id: "e1", domain: null }, async ({ baseUrl, requests }) => {
-    const result = await runCli(["vault", "get", ...USER, "--base-url", baseUrl])
-    assert.equal(result.code, 0, result.stderr)
-    assert.deepEqual(query(requests[0].url), { permissioned_user_id: "u1" })
-    assert.equal(JSON.parse(result.stdout).domain, null)
-  })
-})
-
-// Existing invocations with --domain keep sending it.
-test("vault get with --domain still sends the domain", async () => {
-  await withBackend({}, async ({ baseUrl, requests }) => {
-    const result = await runCli(["vault", "get", ...ENTRY, "--base-url", baseUrl])
-    assert.equal(result.code, 0, result.stderr)
-    assert.deepEqual(query(requests[0].url), { permissioned_user_id: "u1", domain: "https://bank.example.com" })
-  })
-})
-
-// A user ID with several entries and no domain gets a 409 listing the domains; the CLI must print the
-// server's message and tell the user to pass --domain.
-test("vault get without --domain prints the API's 409 message and hints at --domain", async () => {
-  const message = "User ID u1 has several vault entries; pass a domain: a.example.com, b.example.com"
-  await withBackend({ message }, async ({ baseUrl }) => {
-    const result = await runCli(["vault", "get", ...USER, "--base-url", baseUrl])
-    assert.notEqual(result.code, 0)
-    assert.match(result.stderr, /a\.example\.com, b\.example\.com/)
-    assert.match(result.stderr, /pass --domain/)
-  }, 409)
-})
-
-// With --domain given a 409 means something else, so the several-entries hint must not appear.
-test("vault get with --domain does not add the several-entries hint to a 409", async () => {
-  await withBackend({ message: "conflict" }, async ({ baseUrl }) => {
-    const result = await runCli(["vault", "get", ...ENTRY, "--base-url", baseUrl])
-    assert.notEqual(result.code, 0)
-    assert.doesNotMatch(result.stderr, /pass --domain/)
-  }, 409)
-})
-
-// An entry without a domain is created with the user ID alone; the field must be absent, not null or "".
-test("vault create and update with only --user-id send no domain field", async () => {
-  await withBackend({}, async ({ baseUrl, requests }) => {
-    const create = await runCli(["vault", "create", ...USER, "--user-alias", "main", "--base-url", baseUrl])
-    const update = await runCli(["vault", "update", ...USER, "--user-alias", "other", "--base-url", baseUrl])
-    assert.equal(create.code, 0, create.stderr)
-    assert.equal(update.code, 0, update.stderr)
-    assert.deepEqual(requests.map((r) => r.method), ["POST", "PUT"])
-    for (const request of requests) {
-      assert.equal("domain" in (request.body as object), false)
-      assert.equal((request.body as Record<string, unknown>).permissioned_user_id, "u1")
-    }
-  })
-})
-
-test("vault create without --user-id and without --file or --stdin is a usage error", async () => {
-  await withBackend({}, async ({ baseUrl, requests }) => {
-    const result = await runCli(["vault", "create", "--domain", "bank.example.com", "--base-url", baseUrl])
-    assert.equal(result.code, 2)
-    assert.match(result.stderr, /--user-id/)
-    assert.equal(requests.length, 0)
-  })
-})
-
-// tfa-code and clear-state address an entry like get does: the domain is added only when given.
-test("vault tfa-code and clear-state with only --user-id send no domain", async () => {
-  await withBackend({}, async ({ baseUrl, requests }) => {
-    const code = await runCli(["vault", "tfa-code", ...USER, "--method", "EMAIL", "--base-url", baseUrl])
-    const clear = await runCli(["vault", "clear-state", ...USER, "--base-url", baseUrl])
-    assert.equal(code.code, 0, code.stderr)
-    assert.equal(clear.code, 0, clear.stderr)
-    assert.deepEqual(query(requests[0].url), { permissioned_user_id: "u1", method: "EMAIL" })
-    assert.equal(requests[1].method, "PATCH")
-    assert.deepEqual(requests[1].body, { permissioned_user_id: "u1" })
-  })
-})
-
-test("vault list prints an entry without a domain as domain null", async () => {
-  await withBackend(
-    [{ id: "e1", permissioned_user_id: "u1", domain: null, secret_provider_id: null, user_alias: null, created_at: null }],
-    async ({ baseUrl }) => {
-      const result = await runCli(["vault", "list", "--base-url", baseUrl])
-      assert.equal(result.code, 0, result.stderr)
-      assert.equal(JSON.parse(result.stdout)[0].domain, null)
-    }
-  )
-})
-
 const DOMAIN = ["--domain", "app.example.com"]
 const ENTRY_UUID = "3f1c0d7e-4a5b-4c6d-8e9f-0a1b2c3d4e5f"
 const WORKFLOW_UUID = "9a2b4c6d-1e3f-4a5b-8c7d-6e5f4a3b2c1d"
@@ -589,26 +500,32 @@ test("vault site-settings apply-defaults rejects an --entry-id that is not a UUI
   })
 })
 
-test("vault site-settings overrides queries by user ID and adds the domain only when given", async () => {
-  await withBackend({ id: ENTRY_UUID, domain: null, overridden: [] }, async ({ baseUrl, requests }) => {
-    const alone = await runCli(["vault", "site-settings", "overrides", ...USER, "--base-url", baseUrl])
-    const both = await runCli(["vault", "site-settings", "overrides", ...USER, ...DOMAIN, "--base-url", baseUrl])
-    assert.equal(alone.code, 0, alone.stderr)
-    assert.equal(both.code, 0, both.stderr)
+test("vault site-settings overrides queries by user ID and domain", async () => {
+  await withBackend({ id: ENTRY_UUID, domain: "app.example.com", overridden: [] }, async ({ baseUrl, requests }) => {
+    const result = await runCli(["vault", "site-settings", "overrides", ...USER, ...DOMAIN, "--base-url", baseUrl])
+    assert.equal(result.code, 0, result.stderr)
     assert.equal(new URL(requests[0].url ?? "", "http://x").pathname, "/vault/site-settings/overrides")
-    assert.deepEqual(query(requests[0].url), { permissioned_user_id: "u1" })
-    assert.deepEqual(query(requests[1].url), { permissioned_user_id: "u1", domain: "app.example.com" })
+    assert.deepEqual(query(requests[0].url), { permissioned_user_id: "u1", domain: "app.example.com" })
   })
 })
 
-test("vault site-settings reset-overrides sends the user ID, optional domain and every --key", async () => {
+test("vault site-settings overrides and reset-overrides require --domain", async () => {
+  await withBackend({}, async ({ baseUrl, requests }) => {
+    const overrides = await runCli(["vault", "site-settings", "overrides", ...USER, "--base-url", baseUrl])
+    const reset = await runCli(["vault", "site-settings", "reset-overrides", ...USER, "--key", "max_concurrency", "--base-url", baseUrl])
+    assert.notEqual(overrides.code, 0)
+    assert.notEqual(reset.code, 0)
+    assert.match(overrides.stderr, /--domain/)
+    assert.match(reset.stderr, /--domain/)
+    assert.equal(requests.length, 0)
+  })
+})
+
+test("vault site-settings reset-overrides sends the user ID, domain and every --key", async () => {
   await withBackend({ id: ENTRY_UUID, domain: "app.example.com", overridden: [] }, async ({ baseUrl, requests }) => {
     const result = await runCli([
       "vault", "site-settings", "reset-overrides", ...USER, ...DOMAIN,
       "--key", "max_concurrency", "--key", "persist_cookies", "--base-url", baseUrl
-    ])
-    const noDomain = await runCli([
-      "vault", "site-settings", "reset-overrides", ...USER, "--key", "login_workflow_id", "--base-url", baseUrl
     ])
     assert.equal(result.code, 0, result.stderr)
     assert.equal(requests[0].method, "PATCH")
@@ -616,15 +533,13 @@ test("vault site-settings reset-overrides sends the user ID, optional domain and
     assert.deepEqual(requests[0].body, {
       permissioned_user_id: "u1", domain: "app.example.com", keys: ["max_concurrency", "persist_cookies"]
     })
-    assert.deepEqual(requests[1].body, { permissioned_user_id: "u1", keys: ["login_workflow_id"] })
-    assert.equal(noDomain.code, 0, noDomain.stderr)
   })
 })
 
 test("vault site-settings reset-overrides needs at least one valid --key", async () => {
   await withBackend({}, async ({ baseUrl, requests }) => {
-    const none = await runCli(["vault", "site-settings", "reset-overrides", ...USER, "--base-url", baseUrl])
-    const bad = await runCli(["vault", "site-settings", "reset-overrides", ...USER, "--key", "pigeon", "--base-url", baseUrl])
+    const none = await runCli(["vault", "site-settings", "reset-overrides", ...USER, ...DOMAIN, "--base-url", baseUrl])
+    const bad = await runCli(["vault", "site-settings", "reset-overrides", ...USER, ...DOMAIN, "--key", "pigeon", "--base-url", baseUrl])
     assert.equal(none.code, 2)
     assert.equal(bad.code, 2)
     assert.equal(requests.length, 0)
