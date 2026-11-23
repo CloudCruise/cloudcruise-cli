@@ -2,6 +2,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { createMcpHandler } from "@modelcontextprotocol/server"
 import { hostHeaderValidation, originValidation, toNodeHandler } from "@modelcontextprotocol/node"
 import type { Config } from "./config.js"
+import { StepUpGate } from "./step-up.js"
 import { createServer as createMcpServer, type TestHooks } from "./tools/index.js"
 
 const METADATA_PATHS = new Set([
@@ -34,8 +35,11 @@ export function createHttpServer(config: Config, hooks: TestHooks = {}): McpHttp
 
   // The SDK never reads the Authorization header; the gate below hands it the
   // token as authInfo, and each request gets its own McpServer bound to it.
-  const mcp = createMcpHandler(({ authInfo }) => createMcpServer(config, authInfo?.token ?? "", hooks))
+  const mcp = createMcpHandler(({ authInfo }) =>
+    createMcpServer(config, authInfo?.token ?? "", hooks, authInfo?.extra?.stepUpUrl as string | undefined)
+  )
   const mcpNode = toNodeHandler(mcp)
+  const gate = new StepUpGate(config)
 
   const server = createServer((req, res) => {
     const started = Date.now()
@@ -70,8 +74,24 @@ export function createHttpServer(config: Config, hooks: TestHooks = {}): McpHttp
           .end(JSON.stringify({ error: "unauthorized", error_description: "Bearer token required" }))
         return
       }
-      // Not validated here: the API authorizes every call made with it.
-      Object.assign(req, { auth: { token, clientId: "", scopes: [] } })
+      void gate.check(token).then((stepUp) => {
+        // The user confirmed this connector, but this token predates it. invalid_token
+        // makes the client refresh, and the refreshed token is aal2.
+        if (stepUp.status === "refresh") {
+          res
+            .writeHead(401, {
+              "Content-Type": "application/json",
+              "WWW-Authenticate": `Bearer error="invalid_token", error_description="Two-factor confirmation complete; refresh the token", resource_metadata="${metadataUrl}"`
+            })
+            .end(JSON.stringify({ error: "invalid_token", error_description: "Two-factor confirmation complete; refresh the token" }))
+          return
+        }
+        // Not validated here: the API authorizes every call made with it.
+        const extra = stepUp.status === "required" ? { stepUpUrl: stepUp.url } : undefined
+        Object.assign(req, { auth: { token, clientId: "", scopes: [], extra } })
+        void mcpNode(req, res)
+      })
+      return
     }
     void mcpNode(req, res)
   })

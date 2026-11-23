@@ -2,7 +2,8 @@ import { McpServer } from "@modelcontextprotocol/server"
 import type { Config } from "../config.js"
 import { registerBuild, type BuildTiming } from "./build.js"
 import { registerCall } from "./call.js"
-import { VERSION } from "./common.js"
+import { errorResult, VERSION } from "./common.js"
+import { stepUpMessage } from "../step-up.js"
 import { registerObserve, type ObserveTiming } from "./observe.js"
 import { registerRun } from "./run.js"
 import { registerSearch } from "./search.js"
@@ -20,8 +21,20 @@ export interface TestHooks {
 }
 
 /** One server per HTTP request: the token is that request's, never shared. */
-export async function createServer(config: Config, token: string, hooks: TestHooks = {}): Promise<McpServer> {
+export async function createServer(
+  config: Config,
+  token: string,
+  hooks: TestHooks = {},
+  stepUpUrl?: string
+): Promise<McpServer> {
   const server = new McpServer({ name: "cloudcruise", version: VERSION })
+  // Until the user confirms this connector, every tool, whoami included, answers with
+  // the link. The tool list stays the same, so the client sees nothing else change.
+  if (stepUpUrl) {
+    const register = server.registerTool.bind(server)
+    server.registerTool = ((name: string, toolConfig: unknown) =>
+      register(name, toolConfig as never, (() => errorResult(stepUpMessage(stepUpUrl))) as never)) as typeof server.registerTool
+  }
   const tool = { config, token }
   await registerSearch(server, tool)
   registerCall(server, tool)
