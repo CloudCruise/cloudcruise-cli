@@ -675,7 +675,7 @@ Raw `--encryption-key <hex>` and `--api-key <key>` flags are **rejected by defau
 - `site-settings update --domain <domain>` creates the domain's settings when it has none and changes only the flags you pass (booleans take `true` or `false`; intervals look like `"7 days"`). `--clear <setting>` removes a default by sending `null`. Entries that set their own value keep it.
 - `site-settings list` shows each domain's `entry_count` and `overrides` (per setting, how many entries override it); `entries --domain` lists the entries and what each overrides.
 - `apply-defaults --domain <domain>` removes every setting the entries set themselves so they read the domain again: all entries on the domain, or those named with `--entry-id` (repeatable). `reset-overrides --user-id <id> --key <setting>` does it for chosen settings of one entry, and prints what it still overrides.
-- A value on an entry that equals the domain's stays inherited unless pinned: `vault create`/`vault update --pin <setting>` (repeatable, same keys) stores it as the entry's own value so a later change to the domain default does not reach it. A pinned setting with no value is ignored.
+- A value on an entry that equals the domain's stays inherited unless pinned: `vault create`/`vault update --pin <setting>` (repeatable, same keys; only with `--file`/`--stdin`, whose payload must carry that setting's value, otherwise a usage error) stores it as the entry's own value so a later change to the domain default does not reach it.
 - On an entry (set through `vault update --file`/`--stdin`), `max_concurrency: -1` or a zero interval (`"0 seconds"`) for the two expiry fields means the limit is turned off although the domain sets a value; `null` means inherit.
 
 ## Credential Setup for Workflows

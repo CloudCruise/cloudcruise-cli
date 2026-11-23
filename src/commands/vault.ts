@@ -265,10 +265,6 @@ function buildPayloadFromFlags(
     }
     payload.secret_cache_ttl_seconds = ttl
   }
-  if (opts.pin && opts.pin.length > 0) {
-    for (const key of opts.pin) assertSettingKey("--pin", key)
-    payload.pinned_settings = [...new Set(opts.pin)]
-  }
   if (opts.proxy !== undefined) {
     if (!PROXY_SETTINGS.includes(opts.proxy as (typeof PROXY_SETTINGS)[number])) {
       throw new UsageError(
@@ -373,7 +369,6 @@ const FIELD_FLAGS = {
   secretProviderId: "--secret-provider-id",
   secretRef: "--secret-ref",
   secretCacheTtlSeconds: "--secret-cache-ttl-seconds",
-  pin: "--pin",
   proxyEnable: "--proxy-enable",
   proxyIp: "--proxy-ip",
   proxy: "--proxy",
@@ -421,7 +416,7 @@ function addEntryOptions(command: Command, domainHelp: string): Command {
     .option("--secret-provider-id <id>", "Secret-provider connection ID for provider-backed credentials")
     .option("--secret-ref <ref>", "Secret-provider item reference, for example op://vaultId/itemId")
     .option("--secret-cache-ttl-seconds <seconds>", "Override provider cache TTL for this credential")
-    .option("--pin <setting>", "Store this setting on the entry as its own value even when it equals its domain's, so a later change to the domain default does not reach it. Repeatable; a setting without a value is ignored", collect)
+    .option("--pin <setting>", "Store this setting on the entry as its own value even when it equals its domain's, so a later change to the domain default does not reach it. Repeatable. The entry's value for the setting must be in the same request, so use it with --file or --stdin", collect)
     .option("--proxy-enable", "Enable proxy for this entry")
     .option("--proxy-ip <ip>", "Target IP for proxy assignment")
     .option("--proxy <setting>", "Proxy setting: random, static, country, or custom")
@@ -466,10 +461,26 @@ async function writeEntry(
   const input = await readJsonObject(opts)
   if (input) {
     payload = input
+    if (opts.pin && opts.pin.length > 0) {
+      for (const key of opts.pin) {
+        assertSettingKey("--pin", key)
+        if (payload[key] === undefined || payload[key] === null) {
+          throw new UsageError(
+            `--pin ${key} needs a value for ${key} in the --file/--stdin payload; a pinned setting without a value is ignored by the API`
+          )
+        }
+      }
+      payload = { ...payload, pinned_settings: [...new Set(opts.pin)] }
+    }
   } else {
     if (!opts.userId || !opts.domain) {
       throw new UsageError(
         "Provide --user-id and --domain, or use --file/--stdin"
+      )
+    }
+    if (opts.pin && opts.pin.length > 0) {
+      throw new UsageError(
+        "--pin needs the entry's value for the setting in the same request: pass the payload with --file or --stdin"
       )
     }
     payload = buildPayloadFromFlags({ ...opts, userId: opts.userId, domain: opts.domain })

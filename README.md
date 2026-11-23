@@ -171,8 +171,8 @@ cloudcruise snapshot test '//input[@name="email"]' --file ./snapshots/page.html
 | `snapshot test <xpath> [sid] [nid]` | Test XPath against snapshot (`--file`, `--count`) |
 | `vault list` | List vault entries (`--full`) |
 | `vault get` | Get vault entry (`--user-id`, `--domain`, `--decrypt`); additional fields as name and type unless `--decrypt` |
-| `vault create` | Create vault entry (`--user-id`, `--domain`, `--user-name`, `--password`, `--tfa-method` (repeatable), `--additional-fields-file`, `--security-questions-file`, `--secret-provider-id`, `--secret-ref`, `--pin` (repeatable)) |
-| `vault update` | Update vault entry fields, including provider-backed bindings; `--pin <setting>` (repeatable) stores a setting as the entry's own value even when it equals its domain's; `--no-tfa-method` removes every TFA method |
+| `vault create` | Create vault entry (`--user-id`, `--domain`, `--user-name`, `--password`, `--tfa-method` (repeatable), `--additional-fields-file`, `--security-questions-file`, `--secret-provider-id`, `--secret-ref`, `--pin` (repeatable, with `--file`/`--stdin`)) |
+| `vault update` | Update vault entry fields, including provider-backed bindings; `--pin <setting>` (repeatable, with `--file`/`--stdin` whose payload carries the value) stores a setting as the entry's own value even when it equals its domain's; `--no-tfa-method` removes every TFA method |
 | `vault tfa-code` | Current 2FA code of an entry (`--user-id`, `--domain`, `--method`, `--field`) |
 | `vault clear-state` | Clear browser state for a credential (`--user-id`, `--domain`) |
 | `vault site-settings list` | List domain settings: the defaults every vault entry on a domain inherits, with `entry_count` and per-setting override counts |

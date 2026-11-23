@@ -88,6 +88,7 @@ async function withBackend<T>(
 }
 
 const ENTRY = ["--user-id", "u1", "--domain", "https://bank.example.com"]
+const ENTRY_BODY = { permissioned_user_id: "u1", domain: "https://bank.example.com" }
 
 // An entry can use several TFA methods; the API takes them as the tfa_methods list.
 test("vault create with --tfa-method repeated sends every method as tfa_methods", async () => {
@@ -546,19 +547,42 @@ test("vault site-settings reset-overrides needs at least one valid --key", async
   })
 })
 
-// pinned_settings is request-only and only meaningful when non-empty, so the field must be absent without --pin.
-test("vault create and update send pinned_settings from repeated --pin, once each, and nothing without --pin", async () => {
+// A pin only takes effect together with the entry's value in the same request, and only --file/--stdin carry
+// setting values, so the pin is merged into that payload.
+test("vault create --file and update --stdin merge deduplicated pinned_settings next to the values", async () => {
   await withBackend({}, async ({ baseUrl, requests }) => {
-    const pins = ["--pin", "max_concurrency", "--pin", "persist_cookies", "--pin", "max_concurrency"]
-    const create = await runCli(["vault", "create", ...ENTRY, ...pins, "--base-url", baseUrl])
-    const update = await runCli(["vault", "update", ...ENTRY, "--pin", "login_workflow_id", "--base-url", baseUrl])
-    const plain = await runCli(["vault", "update", ...ENTRY, "--user-alias", "a", "--base-url", baseUrl])
+    const dir = mkdtempSync(join(tmpdir(), "vault-pin-"))
+    const file = join(dir, "entry.json")
+    writeFileSync(file, JSON.stringify({ ...ENTRY_BODY, max_concurrency: 2, persist_cookies: true }))
+    const create = await runCli(["vault", "create", "--file", file, "--pin", "max_concurrency", "--pin", "persist_cookies", "--pin", "max_concurrency", "--base-url", baseUrl])
+    const update = await runCli(["vault", "update", "--stdin", "--pin", "persist_cookies", "--base-url", baseUrl], JSON.stringify({ ...ENTRY_BODY, persist_cookies: false }))
     assert.equal(create.code, 0, create.stderr)
     assert.equal(update.code, 0, update.stderr)
-    assert.equal(plain.code, 0, plain.stderr)
-    assert.deepEqual((requests[0].body as Record<string, unknown>).pinned_settings, ["max_concurrency", "persist_cookies"])
-    assert.deepEqual((requests[1].body as Record<string, unknown>).pinned_settings, ["login_workflow_id"])
-    assert.equal("pinned_settings" in (requests[2].body as object), false)
+    assert.deepEqual(requests[0].body, { ...ENTRY_BODY, max_concurrency: 2, persist_cookies: true, pinned_settings: ["max_concurrency", "persist_cookies"] })
+    assert.deepEqual(requests[1].body, { ...ENTRY_BODY, persist_cookies: false, pinned_settings: ["persist_cookies"] })
+  })
+})
+
+test("vault update --stdin without --pin sends no pinned_settings", async () => {
+  await withBackend({}, async ({ baseUrl, requests }) => {
+    const result = await runCli(["vault", "update", "--stdin", "--base-url", baseUrl], JSON.stringify(ENTRY_BODY))
+    assert.equal(result.code, 0, result.stderr)
+    assert.equal("pinned_settings" in (requests[0].body as object), false)
+  })
+})
+
+// Pinning a setting the payload gives no value for would be silently ignored by the API, so it is refused up front.
+test("vault --pin is a usage error for an unknown setting, a setting without a value, and without --file/--stdin", async () => {
+  await withBackend({}, async ({ baseUrl, requests }) => {
+    const body = JSON.stringify({ ...ENTRY_BODY, max_concurrency: 2 })
+    const unknown = await runCli(["vault", "create", "--stdin", "--pin", "pigeon", "--base-url", baseUrl], body)
+    const noValue = await runCli(["vault", "create", "--stdin", "--pin", "persist_cookies", "--base-url", baseUrl], body)
+    const flagsOnly = await runCli(["vault", "create", ...ENTRY, "--pin", "max_concurrency", "--base-url", baseUrl])
+    assert.equal(unknown.code, 2)
+    assert.equal(noValue.code, 2)
+    assert.match(noValue.stderr, /persist_cookies/)
+    assert.equal(flagsOnly.code, 2)
+    assert.equal(requests.length, 0)
   })
 })
 
