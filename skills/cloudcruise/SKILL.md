@@ -200,23 +200,22 @@ cloudcruise prs create --workflow <workflow_id> --head fix-login && cloudcruise 
 
 ### Workflow Components
 
-Components are reusable sub-workflows. A component can be pasted into many workflows; an `update` to the component propagates to every workflow that uses it (`--no-propagate` to skip). Component-data shape mirrors a workflow body (nodes/edges).
+Components are reusable sub-workflows, called from a workflow by a `COMPONENT_CALL` node. A component is either **local** (stored in the workflow's `local_components`) or a **workspace** component (listed in the workflow's `component_imports` and managed with the commands below). A call passes declared inputs and maps declared outputs; the component runs in its own scope and sees only its inputs. A call uses a workspace component's `latest` version or a pinned version number. Component-data shape mirrors a workflow body (nodes/edges). See the `cloudcruise-workflow-dsl` skill for the `COMPONENT_CALL` node.
 
 ```bash
 cloudcruise components list                                                    # List components in your workspace
 cloudcruise components get <component_id>                                      # Get latest version with componentData
 cloudcruise components get <component_id> --version-number 3                   # Specific historical version
 cloudcruise components versions <component_id>                                 # Version history (newest first)
-cloudcruise components usage <component_id>                                    # Workflows that use this component
+cloudcruise components usage <component_id>                                    # Workflows that call this component
 cloudcruise components create --name "Login flow" --file c.json                # Create from JSON
 cat data.json | cloudcruise components create --name "Login flow" --stdin      # Create from stdin
 cloudcruise components rename <component_id> --name "New name"                 # Rename only
-cloudcruise components update <component_id> --file c.json --version-note "…"  # New version + propagate to instances
-cloudcruise components update <component_id> --stdin --no-propagate            # Update without propagating
-cloudcruise components delete <component_id>                                   # Delete the component
+cloudcruise components update <component_id> --file c.json --version-note "…"  # New version; callers on latest pick it up next run
+cloudcruise components delete <component_id>                                   # Delete (blocked while anything calls it)
 ```
 
-**Edit pattern:** same fetch → edit → push as workflows. Read-only fields (`id`, `component_id`, `version_id`, `version_number`, `version_note`, `created_at`, `created_by`, `updated_at`, `workspace_id`) are stripped from the update body. The CLI accepts either the full get-response (auto-unwraps `componentData`/`component_data`) or just the `componentData` payload.
+**Edit pattern:** same fetch → edit → push as workflows. Read-only fields (`id`, `component_id`, `version_id`, `version_number`, `version_note`, `created_at`, `created_by`, `updated_at`, `workspace_id`, plus workflow-only fields such as `local_components` and `component_imports`) are stripped from the body. The CLI accepts either the full get-response (auto-unwraps `componentData`/`component_data`) or just the `componentData` payload.
 
 ```bash
 cloudcruise components get <component_id> > component.json
@@ -224,13 +223,14 @@ cloudcruise components get <component_id> > component.json
 cloudcruise components update <component_id> --file component.json --version-note "Fixed login XPath"
 ```
 
-**Before updating, check what propagation will affect.** `update` defaults to `propagate=true` and will create a new version of every workflow that embeds the component. Inspect first, then decide:
+**Before updating, check who calls the component.** An update creates a new version. Calls set to `latest` run it on their next run; calls pinned to a version keep running that version. `components usage` lists the callers:
 
 ```bash
-cloudcruise components usage <component_id>                                   # List affected workflows
-cloudcruise components update <component_id> --file c.json --version-note "…" # Default: propagate
-cloudcruise components update <component_id> --file c.json --no-propagate     # Component-only update
+cloudcruise components usage <component_id>                                   # Workflows that call it
+cloudcruise components update <component_id> --file c.json --version-note "…" # New version
 ```
+
+`--no-propagate` only affects older pasted copies of a component; calls by reference ignore it.
 
 ### Utils
 
