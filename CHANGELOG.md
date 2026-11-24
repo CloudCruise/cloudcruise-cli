@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Fixed
+
+- `builder status` help, the README and the `cloudcruise` skill no longer call `status` a keepalive. Polling `/status` or `/turn-state` does not keep a builder session alive; sessions end after inactivity, and only `send`, `respond`, `interrupt`, `save` or a running turn count as activity.
+
+## 1.18.0
+
 ### Added
 
 - `run paused` lists what holds runs in `execution.paused`: paused workflows and credentials, with the reason (for example "Paused because the target service is retired" or "Paused because the site says the account is locked"), and workflows held by a closed run window with `resumes_at`. Each credential has a `credential_id` for `run unpause`. It calls `GET /runs/paused`.
@@ -11,7 +17,7 @@
 
 ### Fixed
 
-- `builder status` help, the README and the `cloudcruise` skill no longer call `status` a keepalive. Polling `/status` or `/turn-state` does not keep a builder session alive; sessions end after inactivity, and only `send`, `respond`, `interrupt`, `save` or a running turn count as activity.
+- MCP `call` errors carry the API's error code next to the status, e.g. `workflows.list failed (404 NOT_FOUND): Workspace … not found or you don't have access`, and `CallError` exposes it as `code`.
 - `error-codes create` and `error-codes update` list the actions the API accepts: `alert`, `retry`, `pause_workflow` and `pause_credential`. The help and the `cloudcruise` skill listed `cancel` and `pause`, which the API rejects with a 400. The `--file`/`--stdin` help and the README name the `retries` and `retry_after` fields, and the help no longer says `retry` only labels the error; a retry requeues the run.
 
 ## 1.17.0

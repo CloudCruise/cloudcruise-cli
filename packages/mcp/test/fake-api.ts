@@ -133,7 +133,11 @@ export function createFakeApi(spec: unknown = JSON.parse(readFileSync(LAUNCH_SPE
     // Like the API's auth guard: a named workspace must be one of the user's.
     const workspaceId = req.headers["x-workspace-id"]
     if (workspaceId && !WORKSPACES.some((w) => w.id === workspaceId)) {
-      return send(403, { statusCode: 403, message: "Access denied to this workspace" })
+      return send(404, {
+        statusCode: 404,
+        message: `Workspace ${workspaceId} not found or you don't have access`,
+        code: "NOT_FOUND"
+      })
     }
     if (route === "GET /users/me") return send(200, { userId: "u1", email: "u1@example.test", workspaceId: workspaceId ?? null })
     if (route === "GET /me/workspaces") return send(200, WORKSPACES)
