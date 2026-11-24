@@ -880,7 +880,7 @@ agent's response with 'cloudcruise builder status'.
   /**
    * Canonical status object returned by `status`: the /status taxonomy
    * plus, when awaiting human input, the request details attached as
-   * `humanInput`. /status is also the keepalive (touches lastApiActivityAt).
+   * `humanInput`.
    */
   async function fetchStatus(
     client: ApiClient,
@@ -1042,8 +1042,7 @@ Other error-code responses are {"kind":"existing","error_code_id":"<id>"} and
       )
       echoSession(conversationId, source)
 
-      // Canonical status object; /status is also the keepalive. Auto-follows a
-      // cleared conversation to its tip.
+      // Canonical status object. Auto-follows a cleared conversation to its tip.
       const r = await withAutoFollow(
         client,
         conversationId,
@@ -1064,9 +1063,12 @@ Other error-code responses are {"kind":"existing","error_code_id":"<id>"} and
     builder.command("status").description("Show current builder conversation status")
   )).addHelpText("after", `
 Hits the /status endpoint, which reports the status taxonomy (processing,
-awaiting-human-input, agent-errored, completed, idle, ended) and doubles as the
-session keepalive. When the agent is awaiting human input, the request/field
-details for 'builder respond' are attached.
+awaiting-human-input, agent-errored, completed, idle, ended). When the agent is
+awaiting human input, the request/field details for 'builder respond' are
+attached.
+
+Polling does not keep a session alive. Sessions end after inactivity; only
+send, respond, interrupt, save or a running turn count as activity.
 
 The exit code IS the observed status, so a driver can switch on it without
 parsing stdout: 0 proceed (completed/idle/ended), 7 answer (awaiting-human-input),
@@ -1124,8 +1126,6 @@ observations therefore exit non-zero — a nonzero status is the state, not a fa
 
       const deadline = Date.now() + timeoutMs
       for (;;) {
-        // /turn-state doubles as the keepalive while a long turn runs, exactly
-        // as /status does — polling it prevents idle-expiry mid-turn.
         const state = await withAutoFollow(
           client,
           conversationId,

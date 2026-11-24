@@ -20,8 +20,8 @@ export const TOKEN_REJECTED = /invalid or expired|missing authorization|missing 
 export const RECONNECT =
   "The CloudCruise API rejected your token. Reconnect the CloudCruise connector to sign in again."
 
-// Every tool that reaches workspace data requires it. The API answers 503, not 403,
-// to an id that isn't a UUID, so the schema refuses one before it is sent.
+// Every tool that reaches workspace data requires it. The schema refuses an id that
+// isn't a UUID before it is sent, so a typo fails here instead of as the API's 404.
 export const workspaceIdInput = z.guid().describe("The workspace to act in.")
 
 /** What every tool of one request shares: the server's config and the caller's token. */

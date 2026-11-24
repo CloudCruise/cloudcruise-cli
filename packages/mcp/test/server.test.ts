@@ -329,10 +329,17 @@ for (const [label, args] of [
   })
 }
 
-test("call in a workspace the user isn't in passes the API's 403 through", async () => {
-  const result = await tool("call", { workspace_id: "0f0e0d0c-0b0a-4908-8706-050403020100", operation: "workflows.list" })
+// The API answers 404 for a workspace the user can't reach, whether or not it exists (PE-2387). The agent
+// must see the status, the code and the message naming the id, and no reconnect hint: signing in again won't help.
+test("call in a workspace the user isn't in passes the API's 404, code and message through", async () => {
+  const workspace = "0f0e0d0c-0b0a-4908-8706-050403020100"
+  const result = await tool("call", { workspace_id: workspace, operation: "workflows.list" })
   assert.equal(result.isError, true)
-  assert.match(result.content[0].text, /\(403\): Access denied to this workspace/)
+  assert.match(
+    result.content[0].text,
+    new RegExp(`workflows\\.list failed \\(404 NOT_FOUND\\): Workspace ${workspace} not found or you don't have access`)
+  )
+  assert.doesNotMatch(result.content[0].text, /Reconnect/)
 })
 
 test("call sends the body for a write", async () => {
