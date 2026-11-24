@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Changed
+
+- `install --skills` gets `cloudcruise-workflow-dsl` from `https://docs.cloudcruise.com` and checks it against the sha256 digest in the site's skills index. If the site can't be reached or the digest doesn't match, it installs the copy bundled with the CLI and reports `skillsBundledFallback`. The skill's `.cloudcruise-skill.json` records `source` (`remote` or `bundled`) and `digest`.
+- Auto-refresh updates an unedited `cloudcruise-workflow-dsl` when the docs site serves a new digest. It checks the index at most every six hours and waits at most 1.5 s, so an unreachable site never fails a command. A CLI upgrade alone no longer refreshes this skill.
+- `cloudcruise-workflow-dsl` is now the docs site's copy, generated hourly into this repo. It describes API calls instead of CLI commands. New in it: the COMPONENT_CALL node, `max_retries` as the recovery budget, `data:` URLs for file uploads, input schemas from a user's sample payload, and the 409s a save returns for a taken workflow id or a mismatched read-only field.
+
 ### Fixed
 
 - `builder status` help, the README and the `cloudcruise` skill no longer call `status` a keepalive. Polling `/status` or `/turn-state` does not keep a builder session alive; sessions end after inactivity, and only `send`, `respond`, `interrupt`, `save` or a running turn count as activity.
