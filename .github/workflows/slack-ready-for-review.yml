@@ -8,9 +8,8 @@ name: Post ready-for-review PRs to Slack
 #
 # Runs on pull_request_target so fork PRs get the secret too. It never checks out PR code.
 #
-# Setup: SLACK_INTERNAL_BOT_TOKEN is the CloudCruise Internal bot token, the same value as the backend's
-# SLACK_API_TOKEN, so rotate both together. SLACK_REVIEW_CHANNEL_ID is a repo variable, and the bot must
-# be a member of that channel. SLACK_USER_MAPPING is an optional org variable, a JSON object from GitHub login
+# Setup: SLACK_INTERNAL_BOT_TOKEN is the CloudCruise Internal bot token. SLACK_REVIEW_CHANNEL_ID is a repo
+# variable, and the bot must be a member of that channel. SLACK_USER_MAPPING is an optional org variable, a JSON object from GitHub login
 # to Slack user id, so the message @mentions the author; a login missing from it shows as plain text.
 
 on:
