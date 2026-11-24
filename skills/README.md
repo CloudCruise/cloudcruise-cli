@@ -55,6 +55,8 @@ monorepo (`docs/.mintlify/skills/`), served by `https://docs.cloudcruise.com` in
 - The copy here is generated: never edit it. `.github/workflows/sync-remote-skills.yml`
   commits the served bytes to `main` every hour (`scripts/sync-remote-skills.mjs`).
 - Publishing fails when the copy differs from the served file (`--check`).
+- Plugin users get a sync commit only with the next CLI release. The plugin manifests
+  pin `version`, and Claude Code updates a plugin only when that version changes.
 - `install --skills` installs it from the docs site after checking its digest, and
   falls back to this copy with a warning.
 - Auto-refresh compares the installed digest with the index (checked at most every six
