@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- `builder status` help, the README and the `cloudcruise` skill no longer call `status` a keepalive. Polling `/status` or `/turn-state` does not keep a builder session alive; sessions end after inactivity, and only `send`, `respond`, `interrupt`, `save` or a running turn count as activity.
+
 ## 1.18.0
 
 ### Added
