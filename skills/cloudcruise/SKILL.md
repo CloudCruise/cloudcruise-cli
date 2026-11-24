@@ -481,7 +481,7 @@ while :; do
   cloudcruise builder status --conversation "$CID" >/dev/null 2>&1; rc=$?
   case $rc in
     0) break ;;                      # completed / idle / ended — turn is over
-    9) sleep 15 ;;                   # processing — re-check (this also keeps the session alive)
+    9) sleep 15 ;;                   # processing — re-check
     7) echo "needs input";  break ;; # awaiting-human-input — relay, then `builder respond`
     8) echo "agent errored"; break ;;# inspect `builder messages`, send a correction
     *) echo "status exit $rc"; break ;;
