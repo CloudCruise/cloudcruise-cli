@@ -47,8 +47,8 @@ call the new commands set `requiresCli` in their sidecar so a too-old CLI is cau
 
 ## Remote packs
 
-`cloudcruise-workflow-dsl` does not depend on the CLI. Its source is the CloudCruise
-monorepo (`docs/.mintlify/skills/`), served by `https://docs.cloudcruise.com` in the
+`cloudcruise-workflow-dsl` does not depend on the CLI. Its source is served by
+`https://docs.cloudcruise.com` in the
 [Agent Skills discovery index](https://docs.cloudcruise.com/.well-known/agent-skills/index.json).
 `"remote": true` in its `skill.meta.json` marks it:
 

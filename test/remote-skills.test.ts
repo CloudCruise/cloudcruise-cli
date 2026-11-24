@@ -151,9 +151,8 @@ test("when the docs site is unreachable, install --skills installs the bundled D
   assert.match(stderr.lines[0], /could not get cloudcruise-workflow-dsl from http:\/\/127\.0\.0\.1:9/)
 })
 
-// A project may link a skill folder to a source it maintains itself (the
-// CloudCruise monorepo links the DSL skill to its docs). Installing over the
-// link would replace that source with a copy.
+// A project may link a skill folder to a source it maintains itself.
+// Installing over the link would replace that source with a copy.
 test("install --skills leaves a skill folder that is a symlink in place and reports it as skipped", async (t) => {
   const site = await docsSite()
   t.after(() => site.close())

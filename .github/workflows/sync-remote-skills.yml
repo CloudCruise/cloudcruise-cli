@@ -1,7 +1,6 @@
 name: Sync remote skills
 
-# The workflow DSL skill is maintained in the monorepo and served by
-# docs.cloudcruise.com. The copy under skills/ exists for the plugins and the
+# The workflow DSL skill is served by docs.cloudcruise.com. The copy under skills/ exists for the plugins and the
 # npm package, so it is kept byte-identical to the served file and committed
 # straight to main. The publish workflow refuses a release with a stale copy.
 
