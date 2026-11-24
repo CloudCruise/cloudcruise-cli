@@ -1,6 +1,7 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
 import { createHash } from "node:crypto"
+import { spawn } from "node:child_process"
 import { createServer, type Server } from "node:http"
 import { lstatSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
@@ -404,4 +405,30 @@ test("the repo sync fails and keeps the committed copy when the served file does
     /does not match its digest/
   )
   assert.equal(readFileSync(join(dir, DSL, "SKILL.md"), "utf-8"), "committed\n")
+})
+
+// 192.0.2.1 is reserved for documentation (RFC 5737) and never routed, so a
+// connection to it is neither accepted nor refused: the case of a firewall
+// that drops packets. The index check gives up after its short timeout, and
+// the command must exit then too, instead of waiting for the operating
+// system to give up on the connection.
+test("a command exits soon after the docs site check times out when the docs host never answers", async (t) => {
+  const site = await docsSite()
+  t.after(() => site.close())
+  const dir = project()
+  await installSkills([join(dir, ".claude", "skills")], {
+    env: { CLOUDCRUISE_SKILLS_BASE_URL: site.url },
+    stderr: fakeStderr()
+  })
+
+  const started = Date.now()
+  const child = spawn(process.execPath, [join(import.meta.dirname, "..", "dist", "bin", "cloudcruise.js"), "utils", "uuid"], {
+    cwd: dir,
+    env: { ...process.env, HOME: project(), CI: "1", CLOUDCRUISE_SKILLS_BASE_URL: "http://192.0.2.1" },
+    stdio: "ignore"
+  })
+  const code = await new Promise<number | null>((resolve) => child.on("exit", resolve))
+
+  assert.equal(code, 0)
+  assert.ok(Date.now() - started < 5000, `exited after ${Date.now() - started} ms`)
 })

@@ -1,5 +1,7 @@
 import { createHash } from "crypto";
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "fs";
+import { get as httpGet } from "http";
+import { get as httpsGet } from "https";
 import { join } from "path";
 
 // Skills that don't depend on the CLI are published on the docs site through
@@ -40,18 +42,46 @@ export function sha256Digest(content: Buffer | string): string {
   return `sha256:${createHash("sha256").update(content).digest("hex")}`;
 }
 
-async function get(url: URL, timeoutMs: number): Promise<Buffer> {
-  let res: Response;
-  try {
-    res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
-  } catch (err) {
-    const cause = (err as { cause?: { code?: string; message?: string } }).cause;
-    throw new Error(
-      `${url.href}: ${cause?.code ?? cause?.message ?? (err as Error).message}`,
-    );
-  }
-  if (!res.ok) throw new Error(`${url.href} returned HTTP ${res.status}`);
-  return Buffer.from(await res.arrayBuffer());
+// node:http rather than fetch: an aborted fetch leaves its connection attempt,
+// and with it the process, alive until the operating system gives up on it.
+function get(
+  url: URL,
+  timeoutMs: number,
+  signal: AbortSignal = AbortSignal.timeout(timeoutMs),
+  redirects = 5,
+): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const fail = (err: Error & { code?: string }) =>
+      reject(
+        new Error(
+          `${url.href}: ${signal.aborted ? `no answer within ${timeoutMs} ms` : (err.code ?? err.message)}`,
+        ),
+      );
+    const request = url.protocol === "https:" ? httpsGet : httpGet;
+    const req = request(url, { signal }, (res) => {
+      const status = res.statusCode ?? 0;
+      const location = res.headers.location;
+      if (status >= 300 && status < 400 && location) {
+        res.resume();
+        if (redirects === 0) {
+          reject(new Error(`${url.href}: too many redirects`));
+          return;
+        }
+        get(new URL(location, url), timeoutMs, signal, redirects - 1).then(resolve, reject);
+        return;
+      }
+      if (status < 200 || status >= 300) {
+        res.resume();
+        reject(new Error(`${url.href} returned HTTP ${status}`));
+        return;
+      }
+      const chunks: Buffer[] = [];
+      res.on("data", (chunk: Buffer) => chunks.push(chunk));
+      res.on("end", () => resolve(Buffer.concat(chunks)));
+      res.on("error", fail);
+    });
+    req.on("error", fail);
+  });
 }
 
 // Entries pointing at another origin are dropped: the digest comes from the
