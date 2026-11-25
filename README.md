@@ -50,7 +50,7 @@ cloudcruise install --skills --target cursor   # Cursor only
 ## Staying Up to Date
 
 - **CLI:** the CLI tells you, and your coding agent, when a newer version exists. Update with `npm i -g @cloudcruise/cli@latest`. `CI` and `NO_UPDATE_NOTIFIER` turn the check off.
-- **Skills:** after a CLI upgrade, the next command refreshes the skills that `cloudcruise install --skills` wrote into the current project. Skills you edited are left alone; `cloudcruise install --skills` overwrites them. Plugin-installed skills update with the plugin.
+- **Skills:** after a CLI upgrade, the next command refreshes the skills that `cloudcruise install --skills` wrote into the current project. The workflow DSL skill comes from `https://docs.cloudcruise.com` and refreshes when the site serves a new version. Skills you edited are left alone; `cloudcruise install --skills` overwrites them. Plugin-installed skills update with the plugin.
 
 To turn off the skills refresh, set this in `~/.cloudcruise/config.json`:
 

@@ -54,11 +54,11 @@ registerVaultCommands(program)
 // Refresh a project's stale CLI-installed skills, then warn (or, on a breaking
 // release, block) about any drift left. Resolves the invoked command's top-level
 // group; never fires for --help/--version.
-program.hook("preAction", (_thisCommand, actionCommand) => {
+program.hook("preAction", async (_thisCommand, actionCommand) => {
   let cmd = actionCommand
   while (cmd.parent && cmd.parent.parent) cmd = cmd.parent
   if (cmd.name() !== "install") {
-    autoRefreshSkills({
+    await autoRefreshSkills({
       cwd: process.cwd(),
       env: process.env,
       settings: loadConfig().settings ?? {},
@@ -68,4 +68,4 @@ program.hook("preAction", (_thisCommand, actionCommand) => {
   checkInstalledSkills(cmd.name())
 })
 
-program.parse()
+await program.parseAsync()

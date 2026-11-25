@@ -9,7 +9,7 @@ CLI skill, which it depends on and never duplicates.
 ```
 skills/
 ├── cloudcruise/              platform: CLI command reference (standalone skill)
-├── cloudcruise-workflow-dsl/ platform: workflow DSL reference (standalone skill)
+├── cloudcruise-workflow-dsl/ platform: workflow DSL reference (standalone skill, generated)
 ├── cc-workflow/              entry: roster, resume-or-new, route by plan state
 ├── cc-workflow-setup/        goal intake, config, gather → draft skeleton
 │                             (derives complexity) → confirm → plan
@@ -44,6 +44,23 @@ Install stamps a `.cloudcruise-skill.json` manifest per pack; `src/core/skills.t
 warns on gated commands (builder/run/workflows) when installed skills drift from the
 CLI version (exit 11 refuse mode available via `GATE_MODE`). Lifecycle packs that
 call the new commands set `requiresCli` in their sidecar so a too-old CLI is caught.
+
+## Remote packs
+
+`cloudcruise-workflow-dsl` does not depend on the CLI. Its source is served by
+`https://docs.cloudcruise.com` in the
+[Agent Skills discovery index](https://docs.cloudcruise.com/.well-known/agent-skills/index.json).
+`"remote": true` in its `skill.meta.json` marks it:
+
+- The copy here is generated: never edit it. `.github/workflows/sync-remote-skills.yml`
+  commits the served bytes to `main` every hour (`scripts/sync-remote-skills.mjs`).
+- Publishing fails when the copy differs from the served file (`--check`).
+- Plugin users get a sync commit only with the next CLI release. The plugin manifests
+  pin `version`, and Claude Code updates a plugin only when that version changes.
+- `install --skills` installs it from the docs site after checking its digest, and
+  falls back to this copy with a warning.
+- Auto-refresh compares the installed digest with the index (checked at most every six
+  hours), not the CLI version.
 
 ## Design rules
 

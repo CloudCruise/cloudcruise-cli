@@ -14,6 +14,15 @@ import { createHash, randomUUID } from "crypto";
 import { join, dirname, relative } from "path";
 import { fileURLToPath } from "url";
 import { CLI_VERSION } from "./version.js";
+import {
+  fetchServedSkill,
+  fetchSkillIndex,
+  isRemotePackDir,
+  sha256Digest,
+  skillsBaseUrl,
+  type ServedSkill,
+} from "./remote-skills.js";
+import type { StderrLike } from "./update-notice.js";
 
 const MANIFEST_FILE = ".cloudcruise-skill.json";
 
@@ -34,45 +43,56 @@ export function listSourcePacks(): string[] {
     .map((e) => e.name);
 }
 
-// Read the pack's `sharedReferences` sidecar field: the name of a directory
-// under skills/_shared/ to install as the pack's references/ when the repo
-// symlink didn't survive packaging (npm strips symlinks from tarballs).
-function readSharedReferences(sourcePackDir: string): string | undefined {
+// A pack's skill.meta.json sidecar:
+// - sharedReferences: a directory under skills/_shared/ to install as the
+//   pack's references/ when the repo symlink didn't survive packaging (npm
+//   strips symlinks from tarballs);
+// - requiresCli: the oldest CLI the pack works with;
+// - remote: the pack is published on the docs site and installed from there;
+//   the bundled copy is the fallback.
+interface PackMeta {
+  sharedReferences?: string;
+  requiresCli?: string;
+  remote?: boolean;
+}
+
+function readPackMeta(sourcePackDir: string): PackMeta {
   const metaPath = join(sourcePackDir, "skill.meta.json");
-  if (!existsSync(metaPath)) return undefined;
+  if (!existsSync(metaPath)) return {};
   try {
-    return (
-      JSON.parse(readFileSync(metaPath, "utf-8")) as {
-        sharedReferences?: string;
-      }
-    ).sharedReferences;
+    return JSON.parse(readFileSync(metaPath, "utf-8")) as PackMeta;
   } catch {
-    return undefined;
+    return {};
   }
 }
 
-// Stamp the install-time manifest the staleness check reads. requiresCli is
-// authored in each pack's skill.meta.json sidecar (not frontmatter).
+export function isRemotePack(pack: string): boolean {
+  return isRemotePackDir(join(getSkillsRootDir(), pack));
+}
+
+export function listRemotePacks(): string[] {
+  return listSourcePacks().filter(isRemotePack);
+}
+
+// Stamp the install-time manifest the staleness check reads. A remote pack's
+// stamp records where its SKILL.md came from and that file's digest, which
+// the refresh compares with the docs site's index.
 function writeSkillManifest(
-  sourcePackDir: string,
+  meta: PackMeta,
   destPackDir: string,
   pack: string,
+  served: ServedSkill | undefined,
 ): void {
-  let requiresCli: string | undefined;
-  const metaPath = join(sourcePackDir, "skill.meta.json");
-  if (existsSync(metaPath)) {
-    try {
-      requiresCli = (
-        JSON.parse(readFileSync(metaPath, "utf-8")) as { requiresCli?: string }
-      ).requiresCli;
-    } catch {
-      // Missing/malformed sidecar — omit requiresCli.
-    }
-  }
   const manifest = {
     pack,
     cliVersion: CLI_VERSION,
-    ...(requiresCli ? { requiresCli } : {}),
+    ...(meta.requiresCli ? { requiresCli: meta.requiresCli } : {}),
+    ...(meta.remote
+      ? {
+          source: served ? "remote" : "bundled",
+          digest: sha256Digest(readFileSync(join(destPackDir, "SKILL.md"))),
+        }
+      : {}),
     installedAt: new Date().toISOString(),
     contentHash: hashPack(destPackDir),
   };
@@ -114,7 +134,11 @@ function listFiles(dir: string): string[] {
 // so the root only ever holds a complete pack — also when a write fails midway
 // or several CLI processes refresh the same pack at once. Staging dirs live
 // outside the root so agents never load them as skills.
-export function installPack(skillsRoot: string, pack: string): string {
+export function installPack(
+  skillsRoot: string,
+  pack: string,
+  served?: ServedSkill,
+): string {
   if (!listSourcePacks().includes(pack)) {
     throw new Error(`Unknown skill pack: ${pack}`);
   }
@@ -126,7 +150,7 @@ export function installPack(skillsRoot: string, pack: string): string {
   const retired = `${staging}-old`;
   mkdirSync(skillsRoot, { recursive: true });
   try {
-    buildPack(pack, staging);
+    buildPack(pack, staging, served);
     swapIn(staging, dest, retired);
   } finally {
     rmSync(staging, { recursive: true, force: true });
@@ -162,7 +186,7 @@ function swapIn(staging: string, dest: string, retired: string): void {
 //   `dereference` does not reliably dereference directory symlinks);
 // - npm tarball: npm strips symlinks entirely, so the pack declares its shared
 //   dir in skill.meta.json (`sharedReferences`) and it's copied from _shared/.
-function buildPack(pack: string, dest: string): void {
+function buildPack(pack: string, dest: string, served?: ServedSkill): void {
   const source = join(getSkillsRootDir(), pack);
   mkdirSync(dest, { recursive: true });
   cpSync(source, dest, { recursive: true });
@@ -174,7 +198,8 @@ function buildPack(pack: string, dest: string): void {
       cpSync(target, entryPath, { recursive: true });
     }
   }
-  const sharedRefs = readSharedReferences(source);
+  const meta = readPackMeta(source);
+  const sharedRefs = meta.sharedReferences;
   const destRefs = join(dest, "references");
   if (sharedRefs && !existsSync(destRefs)) {
     const sharedSource = join(getSkillsRootDir(), "_shared", sharedRefs);
@@ -182,9 +207,96 @@ function buildPack(pack: string, dest: string): void {
       cpSync(sharedSource, destRefs, { recursive: true });
     }
   }
-  writeSkillManifest(source, dest, pack);
+  if (served) writeFileSync(join(dest, "SKILL.md"), served.content);
+  writeSkillManifest(meta, dest, pack, served);
 }
 
-export function installPacksToRoot(skillsRoot: string): string[] {
-  return listSourcePacks().map((pack) => installPack(skillsRoot, pack));
+export function installPacksToRoot(
+  skillsRoot: string,
+  served: Map<string, ServedSkill> = new Map(),
+): string[] {
+  return listSourcePacks().map((pack) =>
+    installPack(skillsRoot, pack, served.get(pack)),
+  );
+}
+
+export interface InstallSkillsOptions {
+  env: Record<string, string | undefined>;
+  stderr: StderrLike;
+  timeoutMs?: number;
+}
+
+export interface InstallSkillsResult {
+  installed: string[];
+  skipped: string[];
+}
+
+// Install every shipped pack into each root. Remote packs come from the docs
+// site when it serves them with a matching digest, else from the bundle with
+// a warning. A destination that is a symlink is someone's link to a source
+// they maintain, so it is reported and left alone.
+export async function installSkills(
+  roots: string[],
+  options: InstallSkillsOptions,
+): Promise<InstallSkillsResult> {
+  const served = await fetchRemotePacks(options);
+  const result: InstallSkillsResult = { installed: [], skipped: [] };
+  for (const root of roots) {
+    for (const pack of listSourcePacks()) {
+      const dest = join(root, pack);
+      if (isSymlink(dest)) {
+        result.skipped.push(dest);
+        continue;
+      }
+      result.installed.push(installPack(root, pack, served.get(pack)));
+    }
+  }
+  return result;
+}
+
+function isSymlink(path: string): boolean {
+  try {
+    return lstatSync(path).isSymbolicLink();
+  } catch {
+    return false;
+  }
+}
+
+async function fetchRemotePacks(
+  options: InstallSkillsOptions,
+): Promise<Map<string, ServedSkill>> {
+  const packs = listRemotePacks();
+  const served = new Map<string, ServedSkill>();
+  if (!packs.length) return served;
+  const baseUrl = skillsBaseUrl(options.env);
+  const timeoutMs = options.timeoutMs ?? 5000;
+  let error: string | undefined;
+  try {
+    const index = await fetchSkillIndex(baseUrl, timeoutMs);
+    for (const pack of packs) {
+      served.set(pack, await fetchServedSkill(pack, index, timeoutMs));
+    }
+  } catch (err) {
+    error = err instanceof Error ? err.message : String(err);
+  }
+  const fallback = packs.filter((p) => !served.has(p));
+  if (fallback.length) {
+    reportBundledFallback(options.stderr, { packs: fallback, baseUrl, error });
+  }
+  return served;
+}
+
+function reportBundledFallback(
+  stderr: StderrLike,
+  fallback: { packs: string[]; baseUrl: string; error?: string },
+): void {
+  if (stderr.isTTY) {
+    stderr.write(
+      `⚠ could not get ${fallback.packs.join(", ")} from ${fallback.baseUrl}${fallback.error ? ` (${fallback.error})` : ""}; installed the copy bundled with v${CLI_VERSION}\n`,
+    );
+    return;
+  }
+  stderr.write(
+    `${JSON.stringify({ skillsBundledFallback: { cliVersion: CLI_VERSION, ...fallback } })}\n`,
+  );
 }

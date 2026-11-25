@@ -1,0 +1,46 @@
+name: Sync remote skills
+
+# The workflow DSL skill is served by docs.cloudcruise.com. The copy under skills/ exists for the plugins and the
+# npm package, so it is kept byte-identical to the served file and committed
+# straight to main. The publish workflow refuses a release with a stale copy.
+
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-remote-skills
+
+jobs:
+  sync:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: main
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+
+      - run: npm ci
+
+      - run: npm run build
+
+      - run: node scripts/sync-remote-skills.mjs
+
+      - name: Commit the synced skills
+        run: |
+          if git diff --quiet -- skills; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add skills
+          git commit -m "chore(skills): sync remote skills from docs.cloudcruise.com"
+          git push origin HEAD:main
