@@ -205,6 +205,8 @@ cloudcruise prs create --workflow <workflow_id> --head fix-login && cloudcruise 
 
 **Review and permissions.** A branch's ruleset can block direct saves (403: use a PR) and require approvals before merging (403 `Needs N approval(s)`). You can't approve your own PR; an API key acts as the user who created it, so another member has to approve. `prs merge --admin` (skip required approvals) and `workflows update --bypass-protection` need a login whose workspace role is in the ruleset's bypass list; API keys can't use them. Errors carry a `hint` with the next step.
 
+**Opening a PR or branch in the browser.** Open a PR at `<app-url>/workflows/<workflow_id>/branches?pr=<number>` (use the integer PR `number`, not the PR UUID) or a branch in the editor at `<app-url>/workflows/<workflow_id>/workflow?branch=<url_encoded_branch_name>`. Default `<app-url>` is `https://app.cloudcruise.com` (`https://staging.cloudcruise.com` for staging, or the profile's `appUrl` / `CLOUDCRUISE_APP_URL`). Open with `open "<url>"` (macOS) or `xdg-open "<url>"` (Linux), or share the link directly.
+
 ### Workflow Components
 
 Components are reusable sub-workflows. A component can be pasted into many workflows; an `update` to the component propagates to every workflow that uses it (`--no-propagate` to skip). Component-data shape mirrors a workflow body (nodes/edges).
@@ -293,6 +295,8 @@ echo "$st"
 ```
 
 **Stopping a run early (testing part of a workflow).** To test only up to a point in a long workflow without modifying the graph or forking a trial branch, run the branch with `--debug` (plus `--dry-run --no-notifications` as appropriate) and check `screenshot_urls[].node_id` while polling `run get <session_id>` to see where execution is. Because snapshots are captured when a node starts, seeing the node right after the section under test in `screenshot_urls` confirms the prior step finished. Call `cloudcruise run interrupt <session_id>` (verifying it succeeds) as soon as that node appears — and also on any non-terminal exit (poll timeout, `run get` failure, or `execution.paused`) so the run is not left running or auto-resuming unattended. Interrupting ends the run as `execution.stopped` without executing downstream nodes or firing `execution.success` handoffs, while keeping all `--debug` snapshots captured so far. Because polling has a few-second race window, use `run interrupt` when there is runway before any irreversible submit; right before a final submit, rely on `end_here_on_dry_run: true` + `--dry-run` as the hard stop.
+
+**Opening a run in the browser.** Open a run at `<app-url>/runs?sessionId=<session_id>` (default `<app-url>`: `https://app.cloudcruise.com`, or `https://staging.cloudcruise.com` for staging, or the profile's `appUrl` / `CLOUDCRUISE_APP_URL`). Open with `open "<url>"` (macOS) or `xdg-open "<url>"` (Linux), or share the link directly. For a live interactive browser view of an active run, use `cloudcruise run live-view <session_id>`.
 
 ### Snapshots
 
