@@ -205,7 +205,7 @@ cloudcruise prs create --workflow <workflow_id> --head fix-login && cloudcruise 
 
 **Review and permissions.** A branch's ruleset can block direct saves (403: use a PR) and require approvals before merging (403 `Needs N approval(s)`). You can't approve your own PR; an API key acts as the user who created it, so another member has to approve. `prs merge --admin` (skip required approvals) and `workflows update --bypass-protection` need a login whose workspace role is in the ruleset's bypass list; API keys can't use them. Errors carry a `hint` with the next step.
 
-**Opening a PR or branch in the browser.** Open a PR at `https://app.cloudcruise.com/workflows/<workflow_id>/branches?pr=<number>` (use the integer PR `number`, not the PR UUID) or a branch in the editor at `https://app.cloudcruise.com/workflows/<workflow_id>/workflow?branch=<url_encoded_branch_name>`. Open with `open "<url>"` (macOS) or `xdg-open "<url>"` (Linux), or share the link directly.
+**Opening a PR in the browser.** Open a PR at `https://app.cloudcruise.com/workflows/<workflow_id>/branches?pr=<number>` (use the integer PR `number`, not the PR UUID) with `open "<url>"` (macOS) or `xdg-open "<url>"` (Linux), or share the link directly.
 
 ### Workflow Components
 
