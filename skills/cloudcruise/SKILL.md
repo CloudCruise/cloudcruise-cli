@@ -297,21 +297,29 @@ echo "$st"
 ```bash
 NEXT_NODE_ID="<node-id-after-section-under-test>"
 S=$(cloudcruise run start <workflow_id> --branch fix-login --debug --dry-run --no-notifications --input '{}' | jq -er .session_id) || exit 1
+reached=0; terminal=0; st="unknown"
 for i in $(seq 1 90); do
   res=$(cloudcruise run get "$S") || break
   st=$(printf '%s' "$res" | jq -er .status) || break
   case "$st" in
-    execution.success|execution.failed|execution.stopped|execution.paused) break ;;
+    execution.success|execution.failed|execution.stopped) terminal=1; break ;;
+    execution.paused) break ;;
   esac
   if printf '%s' "$res" | jq -e --arg id "$NEXT_NODE_ID" '(.screenshot_urls // []) | any(.node_id == $id)' >/dev/null; then
-    cloudcruise run interrupt "$S" >/dev/null
-    break
+    reached=1; break
   fi
   sleep 5
 done
+if [ "$terminal" -eq 0 ]; then
+  cloudcruise run interrupt "$S" >/dev/null || { echo "failed to interrupt $S (status=$st)" >&2; exit 1; }
+fi
+if [ "$reached" -eq 0 ]; then
+  echo "did not stop at $NEXT_NODE_ID (status=$st)" >&2
+  exit 1
+fi
 ```
 
-Interrupting ends the run as `execution.stopped` without executing downstream nodes or firing `execution.success` handoffs, while keeping all `--debug` snapshots captured so far. Because polling has a few-second race window, use `run interrupt` when there is runway before any irreversible submit; right before a final submit, rely on `end_here_on_dry_run: true` + `--dry-run` as the hard stop.
+Every non-terminal exit (including poll timeout, `run get` errors, or `execution.paused`) attempts `run interrupt` and fails loudly if interruption fails or the target node was not reached, so a test run is never left running unattended. Interrupting ends the run as `execution.stopped` without executing downstream nodes or firing `execution.success` handoffs, while keeping all `--debug` snapshots captured so far. Because polling has a few-second race window, use `run interrupt` when there is runway before any irreversible submit; right before a final submit, rely on `end_here_on_dry_run: true` + `--dry-run` as the hard stop.
 
 ### Snapshots
 
