@@ -169,11 +169,17 @@ cloudcruise run start <workflow_id> --branch fix-login                    # Test
 cloudcruise prs create --workflow <workflow_id> --head fix-login --title "Fix login XPath"   # --base defaults to the default branch
 cloudcruise prs list --workflow <workflow_id>                             # --state open|merged|closed|all
 cloudcruise prs view 12 --workflow <workflow_id>                          # Includes approvals
-cloudcruise prs diff 12 --workflow <workflow_id>                          # Conflicts + match_heads
+cloudcruise prs diff 12 --workflow <workflow_id>                          # Merge preview: mergeable, conflicts, graph_errors/warnings, match_heads (--merged for full workflow)
 cloudcruise prs approve 12 --workflow <workflow_id>                       # Not your own PR
 cloudcruise prs merge 12 --workflow <workflow_id>
 cloudcruise prs close 12 --workflow <workflow_id>
 ```
+
+**Do not create extra branches to test a branch or check a merge.**
+
+- **Testing a branch:** Run the feature branch itself with `run start <workflow_id> --branch <branch> --debug --dry-run --no-notifications`. Do not fork a stripped-down trial branch just to stop partway through a workflow — stop the run with `run interrupt` once execution passes the section you are testing (see **Stopping a run early** under Runs).
+- **Checking a merge (including into a protected branch):** Run `cloudcruise prs diff <pr> --workflow <workflow_id>` (pass `--merged` to inspect the full merged workflow). It already runs the merge preview and reports `mergeable`, `conflicts`, `graph_errors`, and `graph_warnings` without mutating any branch — never clone the target branch or open a throwaway merge-check PR.
+- If the user explicitly asks for a temporary branch, delete it with `branches delete` when done.
 
 **Merging with conflicts.** When the branches changed the same item differently, `prs merge` exits 14 (`MERGE_CONFLICTS`); the stderr envelope's `message` names each conflict and `conflicts` lists their keys and summaries. Run `prs diff`: each conflict has a `key`, a one-line `summary` and the `base`/`source`/`target` values (`source` = the PR's branch, `target` = the branch it merges into). Then merge with the diff's `match_heads` and an answer for every conflict:
 
@@ -198,6 +204,8 @@ cloudcruise prs create --workflow <workflow_id> --head fix-login && cloudcruise 
 ```
 
 **Review and permissions.** A branch's ruleset can block direct saves (403: use a PR) and require approvals before merging (403 `Needs N approval(s)`). You can't approve your own PR; an API key acts as the user who created it, so another member has to approve. `prs merge --admin` (skip required approvals) and `workflows update --bypass-protection` need a login whose workspace role is in the ruleset's bypass list; API keys can't use them. Errors carry a `hint` with the next step.
+
+**Opening a PR in the browser.** Open a PR at `https://app.cloudcruise.com/workflows/<workflow_id>/branches?pr=<number>` (use the integer PR `number`, not the PR UUID) with `open "<url>"` (macOS) or `xdg-open "<url>"` (Linux), or share the link directly.
 
 ### Workflow Components
 
@@ -285,6 +293,10 @@ for i in $(seq 1 60); do
 done
 echo "$st"
 ```
+
+**Stopping a run early (testing part of a workflow).** To test only up to a point in a long workflow without modifying the graph or forking a trial branch, run the branch with `--debug` (plus `--dry-run --no-notifications` as appropriate) and check `screenshot_urls[].node_id` while polling `run get <session_id>` to see where execution is. Because snapshots are captured when a node starts, seeing the node right after the section under test in `screenshot_urls` confirms the prior step finished. Call `cloudcruise run interrupt <session_id>` (verifying it succeeds) as soon as that node appears — and also on any non-terminal exit (poll timeout, `run get` failure, or `execution.paused`) so the run is not left running or auto-resuming unattended. Interrupting ends the run as `execution.stopped` without executing downstream nodes or firing `execution.success` handoffs, while keeping all `--debug` snapshots captured so far. Because polling has a few-second race window, use `run interrupt` when there is runway before any irreversible submit; right before a final submit, rely on `end_here_on_dry_run: true` + `--dry-run` as the hard stop.
+
+**Opening a run in the browser.** Open a run at `https://app.cloudcruise.com/runs?sessionId=<session_id>` with `open "<url>"` (macOS) or `xdg-open "<url>"` (Linux), or share the link directly. For a live interactive browser view of an active run, use `cloudcruise run live-view <session_id>`.
 
 ### Snapshots
 
